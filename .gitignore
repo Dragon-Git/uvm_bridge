@@ -1,63 +1,10 @@
-# Python
+# python generated files
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
+*.py[oc]
 build/
-develop-eggs/
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
 wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+*.egg-info
 
-# CMake
-CMakeCache.txt
-CMakeFiles/
-cmake_install.cmake
-Makefile
-*.cmake
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# 测试和覆盖率
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-
-# 日志
-*.log
-
-# 临时文件
-*.bak
-*.tmp
-*.temp
-
-# UVM/DPI specific (preserved from original)
-*.o
-*.a
-results.xml
-inc/export_dpi.h
-inc/vpi_attr.h
-inc/svuvm_export_dpi.svh
-# setuptools_scm generated file (re-generated on every build)
-src/svuvm/_version.py
+# venv
+.venv
