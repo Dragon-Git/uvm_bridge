@@ -1,9 +1,12 @@
  package uvm_sv_pkg;
 
+    import uvm_pkg::*;
+    `include "uvm_macros.svh"
+
     task wait_unit(int n);
         #n;
         $display("inside sv task in %d", $time);
-    endtask
+    endtask:wait_unit
 
     task start_seq(string seq_name, string sqr_name);
         uvm_root top = uvm_root::get();
@@ -31,11 +34,14 @@
         end
 
         seq.start(sqr);
-    endtask
+    endtask:start_seq
 
     export "DPI-C" task wait_unit;
     export "DPI-C" task start_seq;
 
-    import "DPI-C" context task py_func(input string mod_name, string func_name, string mod_paths);
+    import "DPI-C" context task py_func(input string mod_name, string func_name = "main", string mod_paths = "");
+    task call_py_func(input string mod_name, string func_name = "main", string mod_paths = "");
+        py_func(mod_name, func_name, mod_paths);
+    endtask:call_py_func
 
 endpackage
