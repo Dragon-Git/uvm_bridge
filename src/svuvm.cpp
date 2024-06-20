@@ -30,16 +30,43 @@ PYBIND11_MODULE(svuvm, m) {
 }
 
 void py_func(const char* mod_name, const char* func_name, const char* mod_paths) {
-    Dl_info dl_info;
     char *dir_path;
     py::scoped_interpreter guard{}; // start the interpreter and keep it alive
 
     py::module_ sys = py::module_::import("sys");
     py::list path = sys.attr("path");
+
+#ifdef __linux__
+    FILE* maps = fopen("/proc/self/maps", "r");
+    if (!maps) {
+        perror("Failed to open /proc/self/maps");
+    }
+
+    char self_addr_str[20];
+    snprintf(self_addr_str, sizeof(self_addr_str), "%p", (void*)py_func);
+
+    char line[256];
+    while (fgets(line, sizeof(line), maps)) {
+        if (strstr(line, self_addr_str)) {
+            char* sopath = strchr(line, ' ');
+            if (sopath) {
+                sopath = strtok(sopath, "\n");
+                fclose(maps);
+                dir_path = dirname(sopath);
+                path.attr("append")(dir_path);
+            }
+        }
+    }    
+#elif defined(__APPLE__)
+    Dl_info dl_info;
     if (dladdr((void*)py_func, &dl_info)) {
         dir_path = dirname(const_cast<char*>(dl_info.dli_fname));
         path.attr("append")(dir_path);
     }
+#else
+#error Platform not supported.
+#endif
+
     if(strcmp(mod_paths, "") != 0) {
         path.attr("append")(mod_paths);
     }
@@ -47,6 +74,5 @@ void py_func(const char* mod_name, const char* func_name, const char* mod_paths)
     py::module_ py_seq_mod = py::module_::import(mod_name);
     py_seq_mod.attr(func_name)();
 }
-
 
 }
