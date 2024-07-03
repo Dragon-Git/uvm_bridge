@@ -8,7 +8,34 @@ extern "C" {
 
 namespace py = pybind11;
 #if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
-#include "uvm_dpi.h"    
+#include "uvm_dpi.h"
+
+#include <vector>
+#include <string>
+
+
+// 使用pybind11创建的包装器函数
+void wrap_walk_level(int lvl, std::vector<std::string> args, int cmd) {
+    // Convert Python string list to C-style char**
+    std::vector<char*> c_args;
+    for (const auto& arg : args) {
+        c_args.push_back(const_cast<char*>(arg.c_str()));
+    }
+    char** argv = c_args.data();
+    int argc = static_cast<int>(args.size());
+
+    // Call the original function
+    walk_level(lvl, argc, argv, cmd);
+}
+
+
+void _print_factory (int all_types=1);
+void _set_factory_inst_override(const char* original_type_name, const char* override_type_name, const char* full_inst_path);
+void _set_factory_type_override (const char* original_type_name, const char* override_type_name, bool replace=1);
+void _debug_factory_create (const char* requested_type,const char* context="");
+void _find_factory_override (const char* requested_type, const char* context, const char* override_type_name);
+void _print_topology(const char* context="");
+
 #endif
 void wait_unit(int n);
 void start_seq(const char* seq_name, const char* sqr_name);
@@ -21,8 +48,11 @@ int read_reg_wrap(int address) {
     return data;
 }
 
+PYBIND11_MODULE(svuvm, m) {
+    m.doc() = "svuvm api module";
+
 #if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
-PYBIND11_MODULE(uvmdpi, m) {
+
     m.attr("UVM_INFO") = M_UVM_INFO;
     m.attr("UVM_WARNING") = M_UVM_WARNING;
     m.attr("UVM_ERROR") = M_UVM_ERROR;
@@ -67,8 +97,8 @@ PYBIND11_MODULE(uvmdpi, m) {
     m.def("push_data", &push_data, "Push data to a specified level.",
           py::arg("lvl"), py::arg("entry"), py::arg("cmd"));
 
-    m.def("walk_level", &walk_level, "Walk through a hierarchy at a given level.",
-          py::arg("lvl"), py::arg("argc"), py::arg("argv"), py::arg("cmd"));
+    m.def("walk_level", &wrap_walk_level, "Walk through a hierarchy at a given level.",
+          py::arg("lvl"), py::arg("argv"), py::arg("cmd"));
 
     m.def("uvm_dpi_get_next_arg_c", &uvm_dpi_get_next_arg_c, "Get the next argument from the command line.",
           py::arg("init"));
@@ -87,11 +117,30 @@ PYBIND11_MODULE(uvmdpi, m) {
 
     m.def("uvm_dpi_regfree", &uvm_dpi_regfree, "Free a compiled regular expression.",
           py::arg("re"));
-}
-#endif
 
-PYBIND11_MODULE(svuvm, m) {
-    m.doc() = "svuvm api module";
+    m.def("print_factory", &_print_factory, "Prints factory information.", py::arg("all_types")=1);
+
+    m.def("set_factory_inst_override", &_set_factory_inst_override,
+          "Sets an instance override in the factory.", 
+          py::arg("original_type_name"), py::arg("override_type_name"), py::arg("full_inst_path"));
+
+    m.def("set_factory_type_override", &_set_factory_type_override,
+          "Sets a type override in the factory.", 
+          py::arg("original_type_name"), py::arg("override_type_name"), py::arg("replace")=true);
+
+    m.def("debug_factory_create", &_debug_factory_create,
+          "Debugs the creation of a factory object.", 
+          py::arg("requested_type"), py::arg("context")="");
+
+    m.def("find_factory_override", &_find_factory_override,
+          "Finds an override for a given factory type.", 
+          py::arg("requested_type"), py::arg("context"), py::arg("override_type_name"));
+
+    m.def("print_topology", &_print_topology,
+          "Prints the topology.", 
+          py::arg("context")="");
+
+#endif
 
     m.def("wait_unit", &wait_unit, "wait unit time");
     m.def("start_seq", &start_seq, "start seq on sqr");
