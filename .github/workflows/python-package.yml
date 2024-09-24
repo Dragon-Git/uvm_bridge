@@ -28,7 +28,7 @@ jobs:
         sudo apt-get install -y --no-install-recommends help2man make g++ perl python3 autoconf flex bison libfl2 libfl-dev zlib1g zlib1g-dev
         git clone https://github.com/verilator/verilator.git
         cd verilator
-        git reset --hard v5.026
+        git reset --hard v5.028
         autoconf
         ./configure
         make -j $(nproc)
