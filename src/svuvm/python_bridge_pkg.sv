@@ -30,6 +30,22 @@ package python_bridge_pkg;
         factory.set_type_override_by_name(requested_type,override_type,replace);
     endfunction
 
+    function automatic void create_object_by_name (string requested_type, string contxt="", string name="");
+        uvm_factory factory = uvm_factory::get();
+        factory.create_object_by_name(requested_type,contxt,name);
+    endfunction
+
+    function automatic void create_component_by_name (string requested_type, string contxt="", string name="", string parent_name="");
+        uvm_factory factory = uvm_factory::get();
+        uvm_component 	parent;
+        parent = top.find(parent_name);
+        if (parent == null)  begin
+            top.print_topology();
+            `uvm_fatal("python_bridge_pkg", $sformatf("can not find %0s uvm_component", parent))
+        end
+        factory.create_component_by_name(requested_type,contxt,name,parent);
+    endfunction
+
     function automatic void debug_factory_create (string requested_type,
                                                        string contxt="");
         uvm_factory factory = uvm_factory::get();
@@ -54,14 +70,14 @@ package python_bridge_pkg;
     // Provides ability to wait for UVM phase transitions.
     //------------------------------------------------------------------------------
 
-    function automatic void print_topology(string contxt);
+    function automatic void print_topology(string contxt="");
         uvm_root top = uvm_root::get();
         uvm_component comps[$];
         if (contxt == "")
             comps.push_back(top);
         else begin
             top.find_all(contxt,comps);
-            `uvm_error("_PRINT_TOPOLOGY", {"No components found at context ", contxt})
+            `uvm_error("PRINT_TOPOLOGY", {"No components found at context ", contxt})
             return;
         end
 
@@ -69,11 +85,31 @@ package python_bridge_pkg;
             string name = comps[i].get_full_name();
             if (name == "")
                 name = "uvm_top";
-            `uvm_info("TRACE/UVMC_CMD/PRINT_TOPOLOGY", {"Topology for component ",name,":"},UVM_NONE)
+            `uvm_info("PRINT_TOPOLOGY", {"Topology for component ",name,":"},UVM_NONE)
             comps[i].print();
             $display();
         end
     endfunction
+
+    //------------
+    // uvm debug
+    //------------
+    class dbg_uvm_object#(type T=uvm_object, string name="") extend T;
+        `uvm_object_registry(dbg_uvm_object#(T, name), name)
+
+        function new(string name="dbg_uvm_object");
+            super.new(name);
+            uvm_config_db #(string)::set(null, "", get_full_name, this.sprint());
+        endfunction
+
+    endclass
+
+    function void dbg_print(string name);
+        string info;
+        uvm_config_db #(string)::get(null, "", name, info);
+        $display(info);
+    endfunction
+
 
     //------------
     // uvm event
@@ -263,15 +299,82 @@ package python_bridge_pkg;
     `endif
     endtask:start_seq
 
-    task write_reg(input int address, input int data);
-        // Placeholder for actual implementation
-        $display("Writing to register %h: %h", address, data);
+    class reg_operator extends uvm_object;
+
+        uvm_reg_block top_reg_block;
+        uvm_status_e status;
+        static reg_operator inst;
+
+        `uvm_object_utils(reg_operator)
+
+        function new(string name = "reg_operator");
+            super.new(name);
+        endfunction:new
+
+        static function void set_top_reg_block(uvm_reg_block block);
+            if (inst == null)  begin
+                inst = reg_operator::type_id::create("reg_operator");
+            end
+            inst.top_reg_block = block;
+        endfunction:set_top_reg_block
+
+        function uvm_reg get_reg(string name);
+            uvm_reg_block block;
+            uvm_reg_block current_block;
+            string blk_name;
+            string reg_name;
+            int start_idx = 0;
+            int end_idx;
+
+            if (top_reg_block == null)  begin
+                `uvm_fatal("python_bridge_pkg", "top_reg_block is null, please set it by reg_operator::set_top_reg_block")
+            end
+
+            current_block = top_reg_block;
+            for(int i = 0; i < name.len(); i++) begin
+                if(name[i] == ".") begin
+                    end_idx = i;
+                    blk_name = name.substr(start_idx, end_idx - 1);
+                    block = current_block.get_block_by_name(blk_name);
+                    if (block == null)  begin
+                        `uvm_fatal("python_bridge_pkg", $sformatf("can not find %0s in reg_block", blk_name))
+                    end
+                    current_block = block;
+                    start_idx = i + 1;
+                end
+            end
+            
+            reg_name = name.substr(start_idx, name.len() - 1);
+            get_reg = current_block.get_reg_by_name(reg_name);
+            if (get_reg == null)  begin
+                `uvm_fatal("python_bridge_pkg", $sformatf("can not find %0s in reg_block", reg_name))
+            end
+        endfunction:get_reg
+
+        virtual task write_reg(input string name, input int data);
+            uvm_reg rg;
+            rg = get_reg(name);
+            rg.write(status, data);
+        endtask:write_reg
+
+        virtual task read_reg(input string name, output int data);
+            uvm_reg rg;
+            rg = get_reg(name);
+            rg.write(status, data);
+        endtask:read_reg
+
+    endclass:reg_operator
+
+    task write_reg(input string name, input int data);
+       `ifndef VERILATOR
+        reg_operator::inst.write_reg(name, data);
+        `endif
     endtask:write_reg
 
-    task read_reg(input int address, output int data);
-        // Placeholder for actual implementation
-        data = 32'hDEADBEEF; // Example dummy read value
-        $display("Reading from register %h: %h", address, data);
+    task read_reg(input string name, output int data);
+        `ifndef VERILATOR
+        reg_operator::inst.read_reg(name, data);
+        `endif
     endtask:read_reg
 
     // export
@@ -279,9 +382,12 @@ package python_bridge_pkg;
     export "DPI-C" function print_factory;
     export "DPI-C" function set_factory_inst_override;
     export "DPI-C" function set_factory_type_override;
+    export "DPI-C" function create_object_by_name;
+    export "DPI-C" function create_component_by_name;
     export "DPI-C" function debug_factory_create;
     export "DPI-C" function find_factory_override;
     export "DPI-C" function print_topology;
+    export "DPI-C" function dbg_print;
 
     // uvm_event
     export "DPI-C" task wait_on;
@@ -315,6 +421,7 @@ package python_bridge_pkg;
     export "DPI-C" task read_reg;
 
     import "DPI-C" pure function string dirname(string file_path);
+    import "DPI-C" function string getenv(input string name);
     import "DPI-C" context task py_func(input string mod_name, string func_name = "main", string mod_paths = "");
     task call_py_func(input string mod_name, string func_name = "main", string mod_paths = "");
         py_func(mod_name, func_name, mod_paths);

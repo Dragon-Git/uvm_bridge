@@ -13,9 +13,12 @@ namespace py = pybind11;
 void print_factory (int all_types=1);
 void set_factory_inst_override(const char* original_type_name, const char* override_type_name, const char* full_inst_path);
 void set_factory_type_override (const char* original_type_name, const char* override_type_name, bool replace=1);
+void create_object_by_name (const char* requested_type,const char* context="",const char* name="");
+void create_component_by_name (const char* requested_type,const char* context="",const char* name="",const char* parent_name="");
 void debug_factory_create (const char* requested_type,const char* context="");
 void find_factory_override (const char* requested_type, const char* context, const char* override_type_name);
 void print_topology(const char* context="");
+void dbg_print(const char* name="");
 
 void wait_on(const char* ev_name, int delta);
 void wait_off(const char* ev_name, int delta);
@@ -58,12 +61,12 @@ void wrap_walk_level(int lvl, std::vector<std::string> args, int cmd) {
 void wait_unit(int n);
 void stop();
 void start_seq(const char* seq_name, const char* sqr_name);
-void write_reg(int address, int data);
-void read_reg(int address, int *data);
+void write_reg(const char* name, int data);
+void read_reg(const char* name, int *data);
 
-int wrap_read_reg(int address) {
+int wrap_read_reg(const char* name) {
     int data;
-    read_reg(address, &data);
+    read_reg(name, &data);
     return data;
 }
 
@@ -151,6 +154,14 @@ PYBIND11_MODULE(svuvm, m) {
           "Debugs the creation of a factory object.", 
           py::arg("requested_type"), py::arg("context")="");
 
+    m.def("create_object_by_name", &create_object_by_name,
+          "create a uvm object.", 
+          py::arg("requested_type"), py::arg("context")="", py::arg("name")="");
+
+    m.def("create_component_by_name", &create_component_by_name,
+          "create a uvm object.", 
+          py::arg("requested_type"), py::arg("context")="", py::arg("parent_name")="", py::arg("name")="");
+
     m.def("find_factory_override", &find_factory_override,
           "Finds an override for a given factory type.", 
           py::arg("requested_type"), py::arg("context"), py::arg("override_type_name"));
@@ -158,6 +169,11 @@ PYBIND11_MODULE(svuvm, m) {
     m.def("print_topology", &print_topology,
           "Prints the topology.", 
           py::arg("context")="");
+
+    m.def("dbg_print", &dbg_print,
+          "Prints the object.", 
+          py::arg("name")="");
+
     // uvm event
     m.def("wait_on", &wait_on, "Wait until the signal is on", py::arg("ev_name"), py::arg("delta") = 0);
     m.def("wait_off", &wait_off, "Wait until the signal is off", py::arg("ev_name"), py::arg("delta") = 0);
