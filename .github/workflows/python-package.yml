@@ -23,18 +23,18 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Cache verilator
+      uses: actions/cache@v4
+      env:
+        cache-name: cache-verilator-new
+      with:
+        path: /home/runner/work/verilator
+        key: verilator-v5${{ env.cache-name }}
+
     - name: Install verilator
       run: |
         sudo apt-get install -y --no-install-recommends help2man make g++ perl python3 autoconf flex bison libfl2 libfl-dev zlib1g zlib1g-dev
-        git clone https://github.com/verilator/verilator.git
-        cd verilator
-        git reset --hard v5.028
-        autoconf
-        ./configure
-        make -j $(nproc)
-        sudo make install
-        cd ..
-        rm -rf verilator
+        sudo bash ./script/install_verilator.sh
 
     - name: Install verilator-uvm
       run: |
