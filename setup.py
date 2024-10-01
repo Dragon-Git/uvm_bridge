@@ -19,6 +19,11 @@ class custom_build_ext(build_ext):  # noqa: N801
 
         if "-bundle" in self.compiler.linker_so:
             self.compiler.linker_so.remove("-bundle")
+            self.compiler.linker_so.append("-dynamiclib")
+        if "-bundle" in self.compiler.linker_so_cxx:
+            self.compiler.linker_so_cxx.remove("-bundle")
+            self.compiler.linker_so_cxx.append("-dynamiclib")
+            self.compiler.library_dirs.append(getvar('LIBDIR'))
         super().build_extensions()
 
 
