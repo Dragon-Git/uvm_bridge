@@ -15,7 +15,7 @@ find -name '*.o' | grep -q .
 
 # If .o files don't exist, do autoconf and do make
 if [ $? -ne 0 ]; then
-    git checkout v5.028
+    # git checkout v5.028
     autoconf
     ./configure
     make -j `nproc`
