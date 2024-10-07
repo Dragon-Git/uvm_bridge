@@ -238,7 +238,7 @@ void py_func(const char* mod_name, const char* func_name, const char* mod_paths)
 #elif defined(__APPLE__)
     Dl_info dl_info;
     if (dladdr((void*)py_func, &dl_info)) {
-        dir_path = dirname(const_cast<char*>(dl_info.dli_fname));
+        dir_path = dirname(dirname(const_cast<char*>(dl_info.dli_fname)));
         path.attr("append")(dir_path);
     }
 #else
