@@ -7,7 +7,6 @@
 extern "C" {
 
 namespace py = pybind11;
-#if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
 #include "uvm_dpi.h"
 
 void print_factory (int all_types=1);
@@ -20,6 +19,7 @@ void find_factory_override (const char* requested_type, const char* context, con
 void print_topology(const char* context="");
 void dbg_print(const char* name="");
 
+#if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
 void wait_on(const char* ev_name, int delta);
 void wait_off(const char* ev_name, int delta);
 void wait_trigger(const char* ev_name);
@@ -36,6 +36,7 @@ void trigger(const char* ev_name);
 //uvm_object *get_trigger_data();
 //uvm_object *get_default_data();
 //void set_default_data(uvm_object *data);
+#endif
 
 void set_config_int(const char*  contxt, const char*  inst_name, const char*  field_name, uint64_t value);
 uint64_t get_config_int(const char*  contxt, const char*  inst_name, const char*  field_name);
@@ -56,8 +57,6 @@ void wrap_walk_level(int lvl, std::vector<std::string> args, int cmd) {
     walk_level(lvl, argc, argv, cmd);
 }
 
-#endif
-
 void wait_unit(int n);
 void stop();
 void start_seq(const char* seq_name, const char* sqr_name);
@@ -72,8 +71,6 @@ int wrap_read_reg(const char* name) {
 
 PYBIND11_MODULE(svuvm, m) {
     m.doc() = "svuvm api module";
-
-#if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
 
     m.attr("UVM_INFO") = M_UVM_INFO;
     m.attr("UVM_WARNING") = M_UVM_WARNING;
@@ -174,6 +171,7 @@ PYBIND11_MODULE(svuvm, m) {
           "Prints the object.", 
           py::arg("name")="");
 
+#if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
     // uvm event
     m.def("wait_on", &wait_on, "Wait until the signal is on", py::arg("ev_name"), py::arg("delta") = 0);
     m.def("wait_off", &wait_off, "Wait until the signal is off", py::arg("ev_name"), py::arg("delta") = 0);
@@ -186,13 +184,13 @@ PYBIND11_MODULE(svuvm, m) {
     m.def("cancel", &cancel, "Cancel the current wait operation", py::arg("ev_name"));
     m.def("get_num_waiters", &get_num_waiters, "Get the number of waiters", py::arg("ev_name"));
     m.def("trigger", &trigger, "Trigger the event", py::arg("ev_name"));
+#endif
     // config db
     m.def("set_config_int", &set_config_int, "Set integer configuration in the UVM environment");
     m.def("get_config_int", &get_config_int, "Get integer configuration from the UVM environment");
     m.def("set_config_string", &set_config_string, "Set string configuration in the UVM environment");
     m.def("get_config_string", &get_config_string, "Get string configuration from the UVM environment");
 
-#endif
 
     m.def("wait_unit", &wait_unit, "wait unit time");
     m.def("stop", &stop, "suspend the simulation");

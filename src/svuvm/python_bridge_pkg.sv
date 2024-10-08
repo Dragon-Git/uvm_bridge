@@ -10,7 +10,6 @@ package python_bridge_pkg;
     // (non-parameterized).
     //------------------------------------------------------------------------------
 
-    `ifndef VERILATOR
     function automatic void print_factory (int all_types=1);
         uvm_factory factory = uvm_factory::get();
         factory.print(all_types);
@@ -112,6 +111,7 @@ package python_bridge_pkg;
     endfunction
 
 
+    `ifndef VERILATOR
     //------------
     // uvm event
     //------------
@@ -212,6 +212,7 @@ package python_bridge_pkg;
         ev.set_default_data(data);
     endfunction
     */
+    `endif //VERILATOR
 
     function automatic void set_config_int(string contxt, string inst_name, string field_name, longint unsigned value);
         uvm_root top = uvm_root::get();
@@ -256,13 +257,12 @@ package python_bridge_pkg;
         end
         uvm_config_db #(string)::get(comp, inst_name, field_name, get_config_string);
     endfunction
-    `endif //VERILATOR
 
     // custom task
     task wait_unit(int n);
     `ifndef VERILATOR
         #n;
-    `endif
+    `endif //VERILATOR
         $display("inside sv task in %d", $time);
     endtask:wait_unit
 
@@ -297,7 +297,7 @@ package python_bridge_pkg;
 
     `ifndef VERILATOR
         seq.start(sqr);
-    `endif
+    `endif //VERILATOR
     endtask:start_seq
 
     class reg_operator extends uvm_object;
@@ -369,17 +369,16 @@ package python_bridge_pkg;
     task write_reg(input string name, input int data);
        `ifndef VERILATOR
         reg_operator::inst.write_reg(name, data);
-        `endif
+        `endif //VERILATOR
     endtask:write_reg
 
     task read_reg(input string name, output int data);
         `ifndef VERILATOR
         reg_operator::inst.read_reg(name, data);
-        `endif
+        `endif //VERILATOR
     endtask:read_reg
 
     // export
-    `ifndef VERILATOR
     export "DPI-C" function print_factory;
     export "DPI-C" function set_factory_inst_override;
     export "DPI-C" function set_factory_type_override;
@@ -391,6 +390,7 @@ package python_bridge_pkg;
     export "DPI-C" function dbg_print;
 
     // uvm_event
+    `ifndef VERILATOR
     export "DPI-C" task wait_on;
     export "DPI-C" task wait_off;
     export "DPI-C" task wait_trigger;
@@ -408,12 +408,12 @@ package python_bridge_pkg;
     //export "DPI-C" function get_trigger_data;
     //export "DPI-C" function get_default_data;
     //export "DPI-C" function set_default_data;
+    `endif //VERILATOR
 
     export "DPI-C" function set_config_int;
     export "DPI-C" function get_config_int;
     export "DPI-C" function set_config_string;
     export "DPI-C" function get_config_string;
-    `endif //VERILATOR
 
     export "DPI-C" task wait_unit;
     export "DPI-C" task stop;
