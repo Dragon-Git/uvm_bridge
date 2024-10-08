@@ -43,6 +43,7 @@ uint64_t get_config_int(const char*  contxt, const char*  inst_name, const char*
 void set_config_string(const char*  contxt, const char*  inst_name, const char*  field_name, const char* value);
 const char* get_config_string(const char*  contxt, const char*  inst_name, const char*  field_name);
 
+#if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
 // 使用pybind11创建的包装器函数
 void wrap_walk_level(int lvl, std::vector<std::string> args, int cmd) {
     // Convert Python string list to C-style char**
@@ -56,6 +57,7 @@ void wrap_walk_level(int lvl, std::vector<std::string> args, int cmd) {
     // Call the original function
     walk_level(lvl, argc, argv, cmd);
 }
+#endif
 
 void wait_unit(int n);
 void stop();
