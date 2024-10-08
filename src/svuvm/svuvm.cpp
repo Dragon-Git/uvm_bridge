@@ -84,6 +84,7 @@ PYBIND11_MODULE(svuvm, m) {
     m.attr("UVM_FULL") = M_UVM_FULL;
     m.attr("UVM_DEBUG") = M_UVM_DEBUG;
 
+#if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
     // Binding functions
     m.def("uvm_report", &m_uvm_report_dpi, "report function", py::arg("severity"), py::arg("id"), py::arg("message"), py::arg("verbosity"), py::arg("file"), py::arg("linenum"));
 
@@ -136,6 +137,7 @@ PYBIND11_MODULE(svuvm, m) {
 
     m.def("uvm_dpi_regfree", &uvm_dpi_regfree, "Free a compiled regular expression.",
           py::arg("re"));
+#endif
 
     m.def("print_factory", &print_factory, "Prints factory information.", py::arg("all_types")=1);
 
