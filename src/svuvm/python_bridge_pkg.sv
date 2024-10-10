@@ -372,6 +372,15 @@ package python_bridge_pkg;
             rg.write(status, data);
         endtask:read_reg
 
+        virtual task check_reg(input string name, input int data=0, input bit predict=1'b0);
+            uvm_reg rg;
+            rg = get_reg(name);
+            if (predict)  begin
+                rg.predict(data);
+            end
+            rg.mirror(status, UVM_CHECK);
+        endtask:check_reg
+
     endclass:reg_operator
 
     task write_reg(input string name, input int data);
@@ -385,6 +394,12 @@ package python_bridge_pkg;
         reg_operator::inst.read_reg(name, data);
         `endif //VERILATOR
     endtask:read_reg
+
+    task check_reg(input string name, input int data=0, input bit predict=1'b0);
+        `ifndef VERILATOR
+        reg_operator::inst.check_reg(name, data, predict);
+        `endif //VERILATOR
+    endtask:check_reg
 
     // custom task
     task wait_unit(int n);
@@ -450,6 +465,7 @@ package python_bridge_pkg;
     // register access
     export "DPI-C" task write_reg;
     export "DPI-C" task read_reg;
+    export "DPI-C" task check_reg;
     // sequence
     export "DPI-C" task start_seq;
 
