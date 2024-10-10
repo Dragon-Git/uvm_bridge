@@ -3,6 +3,17 @@ package python_bridge_pkg;
     import uvm_pkg::*;
     `include "uvm_macros.svh"
 
+    function automatic uvm_component get_contxt (string contxt);
+
+        uvm_root top = uvm_root::get();
+        uvm_component comp;
+        if (contxt == "") begin
+            get_contxt = top;
+        end else begin
+            get_contxt = top.find(contxt);
+        end
+    endfunction
+
     //------------------------------------------------------------------------------
     // Group: Factory
     //
@@ -15,16 +26,12 @@ package python_bridge_pkg;
         factory.print(all_types);
     endfunction
 
-    function automatic void set_factory_inst_override (string requested_type,
-                                                            string override_type,
-                                                            string contxt);
+    function automatic void set_factory_inst_override (string requested_type, string override_type, string contxt);
         uvm_factory factory = uvm_factory::get();
         factory.set_inst_override_by_name(requested_type,override_type,contxt);
     endfunction
 
-    function automatic void set_factory_type_override (string requested_type,
-                                                            string override_type,
-                                                            bit replace=1);
+    function automatic void set_factory_type_override (string requested_type, string override_type, bit replace=1);
         uvm_factory factory = uvm_factory::get();
         factory.set_type_override_by_name(requested_type,override_type,replace);
     endfunction
@@ -46,15 +53,12 @@ package python_bridge_pkg;
         factory.create_component_by_name(requested_type,contxt,name,parent);
     endfunction
 
-    function automatic void debug_factory_create (string requested_type,
-                                                       string contxt="");
+    function automatic void debug_factory_create (string requested_type, string contxt="");
         uvm_factory factory = uvm_factory::get();
         factory.debug_create_by_name(requested_type,contxt,"");
     endfunction
 
-    function automatic void find_factory_override (string requested_type,
-                                                        string contxt,
-                                                        output string override_type);
+    function automatic void find_factory_override (string requested_type, string contxt, output string override_type);
         uvm_object_wrapper wrapper;
         uvm_factory factory = uvm_factory::get();
         wrapper = factory.find_override_by_name(requested_type, contxt);
@@ -89,6 +93,46 @@ package python_bridge_pkg;
             comps[i].print();
             $display();
         end
+    endfunction
+
+    function automatic void set_timeout(time timeout, bit overridable=1);
+        uvm_root top = uvm_root::get();
+        top.set_timeout(timeout, overridable);
+    endfunction
+
+    //------------------------------------------------------------------------------
+    // Group: OBJECTIONS
+    //
+    // Provides ability to raise or drop objections.
+    // (limited to phase objections ).
+    //------------------------------------------------------------------------------
+    function automatic void uvm_objection_op (string op, string name, string contxt, string description, int unsigned count);
+        uvm_domain dom;
+        uvm_phase ph;
+        string nm;
+        uvm_root top = uvm_root::get();
+        uvm_component 	comp;
+
+        comp = get_contxt(contxt);
+        if (comp == null)
+            comp = uvm_root::get();
+        nm = comp.get_full_name();
+        if ($test$plusargs("UVM_COMMAND_TRACE"))
+            `uvm_info("TRACE/UVM_CMD/OBJECTION",$sformatf("op=%s name=%s contxt=%s description=%s count=%0d sv_contxt=%s",
+                op,name,contxt,description,count,(nm==""?"uvm_top":nm)),UVM_NONE)
+        dom = uvm_domain::get_common_domain();
+        ph = dom.find_by_name(name,0);
+        description = {contxt,": ",description};
+        if (ph == null) begin
+            `uvm_error({"UVM_",op,"_OBJECTION"}, {"Request for objection in unknown phase <",name,">"})
+            return;
+        end
+        if (op == "RAISE")
+            ph.raise_objection(comp,description,count);
+        else if (op == "DROP")
+            ph.drop_objection(comp,description,count);
+        else
+            `uvm_error("UVM_OBJECTION", {"Unknown operation ",op})
     endfunction
 
     //------------
@@ -215,60 +259,24 @@ package python_bridge_pkg;
     `endif //VERILATOR
 
     function automatic void set_config_int(string contxt, string inst_name, string field_name, longint unsigned value);
-        uvm_root top = uvm_root::get();
-        uvm_component comp;
-        if (contxt == "") begin
-            comp = top;
-        end else begin
-            comp = top.find(contxt);
-        end
+        uvm_component comp = get_contxt(contxt);
         uvm_config_db#(uvm_bitstream_t)::set(comp, inst_name, field_name, value);
     endfunction
 
     function automatic longint get_config_int(string contxt, string inst_name, string field_name);
-        uvm_root top = uvm_root::get();
-        uvm_component comp;
-        if (contxt == "") begin
-            comp = top;
-        end else begin
-            comp = top.find(contxt);
-        end
+        uvm_component comp = get_contxt(contxt);
         uvm_config_db#(uvm_bitstream_t)::get(comp, inst_name, field_name, get_config_int);
     endfunction
 
     function automatic void set_config_string (string contxt, string inst_name, string field_name, string value);
-        uvm_root top = uvm_root::get();
-        uvm_component comp;
-        if (contxt == "") begin
-            comp = top;
-        end else begin
-            comp = top.find(contxt);
-        end
+        uvm_component comp = get_contxt(contxt);
         uvm_config_db #(string)::set(comp, inst_name, field_name, value);
     endfunction
 
     function automatic string get_config_string (string contxt, string inst_name, string field_name);
-        uvm_root top = uvm_root::get();
-        uvm_component comp;
-        if (contxt == "") begin
-            comp = top;
-        end else begin
-            comp = top.find(contxt);
-        end
+        uvm_component comp = get_contxt(contxt);
         uvm_config_db #(string)::get(comp, inst_name, field_name, get_config_string);
     endfunction
-
-    // custom task
-    task wait_unit(int n);
-    `ifndef VERILATOR
-        #n;
-    `endif //VERILATOR
-        $display("inside sv task in %d", $time);
-    endtask:wait_unit
-
-    task stop();
-        $stop;
-    endtask:stop
 
     task start_seq(string seq_name, string sqr_name);
         uvm_root top = uvm_root::get();
@@ -378,7 +386,26 @@ package python_bridge_pkg;
         `endif //VERILATOR
     endtask:read_reg
 
+    // custom task
+    task wait_unit(int n);
+    `ifndef VERILATOR
+        #n;
+    `endif //VERILATOR
+        $display("inside sv task in %d", $time);
+    endtask:wait_unit
+
+    task stop();
+        $stop;
+    endtask:stop
+
+    task run_test_wrap(string test_name="");
+    `ifndef VERILATOR
+        run_test(test_name);
+    `endif //VERILATOR
+    endtask:run_test_wrap
+
     // export
+    // uvm_factory
     export "DPI-C" function print_factory;
     export "DPI-C" function set_factory_inst_override;
     export "DPI-C" function set_factory_type_override;
@@ -386,7 +413,11 @@ package python_bridge_pkg;
     export "DPI-C" function create_component_by_name;
     export "DPI-C" function debug_factory_create;
     export "DPI-C" function find_factory_override;
+
+    // uvm_root
+    export "DPI-C" function set_timeout;
     export "DPI-C" function print_topology;
+    export "DPI-C" function uvm_objection_op;
     export "DPI-C" function dbg_print;
 
     // uvm_event
@@ -410,16 +441,22 @@ package python_bridge_pkg;
     //export "DPI-C" function set_default_data;
     `endif //VERILATOR
 
+    // config db
     export "DPI-C" function set_config_int;
     export "DPI-C" function get_config_int;
     export "DPI-C" function set_config_string;
     export "DPI-C" function get_config_string;
 
-    export "DPI-C" task wait_unit;
-    export "DPI-C" task stop;
-    export "DPI-C" task start_seq;
+    // register access
     export "DPI-C" task write_reg;
     export "DPI-C" task read_reg;
+    // sequence
+    export "DPI-C" task start_seq;
+
+    // utils
+    export "DPI-C" task run_test_wrap;
+    export "DPI-C" task wait_unit;
+    export "DPI-C" task stop;
 
     import "DPI-C" pure function string dirname(string file_path);
     `ifndef VERILATOR

@@ -17,6 +17,8 @@ void create_component_by_name (const char* requested_type,const char* context=""
 void debug_factory_create (const char* requested_type,const char* context="");
 void find_factory_override (const char* requested_type, const char* context, const char* override_type_name);
 void print_topology(const char* context="");
+void set_timeout(long long timeout, unsigned char overridable=1);
+void uvm_objection_op (const char* op, const char* name, const char* contxt, const char* description, unsigned int count);
 void dbg_print(const char* name="");
 
 #if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
@@ -59,11 +61,12 @@ void wrap_walk_level(int lvl, std::vector<std::string> args, int cmd) {
 }
 #endif
 
-void wait_unit(int n);
-void stop();
 void start_seq(const char* seq_name, const char* sqr_name);
 void write_reg(const char* name, int data);
 void read_reg(const char* name, int *data);
+void run_test_wrap(const char* test_name);
+void wait_unit(int n);
+void stop();
 
 int wrap_read_reg(const char* name) {
     int data;
@@ -171,6 +174,10 @@ PYBIND11_MODULE(svuvm, m) {
           "Prints the topology.", 
           py::arg("context")="");
 
+    m.def("set_timeout", &set_timeout, "Set the timeout value.", py::arg("timeout"), py::arg("overridable"));
+
+    m.def("uvm_objection_op", &uvm_objection_op, "uvm_objection_op", py::arg("op"), py::arg("name"), py::arg("contxt"), py::arg("description"), py::arg("delta")=0);
+
     m.def("dbg_print", &dbg_print,
           "Prints the object.", 
           py::arg("name")="");
@@ -196,11 +203,12 @@ PYBIND11_MODULE(svuvm, m) {
     m.def("get_config_string", &get_config_string, "Get string configuration from the UVM environment");
 
 
-    m.def("wait_unit", &wait_unit, "wait unit time");
-    m.def("stop", &stop, "suspend the simulation");
-    m.def("start_seq", &start_seq, "start seq on sqr");
     m.def("write_reg", &write_reg, "write register");
     m.def("read_reg", &wrap_read_reg, "read data");
+    m.def("start_seq", &start_seq, "start seq on sqr");
+    m.def("run_test", &run_test_wrap, "uvm run test");
+    m.def("wait_unit", &wait_unit, "wait unit time");
+    m.def("stop", &stop, "suspend the simulation");
 
 }
 
