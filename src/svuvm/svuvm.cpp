@@ -64,6 +64,7 @@ void wrap_walk_level(int lvl, std::vector<std::string> args, int cmd) {
 void start_seq(const char* seq_name, const char* sqr_name);
 void write_reg(const char* name, int data);
 void read_reg(const char* name, int *data);
+void check_reg(const char* name, int data, unsigned char predict);
 void run_test_wrap(const char* test_name);
 void wait_unit(int n);
 void stop();
@@ -204,7 +205,8 @@ PYBIND11_MODULE(svuvm, m) {
 
 
     m.def("write_reg", &write_reg, "write register");
-    m.def("read_reg", &wrap_read_reg, "read data");
+    m.def("read_reg", &wrap_read_reg, "read register");
+    m.def("check_reg", &check_reg, "check register");
     m.def("start_seq", &start_seq, "start seq on sqr");
     m.def("run_test", &run_test_wrap, "uvm run test");
     m.def("wait_unit", &wait_unit, "wait unit time");

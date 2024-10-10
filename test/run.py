@@ -2,6 +2,7 @@ from svuvm import svuvm
 
 def main():
     data = 0xdeadbeef
+    svuvm.print_topology()
     for i in range(10):
         svuvm.write_reg(str(i), i)
         svuvm.wait_unit(i)
