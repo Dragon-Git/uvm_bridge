@@ -95,9 +95,9 @@ package python_bridge_pkg;
         end
     endfunction
 
-    function automatic void set_timeout(time timeout, bit overridable=1);
+    function automatic void set_timeout(longint timeout, bit overridable=1);
         uvm_root top = uvm_root::get();
-        top.set_timeout(timeout, overridable);
+        top.set_timeout(time'(timeout), overridable);
     endfunction
 
     //------------------------------------------------------------------------------
