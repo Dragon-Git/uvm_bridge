@@ -283,6 +283,7 @@ package python_bridge_pkg;
         uvm_factory factory = uvm_factory::get();
         uvm_object obj;
         uvm_component comp;
+        uvm_sequence_item item;
         uvm_sequence_base seq;
         uvm_sequencer_base sqr;
  
@@ -291,8 +292,8 @@ package python_bridge_pkg;
             factory.print(1);
             `uvm_fatal("python_bridge_pkg", $sformatf("can not create %0s seq", seq_name))
         end
-        if (!$cast(seq, obj))  begin
-            `uvm_fatal("python_bridge_pkg", $sformatf("cast failed - %0s is not a uvm_sequence", seq_name))
+        if (!$cast(item, obj))  begin
+            `uvm_fatal("python_bridge_pkg", $sformatf("cast failed - %0s is not a uvm_sequence_item", seq_name))
         end
         comp = top.find(sqr_name);
         if (comp == null)  begin
@@ -304,7 +305,11 @@ package python_bridge_pkg;
         end
 
     `ifndef VERILATOR
-        seq.start(sqr);
+        if (item.is_item())  begin
+            sqr.execute_item(item);
+        end else if ($cast(seq, item))  begin
+            seq.start(sqr);
+        end
     `endif //VERILATOR
     endtask:start_seq
 
