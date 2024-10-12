@@ -92,6 +92,17 @@ PYBIND11_MODULE(svuvm, m) {
 
 #if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
     // Binding functions
+
+    py::class_<s_vpi_vecval>(m, "VpiVecVal")
+        .def(py::init<>())  // 默认构造函数
+        .def(py::init([](uint32_t aval, uint32_t bval){
+            s_vpi_vecval s;
+            s.aval = aval;
+            s.bval = bval;
+        }), py::arg("aval"), py::arg("bval"))
+        .def_readwrite("aval", &s_vpi_vecval::aval)
+        .def_readwrite("bval", &s_vpi_vecval::bval);
+}
     m.def("uvm_report", &m_uvm_report_dpi, "report function", py::arg("severity"), py::arg("id"), py::arg("message"), py::arg("verbosity"), py::arg("file"), py::arg("linenum"));
 
     m.def("int_str_max", &int_str_max, "Find the maximum of integers represented as strings.");
