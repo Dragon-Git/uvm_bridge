@@ -237,7 +237,7 @@ package python_bridge_pkg;
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         ev.trigger();
     endfunction
-    /*
+    
     // Wrapper for get_trigger_data
     function uvm_object get_trigger_data(string ev_name);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
@@ -255,7 +255,7 @@ package python_bridge_pkg;
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         ev.set_default_data(data);
     endfunction
-    */
+    
     `endif //VERILATOR
 
     function automatic void set_config_int(string contxt, string inst_name, string field_name, longint unsigned value);
