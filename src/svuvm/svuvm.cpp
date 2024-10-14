@@ -99,10 +99,10 @@ PYBIND11_MODULE(svuvm, m) {
             s_vpi_vecval s;
             s.aval = aval;
             s.bval = bval;
-        }), py::arg("aval"), py::arg("bval"))
+        }), py::arg("aval") = 0, py::arg("bval") = 0)
         .def_readwrite("aval", &s_vpi_vecval::aval)
         .def_readwrite("bval", &s_vpi_vecval::bval);
-}
+
     m.def("uvm_report", &m_uvm_report_dpi, "report function", py::arg("severity"), py::arg("id"), py::arg("message"), py::arg("verbosity"), py::arg("file"), py::arg("linenum"));
 
     m.def("int_str_max", &int_str_max, "Find the maximum of integers represented as strings.");
