@@ -374,7 +374,7 @@ package python_bridge_pkg;
         virtual task read_reg(input string name, output int data);
             uvm_reg rg;
             rg = get_reg(name);
-            rg.write(status, data);
+            rg.read(status, data);
         endtask:read_reg
 
         virtual task check_reg(input string name, input int data=0, input bit predict=1'b0);
