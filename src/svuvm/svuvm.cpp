@@ -3,6 +3,13 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/embed.h>
 #include "svdpi.h"
+#if defined(VCS) || defined(VCSMX)
+    #include <mhpi_user.h>
+#elif defined(XCELIUM) || defined(NCSC)
+    #include <cfclib.h>         
+#elif defined(MENTOR)
+    #include <mti.h>            
+#endif
 
 extern "C" {
 
@@ -74,6 +81,20 @@ int wrap_read_reg(const char* name) {
     read_reg(name, &data);
     return data;
 }
+
+// execute a tcl comamnd in simulator
+void dpi_tcl_exec_cmd(char* cmd) {
+    #if defined(VCS) || defined(VCSMX)
+        mhpi_ucliTclExec(cmd);
+    #elif defined(XCELIUM) || defined(NCSC) 
+        cfcExecuteCommand(cmd);
+    #elif defined(MENTOR)
+        mti_Cmd(cmd);
+    #else
+        // not supported
+        printf("tcl intregation is not support in this simulator\n");
+    #endif
+};
 
 PYBIND11_MODULE(svuvm, m) {
     m.doc() = "svuvm api module";
@@ -154,6 +175,8 @@ PYBIND11_MODULE(svuvm, m) {
 
     m.def("uvm_dpi_regfree", &uvm_dpi_regfree, "Free a compiled regular expression.",
           py::arg("re"));
+
+    m.def("dpi_tcl_exec_cmd", &dpi_tcl_exec_cmd, "Execute a tcl command.", py::arg("cmd"));
 #endif
 
     m.def("print_factory", &print_factory, "Prints factory information.", py::arg("all_types")=1);
