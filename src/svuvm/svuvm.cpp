@@ -83,7 +83,7 @@ int wrap_read_reg(const char* name) {
 }
 
 // execute a tcl comamnd in simulator
-void dpi_tcl_exec_cmd(char* cmd) {
+void exec_tcl_cmd(char* cmd) {
     #if defined(VCS) || defined(VCSMX)
         mhpi_ucliTclExec(cmd);
     #elif defined(XCELIUM) || defined(NCSC) 
@@ -177,7 +177,7 @@ PYBIND11_MODULE(svuvm, m) {
     m.def("uvm_dpi_regfree", &uvm_dpi_regfree, "Free a compiled regular expression.",
           py::arg("re"));
 
-    m.def("dpi_tcl_exec_cmd", &dpi_tcl_exec_cmd, "Execute a tcl command.", py::arg("cmd"));
+    m.def("exec_tcl_cmd", &exec_tcl_cmd, "Execute a tcl command.", py::arg("cmd"));
 #endif
 
     m.def("print_factory", &print_factory, "Prints factory information.", py::arg("all_types")=1);
