@@ -103,6 +103,11 @@ def uvm_dpi_regfree(re: Any) -> None:
     Frees resources associated with a compiled regular expression.
     """
 
+def exec_tcl_cmd(cmd: str) -> None:
+    """
+    Execute a tcl command.
+    """
+
 def print_factory(all_types: int = 1) -> None:
     """
     Prints information about registered factory types.
