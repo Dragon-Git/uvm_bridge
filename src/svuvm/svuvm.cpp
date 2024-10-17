@@ -120,6 +120,7 @@ PYBIND11_MODULE(svuvm, m) {
             s_vpi_vecval s;
             s.aval = aval;
             s.bval = bval;
+            return s;
         }), py::arg("aval") = 0, py::arg("bval") = 0)
         .def_readwrite("aval", &s_vpi_vecval::aval)
         .def_readwrite("bval", &s_vpi_vecval::bval);
