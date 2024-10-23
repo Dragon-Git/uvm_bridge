@@ -68,11 +68,11 @@ void wrap_walk_level(int lvl, std::vector<std::string> args, int cmd) {
 }
 #endif
 
-void start_seq(const char* seq_name, const char* sqr_name);
-void write_reg(const char* name, int data);
-void read_reg(const char* name, int *data);
-void check_reg(const char* name, int data=0, unsigned char predict=0);
-void run_test_wrap(const char* test_name="");
+void start_seq(const char *seq_name, const char *sqr_name, svBit rand_en, svBit background);
+void write_reg(const char *name, int data);
+void read_reg(const char *name, int *data);
+void check_reg(const char *name, int data = 0, unsigned char predict = 0);
+void run_test_wrap(const char *test_name = "");
 void wait_unit(int n);
 void stop();
 
@@ -239,14 +239,13 @@ PYBIND11_MODULE(svuvm, m) {
     m.def("get_config_string", &get_config_string, "Get string configuration from the UVM environment");
 
 
-    m.def("write_reg", &write_reg, "write register");
-    m.def("read_reg", &wrap_read_reg, "read register");
-    m.def("check_reg", &check_reg, "check register", py::arg("name"), py::arg("data")=0, py::arg("predict")=0);
-    m.def("start_seq", &start_seq, "start seq on sqr");
-    m.def("run_test", &run_test_wrap, "uvm run test", py::arg("test_name"));
-    m.def("wait_unit", &wait_unit, "wait unit time");
-    m.def("stop", &stop, "suspend the simulation");
-
+  m.def("write_reg", &write_reg, "write register");
+  m.def("read_reg", &wrap_read_reg, "read register");
+  m.def("check_reg", &check_reg, "check register", py::arg("name"), py::arg("data") = 0, py::arg("predict") = 0);
+  m.def("start_seq", &start_seq, "start seq on sqr", py::arg("seq_name"), py::arg("sqr_name"), py::arg("rand_en") = 1, py::arg("background") = 0);
+  m.def("run_test", &run_test_wrap, "uvm run test", py::arg("test_name"));
+  m.def("wait_unit", &wait_unit, "wait unit time");
+  m.def("stop", &stop, "suspend the simulation");
 }
 
 void py_func(const char* mod_name, const char* func_name, const char* mod_paths) {

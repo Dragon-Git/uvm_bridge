@@ -278,7 +278,7 @@ package python_bridge_pkg;
         uvm_config_db #(string)::get(comp, inst_name, field_name, get_config_string);
     endfunction
 
-    task start_seq(string seq_name, string sqr_name);
+    task start_seq(string seq_name, string sqr_name, bit rand_en=0, bit background=0);
         uvm_root top = uvm_root::get();
         uvm_factory factory = uvm_factory::get();
         uvm_object obj;
@@ -303,12 +303,26 @@ package python_bridge_pkg;
         if (!$cast(sqr, comp))  begin
             `uvm_fatal("python_bridge_pkg", $sformatf("cast failed - %0s is not a uvm_sequencer", sqr_name))
         end
-
+        if (rand_en)  begin
+            item.randomize();
+        end
     `ifndef VERILATOR
-        if (item.is_item())  begin
-            sqr.execute_item(item);
-        end else if ($cast(seq, item))  begin
-            seq.start(sqr);
+        if (background)  begin: background
+            fork: start_seq__bg_thread
+                begin
+                    if (item.is_item())  begin
+                        sqr.start_item(item);
+                    end else if ($cast(seq, item))  begin
+                        seq.start(sqr);
+                    end
+                end
+            join_none: start_seq__bg_thread
+        end else begin: foreground
+            if (item.is_item())  begin
+                sqr.execute_item(item);
+            end else if ($cast(seq, item))  begin
+                seq.start(sqr);
+            end
         end
     `endif //VERILATOR
     endtask:start_seq
