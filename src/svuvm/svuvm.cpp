@@ -14,6 +14,7 @@
 
 #ifndef NO_VPI
 #include "vpi_user.h"
+#include "sv_vpi_user.h"
 #endif
 
 extern "C" {
@@ -161,6 +162,7 @@ PYBIND11_MODULE(svuvm, m) {
   py::module_ vpi = m.def_submodule("vpi");
 
   // vpi handle types
+  // vpi_user.h
   vpi.attr("vpiAlways") = vpiAlways;
   vpi.attr("vpiAssignStmt") = vpiAssignStmt;
   vpi.attr("vpiAssignment") = vpiAssignment;
@@ -610,6 +612,411 @@ PYBIND11_MODULE(svuvm, m) {
   vpi.attr("cbSignal") = cbSignal;
   vpi.attr("cbNBASynch") = cbNBASynch;
   vpi.attr("cbAtEndOfSimTime") = cbAtEndOfSimTime;
+
+  // sv_vpi_user.h
+  vpi.attr("vpiConstant") = vpiConstant;
+  vpi.attr("vpiPackage") = vpiPackage;
+  vpi.attr("vpiInterface") = vpiInterface;
+  vpi.attr("vpiProgram") = vpiProgram;
+  vpi.attr("vpiInterfaceArray") = vpiInterfaceArray;
+  vpi.attr("vpiProgramArray") = vpiProgramArray;
+  vpi.attr("vpiTypespec") = vpiTypespec;
+  vpi.attr("vpiModport") = vpiModport;
+  vpi.attr("vpiInterfaceTfDecl") = vpiInterfaceTfDecl;
+  vpi.attr("vpiRefObj") = vpiRefObj;
+  vpi.attr("vpiTypeParameter") = vpiTypeParameter;
+  vpi.attr("vpiLongIntVar") = vpiLongIntVar;
+  vpi.attr("vpiShortIntVar") = vpiShortIntVar;
+  vpi.attr("vpiIntVar") = vpiIntVar;
+  vpi.attr("vpiShortRealVar") = vpiShortRealVar;
+  vpi.attr("vpiByteVar") = vpiByteVar;
+  vpi.attr("vpiClassVar") = vpiClassVar;
+  vpi.attr("vpiStringVar") = vpiStringVar;
+  vpi.attr("vpiEnumVar") = vpiEnumVar;
+  vpi.attr("vpiStructVar") = vpiStructVar;
+  vpi.attr("vpiUnionVar") = vpiUnionVar;
+  vpi.attr("vpiBitVar") = vpiBitVar;
+  vpi.attr("vpiClassObj") = vpiClassObj;
+  vpi.attr("vpiChandleVar") = vpiChandleVar;
+  vpi.attr("vpiPackedArrayVar") = vpiPackedArrayVar;
+  vpi.attr("vpiVirtualInterfaceVar") = vpiVirtualInterfaceVar;
+  vpi.attr("vpiLongIntTypespec") = vpiLongIntTypespec;
+  vpi.attr("vpiShortRealTypespec") = vpiShortRealTypespec;
+  vpi.attr("vpiByteTypespec") = vpiByteTypespec;
+  vpi.attr("vpiShortIntTypespec") = vpiShortIntTypespec;
+  vpi.attr("vpiIntTypespec") = vpiIntTypespec;
+  vpi.attr("vpiClassTypespec") = vpiClassTypespec;
+  vpi.attr("vpiStringTypespec") = vpiStringTypespec;
+  vpi.attr("vpiChandleTypespec") = vpiChandleTypespec;
+  vpi.attr("vpiEnumTypespec") = vpiEnumTypespec;
+  vpi.attr("vpiEnumConst") = vpiEnumConst;
+  vpi.attr("vpiIntegerTypespec") = vpiIntegerTypespec;
+  vpi.attr("vpiTimeTypespec") = vpiTimeTypespec;
+  vpi.attr("vpiRealTypespec") = vpiRealTypespec;
+  vpi.attr("vpiStructTypespec") = vpiStructTypespec;
+  vpi.attr("vpiUnionTypespec") = vpiUnionTypespec;
+  vpi.attr("vpiBitTypespec") = vpiBitTypespec;
+  vpi.attr("vpiLogicTypespec") = vpiLogicTypespec;
+  vpi.attr("vpiArrayTypespec") = vpiArrayTypespec;
+  vpi.attr("vpiVoidTypespec") = vpiVoidTypespec;
+  vpi.attr("vpiTypespecMember") = vpiTypespecMember;
+  vpi.attr("vpiPackedArrayTypespec") = vpiPackedArrayTypespec;
+  vpi.attr("vpiSequenceTypespec") = vpiSequenceTypespec;
+  vpi.attr("vpiPropertyTypespec") = vpiPropertyTypespec;
+  vpi.attr("vpiEventTypespec") = vpiEventTypespec;
+  vpi.attr("vpiInterfaceTypespec") = vpiInterfaceTypespec;
+  vpi.attr("vpiClockingBlock") = vpiClockingBlock;
+  vpi.attr("vpiClockingIODecl") = vpiClockingIODecl;
+  vpi.attr("vpiClassDefn") = vpiClassDefn;
+  vpi.attr("vpiConstraint") = vpiConstraint;
+  vpi.attr("vpiConstraintOrdering") = vpiConstraintOrdering;
+  vpi.attr("vpiDistItem") = vpiDistItem;
+  vpi.attr("vpiAliasStmt") = vpiAliasStmt;
+  vpi.attr("vpiThread") = vpiThread;
+  vpi.attr("vpiMethodFuncCall") = vpiMethodFuncCall;
+  vpi.attr("vpiMethodTaskCall") = vpiMethodTaskCall;
+  vpi.attr("vpiAssert") = vpiAssert;
+  vpi.attr("vpiAssume") = vpiAssume;
+  vpi.attr("vpiCover") = vpiCover;
+  vpi.attr("vpiRestrict") = vpiRestrict;
+  vpi.attr("vpiDisableCondition") = vpiDisableCondition;
+  vpi.attr("vpiClockingEvent") = vpiClockingEvent;
+  vpi.attr("vpiPropertyDecl") = vpiPropertyDecl;
+  vpi.attr("vpiPropertySpec") = vpiPropertySpec;
+  vpi.attr("vpiPropertyExpr") = vpiPropertyExpr;
+  vpi.attr("vpiMulticlockSequenceExpr") = vpiMulticlockSequenceExpr;
+  vpi.attr("vpiClockedSeq") = vpiClockedSeq;
+  vpi.attr("vpiClockedProp") = vpiClockedProp;
+  vpi.attr("vpiPropertyInst") = vpiPropertyInst;
+  vpi.attr("vpiSequenceDecl") = vpiSequenceDecl;
+  vpi.attr("vpiCaseProperty") = vpiCaseProperty;
+  vpi.attr("vpiCasePropertyItem") = vpiCasePropertyItem;
+  vpi.attr("vpiSequenceInst") = vpiSequenceInst;
+  vpi.attr("vpiImmediateAssert") = vpiImmediateAssert;
+  vpi.attr("vpiImmediateAssume") = vpiImmediateAssume;
+  vpi.attr("vpiImmediateCover") = vpiImmediateCover;
+  vpi.attr("vpiReturn") = vpiReturn;
+  vpi.attr("vpiAnyPattern") = vpiAnyPattern;
+  vpi.attr("vpiTaggedPattern") = vpiTaggedPattern;
+  vpi.attr("vpiStructPattern") = vpiStructPattern;
+  vpi.attr("vpiDoWhile") = vpiDoWhile;
+  vpi.attr("vpiOrderedWait") = vpiOrderedWait;
+  vpi.attr("vpiWaitFork") = vpiWaitFork;
+  vpi.attr("vpiDisableFork") = vpiDisableFork;
+  vpi.attr("vpiExpectStmt") = vpiExpectStmt;
+  vpi.attr("vpiForeachStmt") = vpiForeachStmt;
+  vpi.attr("vpiReturnStmt") = vpiReturnStmt;
+  vpi.attr("vpiFinal") = vpiFinal;
+  vpi.attr("vpiExtends") = vpiExtends;
+  vpi.attr("vpiDistribution") = vpiDistribution;
+  vpi.attr("vpiSeqFormalDecl") = vpiSeqFormalDecl;
+  vpi.attr("vpiPropFormalDecl") = vpiPropFormalDecl;
+  vpi.attr("vpiEnumNet") = vpiEnumNet;
+  vpi.attr("vpiIntegerNet") = vpiIntegerNet;
+  vpi.attr("vpiTimeNet") = vpiTimeNet;
+  vpi.attr("vpiUnionNet") = vpiUnionNet;
+  vpi.attr("vpiShortRealNet") = vpiShortRealNet;
+  vpi.attr("vpiRealNet") = vpiRealNet;
+  vpi.attr("vpiByteNet") = vpiByteNet;
+  vpi.attr("vpiShortIntNet") = vpiShortIntNet;
+  vpi.attr("vpiIntNet") = vpiIntNet;
+  vpi.attr("vpiLongIntNet") = vpiLongIntNet;
+  vpi.attr("vpiBitNet") = vpiBitNet;
+  vpi.attr("vpiInterconnectNet") = vpiInterconnectNet;
+  vpi.attr("vpiInterconnectArray") = vpiInterconnectArray;
+  vpi.attr("vpiStructNet") = vpiStructNet;
+  vpi.attr("vpiBreak") = vpiBreak;
+  vpi.attr("vpiContinue") = vpiContinue;
+  vpi.attr("vpiPackedArrayNet") = vpiPackedArrayNet;
+  vpi.attr("vpiNettypeDecl") = vpiNettypeDecl;
+  vpi.attr("vpiConstraintExpr") = vpiConstraintExpr;
+  vpi.attr("vpiElseConst") = vpiElseConst;
+  vpi.attr("vpiImplication") = vpiImplication;
+  vpi.attr("vpiConstrIf") = vpiConstrIf;
+  vpi.attr("vpiConstrIfElse") = vpiConstrIfElse;
+  vpi.attr("vpiConstrForEach") = vpiConstrForEach;
+  vpi.attr("vpiSoftDisable") = vpiSoftDisable;
+  vpi.attr("vpiLetDecl") = vpiLetDecl;
+  vpi.attr("vpiLetExpr") = vpiLetExpr;
+  vpi.attr("vpiActual") = vpiActual;
+  vpi.attr("vpiTypedefAlias") = vpiTypedefAlias;
+  vpi.attr("vpiIndexTypespec") = vpiIndexTypespec;
+  vpi.attr("vpiBaseTypespec") = vpiBaseTypespec;
+  vpi.attr("vpiElemTypespec") = vpiElemTypespec;
+  vpi.attr("vpiNetTypedefAlias") = vpiNetTypedefAlias;
+  vpi.attr("vpiInputSkew") = vpiInputSkew;
+  vpi.attr("vpiOutputSkew") = vpiOutputSkew;
+  vpi.attr("vpiGlobalClocking") = vpiGlobalClocking;
+  vpi.attr("vpiDefaultClocking") = vpiDefaultClocking;
+  vpi.attr("vpiDefaultDisableIff") = vpiDefaultDisableIff;
+  vpi.attr("vpiOrigin") = vpiOrigin;
+  vpi.attr("vpiPrefix") = vpiPrefix;
+  vpi.attr("vpiWith") = vpiWith;
+  vpi.attr("vpiProperty") = vpiProperty;
+  vpi.attr("vpiValueRange") = vpiValueRange;
+  vpi.attr("vpiPattern") = vpiPattern;
+  vpi.attr("vpiWeight") = vpiWeight;
+  vpi.attr("vpiConstraintItem") = vpiConstraintItem;
+  vpi.attr("vpiTypedef") = vpiTypedef;
+  vpi.attr("vpiImport") = vpiImport;
+  vpi.attr("vpiDerivedClasses") = vpiDerivedClasses;
+  vpi.attr("vpiMethods") = vpiMethods;
+  vpi.attr("vpiSolveBefore") = vpiSolveBefore;
+  vpi.attr("vpiSolveAfter") = vpiSolveAfter;
+  vpi.attr("vpiWaitingProcesses") = vpiWaitingProcesses;
+  vpi.attr("vpiMessages") = vpiMessages;
+  vpi.attr("vpiLoopVars") = vpiLoopVars;
+  vpi.attr("vpiConcurrentAssertion") = vpiConcurrentAssertion;
+  vpi.attr("vpiMatchItem") = vpiMatchItem;
+  vpi.attr("vpiMember") = vpiMember;
+  vpi.attr("vpiElement") = vpiElement;
+  vpi.attr("vpiAssertion") = vpiAssertion;
+  vpi.attr("vpiInstance") = vpiInstance;
+  vpi.attr("vpiTop") = vpiTop;
+  vpi.attr("vpiUnit") = vpiUnit;
+  vpi.attr("vpiJoinType") = vpiJoinType;
+  vpi.attr("vpiJoin") = vpiJoin;
+  vpi.attr("vpiJoinNone") = vpiJoinNone;
+  vpi.attr("vpiJoinAny") = vpiJoinAny;
+  vpi.attr("vpiAccessType") = vpiAccessType;
+  vpi.attr("vpiForkJoinAcc") = vpiForkJoinAcc;
+  vpi.attr("vpiExternAcc") = vpiExternAcc;
+  vpi.attr("vpiDPIExportAcc") = vpiDPIExportAcc;
+  vpi.attr("vpiDPIImportAcc") = vpiDPIImportAcc;
+  vpi.attr("vpiArrayType") = vpiArrayType;
+  vpi.attr("vpiStaticArray") = vpiStaticArray;
+  vpi.attr("vpiDynamicArray") = vpiDynamicArray;
+  vpi.attr("vpiAssocArray") = vpiAssocArray;
+  vpi.attr("vpiQueueArray") = vpiQueueArray;
+  vpi.attr("vpiArrayMember") = vpiArrayMember;
+  vpi.attr("vpiIsRandomized") = vpiIsRandomized;
+  vpi.attr("vpiLocalVarDecls") = vpiLocalVarDecls;
+  vpi.attr("vpiOpStrong") = vpiOpStrong;
+  vpi.attr("vpiRandType") = vpiRandType;
+  vpi.attr("vpiNotRand") = vpiNotRand;
+  vpi.attr("vpiRand") = vpiRand;
+  vpi.attr("vpiRandC") = vpiRandC;
+  vpi.attr("vpiPortType") = vpiPortType;
+  vpi.attr("vpiInterfacePort") = vpiInterfacePort;
+  vpi.attr("vpiModportPort") = vpiModportPort;
+  vpi.attr("vpiConstantVariable") = vpiConstantVariable;
+  vpi.attr("vpiStructUnionMember") = vpiStructUnionMember;
+  vpi.attr("vpiVisibility") = vpiVisibility;
+  vpi.attr("vpiPublicVis") = vpiPublicVis;
+  vpi.attr("vpiProtectedVis") = vpiProtectedVis;
+  vpi.attr("vpiLocalVis") = vpiLocalVis;
+  vpi.attr("vpiOneStepConst") = vpiOneStepConst;
+  vpi.attr("vpiUnboundedConst") = vpiUnboundedConst;
+  vpi.attr("vpiNullConst") = vpiNullConst;
+  vpi.attr("vpiAlwaysType") = vpiAlwaysType;
+  vpi.attr("vpiAlwaysComb") = vpiAlwaysComb;
+  vpi.attr("vpiAlwaysFF") = vpiAlwaysFF;
+  vpi.attr("vpiAlwaysLatch") = vpiAlwaysLatch;
+  vpi.attr("vpiDistType") = vpiDistType;
+  vpi.attr("vpiEqualDist") = vpiEqualDist;
+  vpi.attr("vpiDivDist") = vpiDivDist;
+  vpi.attr("vpiPacked") = vpiPacked;
+  vpi.attr("vpiTagged") = vpiTagged;
+  vpi.attr("vpiRef") = vpiRef;
+  vpi.attr("vpiVirtual") = vpiVirtual;
+  vpi.attr("vpiHasActual") = vpiHasActual;
+  vpi.attr("vpiIsConstraintEnabled") = vpiIsConstraintEnabled;
+  vpi.attr("vpiSoft") = vpiSoft;
+  vpi.attr("vpiClassType") = vpiClassType;
+  vpi.attr("vpiMailboxClass") = vpiMailboxClass;
+  vpi.attr("vpiSemaphoreClass") = vpiSemaphoreClass;
+  vpi.attr("vpiUserDefinedClass") = vpiUserDefinedClass;
+  vpi.attr("vpiProcessClass") = vpiProcessClass;
+  vpi.attr("vpiMethod") = vpiMethod;
+  vpi.attr("vpiIsClockInferred") = vpiIsClockInferred;
+  vpi.attr("vpiIsDeferred") = vpiIsDeferred;
+  vpi.attr("vpiIsFinal") = vpiIsFinal;
+  vpi.attr("vpiIsCoverSequence") = vpiIsCoverSequence;
+  vpi.attr("vpiQualifier") = vpiQualifier;
+  vpi.attr("vpiNoQualifier") = vpiNoQualifier;
+  vpi.attr("vpiUniqueQualifier") = vpiUniqueQualifier;
+  vpi.attr("vpiPriorityQualifier") = vpiPriorityQualifier;
+  vpi.attr("vpiTaggedQualifier") = vpiTaggedQualifier;
+  vpi.attr("vpiRandQualifier") = vpiRandQualifier;
+  vpi.attr("vpiInsideQualifier") = vpiInsideQualifier;
+  vpi.attr("vpiInputEdge") = vpiInputEdge;
+  vpi.attr("vpiOutputEdge") = vpiOutputEdge;
+  vpi.attr("vpiGeneric") = vpiGeneric;
+  vpi.attr("vpiCompatibilityMode") = vpiCompatibilityMode;
+  vpi.attr("vpiMode1364v1995") = vpiMode1364v1995;
+  vpi.attr("vpiMode1364v2001") = vpiMode1364v2001;
+  vpi.attr("vpiMode1364v2005") = vpiMode1364v2005;
+  vpi.attr("vpiMode1800v2005") = vpiMode1800v2005;
+  vpi.attr("vpiMode1800v2009") = vpiMode1800v2009;
+  vpi.attr("vpiPackedArrayMember") = vpiPackedArrayMember;
+  vpi.attr("vpiStartLine") = vpiStartLine;
+  vpi.attr("vpiColumn") = vpiColumn;
+  vpi.attr("vpiEndLine") = vpiEndLine;
+  vpi.attr("vpiEndColumn") = vpiEndColumn;
+  vpi.attr("vpiAllocScheme") = vpiAllocScheme;
+  vpi.attr("vpiAutomaticScheme") = vpiAutomaticScheme;
+  vpi.attr("vpiDynamicScheme") = vpiDynamicScheme;
+  vpi.attr("vpiOtherScheme") = vpiOtherScheme;
+  vpi.attr("vpiObjId") = vpiObjId;
+  vpi.attr("vpiDPIPure") = vpiDPIPure;
+  vpi.attr("vpiDPIContext") = vpiDPIContext;
+  vpi.attr("vpiDPICStr") = vpiDPICStr;
+  vpi.attr("vpiDPI") = vpiDPI;
+  vpi.attr("vpiDPIC") = vpiDPIC;
+  vpi.attr("vpiDPICIdentifier") = vpiDPICIdentifier;
+  vpi.attr("vpiIsModPort") = vpiIsModPort;
+  vpi.attr("vpiImplyOp") = vpiImplyOp;
+  vpi.attr("vpiNonOverlapImplyOp") = vpiNonOverlapImplyOp;
+  vpi.attr("vpiOverlapImplyOp") = vpiOverlapImplyOp;
+  vpi.attr("vpiAcceptOnOp") = vpiAcceptOnOp;
+  vpi.attr("vpiRejectOnOp") = vpiRejectOnOp;
+  vpi.attr("vpiSyncAcceptOnOp") = vpiSyncAcceptOnOp;
+  vpi.attr("vpiSyncRejectOnOp") = vpiSyncRejectOnOp;
+  vpi.attr("vpiOverlapFollowedByOp") = vpiOverlapFollowedByOp;
+  vpi.attr("vpiNonOverlapFollowedByOp") = vpiNonOverlapFollowedByOp;
+  vpi.attr("vpiNexttimeOp") = vpiNexttimeOp;
+  vpi.attr("vpiAlwaysOp") = vpiAlwaysOp;
+  vpi.attr("vpiEventuallyOp") = vpiEventuallyOp;
+  vpi.attr("vpiUntilOp") = vpiUntilOp;
+  vpi.attr("vpiUntilWithOp") = vpiUntilWithOp;
+  vpi.attr("vpiUnaryCycleDelayOp") = vpiUnaryCycleDelayOp;
+  vpi.attr("vpiCycleDelayOp") = vpiCycleDelayOp;
+  vpi.attr("vpiIntersectOp") = vpiIntersectOp;
+  vpi.attr("vpiFirstMatchOp") = vpiFirstMatchOp;
+  vpi.attr("vpiThroughoutOp") = vpiThroughoutOp;
+  vpi.attr("vpiWithinOp") = vpiWithinOp;
+  vpi.attr("vpiRepeatOp") = vpiRepeatOp;
+  vpi.attr("vpiConsecutiveRepeatOp") = vpiConsecutiveRepeatOp;
+  vpi.attr("vpiGotoRepeatOp") = vpiGotoRepeatOp;
+  vpi.attr("vpiPostIncOp") = vpiPostIncOp;
+  vpi.attr("vpiPreIncOp") = vpiPreIncOp;
+  vpi.attr("vpiPostDecOp") = vpiPostDecOp;
+  vpi.attr("vpiPreDecOp") = vpiPreDecOp;
+  vpi.attr("vpiMatchOp") = vpiMatchOp;
+  vpi.attr("vpiCastOp") = vpiCastOp;
+  vpi.attr("vpiIffOp") = vpiIffOp;
+  vpi.attr("vpiWildEqOp") = vpiWildEqOp;
+  vpi.attr("vpiWildNeqOp") = vpiWildNeqOp;
+  vpi.attr("vpiStreamLROp") = vpiStreamLROp;
+  vpi.attr("vpiStreamRLOp") = vpiStreamRLOp;
+  vpi.attr("vpiMatchedOp") = vpiMatchedOp;
+  vpi.attr("vpiTriggeredOp") = vpiTriggeredOp;
+  vpi.attr("vpiAssignmentPatternOp") = vpiAssignmentPatternOp;
+  vpi.attr("vpiMultiAssignmentPatternOp") = vpiMultiAssignmentPatternOp;
+  vpi.attr("vpiIfOp") = vpiIfOp;
+  vpi.attr("vpiIfElseOp") = vpiIfElseOp;
+  vpi.attr("vpiCompAndOp") = vpiCompAndOp;
+  vpi.attr("vpiCompOrOp") = vpiCompOrOp;
+  vpi.attr("vpiImpliesOp") = vpiImpliesOp;
+  vpi.attr("vpiInsideOp") = vpiInsideOp;
+  vpi.attr("vpiTypeOp") = vpiTypeOp;
+  vpi.attr("vpiAssignmentOp") = vpiAssignmentOp;
+  vpi.attr("vpiOtherFunc") = vpiOtherFunc;
+  vpi.attr("vpiValidUnknown") = vpiValidUnknown;
+  vpi.attr("vpiMethodFuncCall") = vpiMethodFuncCall;
+  vpi.attr("cbStartOfThread") = cbStartOfThread;
+  vpi.attr("cbEndOfThread") = cbEndOfThread;
+  vpi.attr("cbEnterThread") = cbEnterThread;
+  vpi.attr("cbStartOfFrame") = cbStartOfFrame;
+  vpi.attr("cbEndOfFrame") = cbEndOfFrame;
+  vpi.attr("cbSizeChange") = cbSizeChange;
+  vpi.attr("cbCreateObj") = cbCreateObj;
+  vpi.attr("cbReclaimObj") = cbReclaimObj;
+  vpi.attr("cbEndOfObject") = cbEndOfObject;
+  vpi.attr("vpiCoverageStart") = vpiCoverageStart;
+  vpi.attr("vpiCoverageStop") = vpiCoverageStop;
+  vpi.attr("vpiCoverageReset") = vpiCoverageReset;
+  vpi.attr("vpiCoverageCheck") = vpiCoverageCheck;
+  vpi.attr("vpiCoverageMerge") = vpiCoverageMerge;
+  vpi.attr("vpiCoverageSave") = vpiCoverageSave;
+  vpi.attr("vpiAssertCoverage") = vpiAssertCoverage;
+  vpi.attr("vpiFsmStateCoverage") = vpiFsmStateCoverage;
+  vpi.attr("vpiStatementCoverage") = vpiStatementCoverage;
+  vpi.attr("vpiToggleCoverage") = vpiToggleCoverage;
+  vpi.attr("vpiCovered") = vpiCovered;
+  vpi.attr("vpiCoverMax") = vpiCoverMax;
+  vpi.attr("vpiCoveredMax") = vpiCoveredMax;
+  vpi.attr("vpiCoveredCount") = vpiCoveredCount;
+  vpi.attr("vpiAssertAttemptCovered") = vpiAssertAttemptCovered;
+  vpi.attr("vpiAssertSuccessCovered") = vpiAssertSuccessCovered;
+  vpi.attr("vpiAssertFailureCovered") = vpiAssertFailureCovered;
+  vpi.attr("vpiAssertVacuousSuccessCovered") = vpiAssertVacuousSuccessCovered;
+  vpi.attr("vpiAssertDisableCovered") = vpiAssertDisableCovered;
+  vpi.attr("vpiAssertKillCovered") = vpiAssertKillCovered;
+  vpi.attr("vpiFsmStates") = vpiFsmStates;
+  vpi.attr("vpiFsmStateExpression") = vpiFsmStateExpression;
+  vpi.attr("vpiFsm") = vpiFsm;
+  vpi.attr("vpiFsmHandle") = vpiFsmHandle;
+  vpi.attr("cbAssertionStart") = cbAssertionStart;
+  vpi.attr("cbAssertionSuccess") = cbAssertionSuccess;
+  vpi.attr("cbAssertionFailure") = cbAssertionFailure;
+  vpi.attr("cbAssertionVacuousSuccess") = cbAssertionVacuousSuccess;
+  vpi.attr("cbAssertionDisabledEvaluation") = cbAssertionDisabledEvaluation;
+  vpi.attr("cbAssertionStepSuccess") = cbAssertionStepSuccess;
+  vpi.attr("cbAssertionStepFailure") = cbAssertionStepFailure;
+  vpi.attr("cbAssertionLock") = cbAssertionLock;
+  vpi.attr("cbAssertionUnlock") = cbAssertionUnlock;
+  vpi.attr("cbAssertionDisable") = cbAssertionDisable;
+  vpi.attr("cbAssertionEnable") = cbAssertionEnable;
+  vpi.attr("cbAssertionReset") = cbAssertionReset;
+  vpi.attr("cbAssertionKill") = cbAssertionKill;
+  vpi.attr("cbAssertionEnablePassAction") = cbAssertionEnablePassAction;
+  vpi.attr("cbAssertionEnableFailAction") = cbAssertionEnableFailAction;
+  vpi.attr("cbAssertionDisablePassAction") = cbAssertionDisablePassAction;
+  vpi.attr("cbAssertionDisableFailAction") = cbAssertionDisableFailAction;
+  vpi.attr("cbAssertionEnableNonvacuousAction") =
+      cbAssertionEnableNonvacuousAction;
+  vpi.attr("cbAssertionDisableVacuousAction") = cbAssertionDisableVacuousAction;
+  vpi.attr("cbAssertionSysInitialized") = cbAssertionSysInitialized;
+  vpi.attr("cbAssertionSysOn") = cbAssertionSysOn;
+  vpi.attr("cbAssertionSysOff") = cbAssertionSysOff;
+  vpi.attr("cbAssertionSysKill") = cbAssertionSysKill;
+  vpi.attr("cbAssertionSysLock") = cbAssertionSysLock;
+  vpi.attr("cbAssertionSysUnlock") = cbAssertionSysUnlock;
+  vpi.attr("cbAssertionSysEnd") = cbAssertionSysEnd;
+  vpi.attr("cbAssertionSysReset") = cbAssertionSysReset;
+  vpi.attr("cbAssertionSysEnablePassAction") = cbAssertionSysEnablePassAction;
+  vpi.attr("cbAssertionSysEnableFailAction") = cbAssertionSysEnableFailAction;
+  vpi.attr("cbAssertionSysDisablePassAction") = cbAssertionSysDisablePassAction;
+  vpi.attr("cbAssertionSysDisableFailAction") = cbAssertionSysDisableFailAction;
+  vpi.attr("cbAssertionSysEnableNonvacuousAction") =
+      cbAssertionSysEnableNonvacuousAction;
+  vpi.attr("cbAssertionSysDisableVacuousAction") =
+      cbAssertionSysDisableVacuousAction;
+  vpi.attr("vpiAssertionLock") = vpiAssertionLock;
+  vpi.attr("vpiAssertionUnlock") = vpiAssertionUnlock;
+  vpi.attr("vpiAssertionDisable") = vpiAssertionDisable;
+  vpi.attr("vpiAssertionEnable") = vpiAssertionEnable;
+  vpi.attr("vpiAssertionReset") = vpiAssertionReset;
+  vpi.attr("vpiAssertionKill") = vpiAssertionKill;
+  vpi.attr("vpiAssertionEnableStep") = vpiAssertionEnableStep;
+  vpi.attr("vpiAssertionDisableStep") = vpiAssertionDisableStep;
+  vpi.attr("vpiAssertionClockSteps") = vpiAssertionClockSteps;
+  vpi.attr("vpiAssertionSysLock") = vpiAssertionSysLock;
+  vpi.attr("vpiAssertionSysUnlock") = vpiAssertionSysUnlock;
+  vpi.attr("vpiAssertionSysOn") = vpiAssertionSysOn;
+  vpi.attr("vpiAssertionSysOff") = vpiAssertionSysOff;
+  vpi.attr("vpiAssertionSysKill") = vpiAssertionSysKill;
+  vpi.attr("vpiAssertionSysEnd") = vpiAssertionSysEnd;
+  vpi.attr("vpiAssertionSysReset") = vpiAssertionSysReset;
+  vpi.attr("vpiAssertionDisablePassAction") = vpiAssertionDisablePassAction;
+  vpi.attr("vpiAssertionEnablePassAction") = vpiAssertionEnablePassAction;
+  vpi.attr("vpiAssertionDisableFailAction") = vpiAssertionDisableFailAction;
+  vpi.attr("vpiAssertionEnableFailAction") = vpiAssertionEnableFailAction;
+  vpi.attr("vpiAssertionDisableVacuousAction") =
+      vpiAssertionDisableVacuousAction;
+  vpi.attr("vpiAssertionEnableNonvacuousAction") =
+      vpiAssertionEnableNonvacuousAction;
+  vpi.attr("vpiAssertionSysEnablePassAction") = vpiAssertionSysEnablePassAction;
+  vpi.attr("vpiAssertionSysEnableFailAction") = vpiAssertionSysEnableFailAction;
+  vpi.attr("vpiAssertionSysDisablePassAction") =
+      vpiAssertionSysDisablePassAction;
+  vpi.attr("vpiAssertionSysDisableFailAction") =
+      vpiAssertionSysDisableFailAction;
+  vpi.attr("vpiAssertionSysEnableNonvacuousAction") =
+      vpiAssertionSysEnableNonvacuousAction;
+  vpi.attr("vpiAssertionSysDisableVacuousAction") =
+      vpiAssertionSysDisableVacuousAction;
   // datatypes
   py::class_<s_vpi_time>(vpi, "VpiTime")
       .def(py::init(
@@ -834,8 +1241,27 @@ PYBIND11_MODULE(svuvm, m) {
   vpi.def("vpi_get_systf_info", &vpi_get_systf_info, py::arg("object"),
           py::arg("systf_data_p"), "Get system task/function information.");
 
-  vpi.def("vpi_handle_by_name", &vpi_handle_by_name, py::arg("name"),
-          py::arg("scope"), "Get a handle by name.");
+  vpi.def(
+      "create_empty_capsule",
+      []() {
+        return py::capsule(&"empty_capsule", "vpiHandle", [](void *ptr) {});
+      },
+      "Create an empty capsule");
+
+  vpi.def(
+      "vpi_handle_by_name",
+      [](const std::string &name, py::capsule scope_capsule) {
+        vpiHandle scope;
+        const char *is_nullptr = scope_capsule.get_pointer<const char>();
+        if (strcmp(is_nullptr, "empty_capsule") != 0) {
+          scope = scope_capsule.get_pointer<unsigned int>();
+        } else {
+          scope = nullptr;
+        }
+        vpiHandle handle = vpi_handle_by_name("TOP.top.test_wire", scope);
+        return py::capsule(handle, "vpiHandle");
+      },
+      py::arg("name"), py::arg("scope"), "Get a handle by name.");
 
   vpi.def("vpi_handle_by_index", &vpi_handle_by_index, py::arg("object"),
           py::arg("indx"), "Get a handle by index.");

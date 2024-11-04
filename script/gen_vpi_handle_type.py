@@ -16,3 +16,5 @@ def extract_constants(file_path):
 # 指定输入文件路径
 file_path = 'inc/vpi_user.h'
 extract_constants(file_path)
+file_path = 'inc/sv_vpi_user.h'
+extract_constants(file_path)
