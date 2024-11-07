@@ -135,13 +135,13 @@ vpiHandle vpi_handle_multi_wrap(int type, vpiHandle refHandle1,
 int vpi_mcd_printf_wrap(unsigned int mcd, py::str format, py::args args,
                         py::kwargs kwargs) {
   std::string formatted = format.format(*args, **kwargs);
-  int result = vpi_mcd_printf(mcd, "%s", formatted.c_str());
+  int result = vpi_mcd_printf(mcd, (char *)"%s", formatted.c_str());
   return result;
 }
 
 int vpi_printf_wrap(py::str format, py::args args, py::kwargs kwargs) {
   std::string formatted = format.format(*args, **kwargs);
-  int result = vpi_printf("%s", formatted.c_str());
+  int result = vpi_printf((char *)"%s", formatted.c_str());
   return result;
 }
 
@@ -1258,7 +1258,14 @@ PYBIND11_MODULE(svuvm, m) {
         } else {
           scope = nullptr;
         }
-        vpiHandle handle = vpi_handle_by_name("TOP.top.test_wire", scope);
+        vpiHandle handle =
+            vpi_handle_by_name((char *)"top.test_wire", scope);
+        if (handle == nullptr) {
+          vpi_printf((PLI_BYTE8 *)"VPI Error: unable to locate vpiHandle (%s), "
+                                  "Either the name is incorrect, or you may "
+                                  "not have PLI/ACC visibility to that name\n",
+                     name.c_str());
+        }
         return py::capsule(handle, "vpiHandle");
       },
       py::arg("name"), py::arg("scope"), "Get a handle by name.");
