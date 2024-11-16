@@ -425,12 +425,8 @@ package python_bridge_pkg;
     `ifndef VERILATOR
         #n;
     `endif //VERILATOR
-        $display("inside sv task in %d", $time);
+        $display("=== time: %d ===", $time);
     endtask:wait_unit
-
-    task stop();
-        $stop;
-    endtask:stop
 
     task run_test_wrap(string test_name="");
     `ifndef VERILATOR
@@ -491,7 +487,6 @@ package python_bridge_pkg;
     // utils
     export "DPI-C" task run_test_wrap;
     export "DPI-C" task wait_unit;
-    export "DPI-C" task stop;
 
     import "DPI-C" pure function string dirname(string file_path);
     `ifndef VERILATOR
