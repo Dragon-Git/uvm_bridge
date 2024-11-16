@@ -13,8 +13,8 @@
 #endif
 
 #ifndef NO_VPI
-#include "vpi_user.h"
 #include "sv_vpi_user.h"
+#include "vpi_user.h"
 #endif
 
 extern "C" {
@@ -94,7 +94,6 @@ void read_reg(const char *name, int *data);
 void check_reg(const char *name, int data = 0, unsigned char predict = 0);
 void run_test_wrap(const char *test_name = "");
 void wait_unit(int n);
-void stop();
 
 int wrap_read_reg(const char *name) {
   int data;
@@ -1258,8 +1257,7 @@ PYBIND11_MODULE(svuvm, m) {
         } else {
           scope = nullptr;
         }
-        vpiHandle handle =
-            vpi_handle_by_name((char *)"top.test_wire", scope);
+        vpiHandle handle = vpi_handle_by_name((char *)"top.test_wire", scope);
         if (handle == nullptr) {
           vpi_printf((PLI_BYTE8 *)"VPI Error: unable to locate vpiHandle (%s), "
                                   "Either the name is incorrect, or you may "
@@ -1538,7 +1536,14 @@ PYBIND11_MODULE(svuvm, m) {
         py::arg("sqr_name"), py::arg("rand_en") = 1, py::arg("background") = 0);
   m.def("run_test", &run_test_wrap, "uvm run test", py::arg("test_name"));
   m.def("wait_unit", &wait_unit, "wait unit time");
-  m.def("stop", &stop, "suspend the simulation");
+  m.def(
+      "reset", []() { return vpi_control(vpiReset); },
+      "Reset the simulation");
+  m.def(
+      "stop", []() { return vpi_control(vpiStop); }, "Suspend the simulation");
+  m.def(
+      "finish", []() { return vpi_control(vpiFinish); },
+      "Finished the simulation");
 }
 
 void py_func(const char *mod_name, const char *func_name,
