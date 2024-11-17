@@ -3,6 +3,7 @@
 #include <libgen.h>
 #include <pybind11/embed.h>
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
 #include <string>
 #if defined(VCS) || defined(VCSMX)
 #include <mhpi_user.h>
@@ -160,8 +161,8 @@ PYBIND11_MODULE(svuvm, m) {
   // VPI wrapper
   py::module_ vpi = m.def_submodule("vpi");
 
-  // vpi handle types
-  #include <vpi_attr.h>
+// vpi handle types
+#include <vpi_attr.h>
   // datatypes
   py::class_<s_vpi_time>(vpi, "VpiTime")
       .def(py::init(
@@ -291,31 +292,31 @@ PYBIND11_MODULE(svuvm, m) {
   //         .def_readwrite("sizetf", &s_vpi_systf_data::sizetf)
   //         .def_readwrite("user_data", &s_vpi_systf_data::user_data);
 
-  //   py::class_<s_vpi_vlog_info>(vpi, "VpiVlogInfo")
-  //       .def(py::init([](const std::vector<std::string>& args, std::string
-  //       product,
-  //                        std::string version) {
-  //         std::vector<char *> c_args;
-  //         for (const auto &arg : args) {
-  //           c_args.push_back(const_cast<char *>(arg.c_str()));
-  //         }
-  //         char **argv = c_args.data();
-  //         int argc = static_cast<int>(args.size());
-  //         return new s_vpi_vlog_info{argc, argv,
-  //         const_cast<char*>(product.c_str()),
-  //         const_cast<char*>(version.c_str())};
-  //       }))
-  //       .def(py::init<>())
-  //       .def_readwrite("argc", &s_vpi_vlog_info::argc)
-  //       .def_readwrite("argv", &s_vpi_vlog_info::argv)
-  //       .def_readwrite("product", &s_vpi_vlog_info::product)
-  //       .def_readwrite("version", &s_vpi_vlog_info::version);
+  py::class_<s_vpi_vlog_info>(vpi, "VpiVlogInfo")
+      .def(py::init([]() {
+        s_vpi_vlog_info info;
+        vpi_get_vlog_info(&info);
+        return info;
+      }))
+      .def(py::init<>())
+      .def_readonly("argc", &s_vpi_vlog_info::argc)
+      .def_property_readonly("argv",
+                             [](const s_vpi_vlog_info &info) {
+                               std::vector<std::string> result;
+                               for (int i = 0; i < info.argc; ++i) {
+                                 result.push_back(info.argv[i]);
+                               }
+                               return result;
+                             })
+      .def_readonly("product", &s_vpi_vlog_info::product)
+      .def_readonly("version", &s_vpi_vlog_info::version);
 
   py::class_<s_vpi_error_info>(vpi, "VpiErrorInfo")
-      .def(py::init([](int state, int level, char *message, char *product,
-                       char *code, char *file, int line) {
-        return new s_vpi_error_info{state, level, message, product,
-                                    code,  file,  line};
+      .def(py::init([]() {
+        s_vpi_error_info info;
+        memset(&info, 0, sizeof(info));
+        int level = vpi_chk_error(&info);
+        return info;
       }))
       .def(py::init<>())
       .def_readwrite("state", &s_vpi_error_info::state)
@@ -478,17 +479,11 @@ PYBIND11_MODULE(svuvm, m) {
   vpi.def("vpi_compare_objects", &vpi_compare_objects, py::arg("object1"),
           py::arg("object2"), "Compare two objects.");
 
-  vpi.def("vpi_chk_error", &vpi_chk_error, py::arg("error_info_p"),
-          "Check for errors.");
-
   vpi.def("vpi_free_object", &vpi_free_object, py::arg("object"),
           "Free an object. (Deprecated)");
 
   vpi.def("vpi_release_handle", &vpi_release_handle, py::arg("object"),
           "Release a handle.");
-
-  vpi.def("vpi_get_vlog_info", &vpi_get_vlog_info, py::arg("vlog_info_p"),
-          "Get vlog information.");
 
 #if !defined(VCS) && !defined(VCSMX)
   vpi.def("vpi_get_data", &vpi_get_data, py::arg("id"), py::arg("dataLoc"),
@@ -683,8 +678,7 @@ PYBIND11_MODULE(svuvm, m) {
   m.def("run_test", &run_test_wrap, "uvm run test", py::arg("test_name"));
   m.def("wait_unit", &wait_unit, "wait unit time");
   m.def(
-      "reset", []() { return vpi_control(vpiReset); },
-      "Reset the simulation");
+      "reset", []() { return vpi_control(vpiReset); }, "Reset the simulation");
   m.def(
       "stop", []() { return vpi_control(vpiStop); }, "Suspend the simulation");
   m.def(
