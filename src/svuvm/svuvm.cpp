@@ -1257,7 +1257,7 @@ PYBIND11_MODULE(svuvm, m) {
         } else {
           scope = nullptr;
         }
-        vpiHandle handle = vpi_handle_by_name((char *)"top.test_wire", scope);
+        vpiHandle handle = vpi_handle_by_name((PLI_BYTE8 *)name.c_str(), scope);
         if (handle == nullptr) {
           vpi_printf((PLI_BYTE8 *)"VPI Error: unable to locate vpiHandle (%s), "
                                   "Either the name is incorrect, or you may "
