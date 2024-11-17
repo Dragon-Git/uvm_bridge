@@ -1,3 +1,4 @@
+import re
 from sysconfig import get_config_var as getvar
 from glob import glob
 from setuptools import setup
@@ -25,6 +26,18 @@ class custom_build_ext(build_ext):  # noqa: N801
             self.compiler.linker_so_cxx.append("-dynamiclib")
             self.compiler.library_dirs.append(getvar('LIBDIR'))
         super().build_extensions()
+
+    def run(self):
+        with open("inc/vpi_user.h", "r") as file:
+            content = file.read()
+        with open("inc/sv_vpi_user.h", "r") as file:
+            content += file.read()
+        pattern = re.compile(r'#define\s+(vpi\w+|cb\w+)\s+(\d+)')
+        matches = pattern.findall(content)
+        vpi_attr = [f'vpi.attr("{match[0]}") = {match[0]};' for match in matches]
+        with open("inc/vpi_attr.h", "w") as file:
+            file.write("\n".join(vpi_attr))
+        build_ext.run(self)
 
 
 ext_modules = [
