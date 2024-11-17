@@ -1,3 +1,4 @@
 recursive-include src/svuvm *.sv
 recursive-exclude src/svuvm *.cpp
 recursive-exclude test *
+recursive-include inc *
