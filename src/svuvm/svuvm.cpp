@@ -4,6 +4,7 @@
 #include <pybind11/embed.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <pybind11/functional.h>
 #include <string>
 #if defined(VCS) || defined(VCSMX)
 #include <mhpi_user.h>
@@ -327,50 +328,34 @@ PYBIND11_MODULE(svuvm, m) {
       .def_readwrite("file", &s_vpi_error_info::file)
       .def_readwrite("line", &s_vpi_error_info::line);
 
-  //   py::class_<s_cb_data>(vpi, "CbData")
-  //       .def(py::init([](int reason, py::object cb_rtn, vpiHandle obj,
-  //                        p_vpi_time time, p_vpi_value value, int index,
-  //                        std::string user_data) {
-  //         s_cb_data data;
-  //         data.reason = reason;
-  //         data.cb_rtn = [](struct t_cb_data *cb_data) -> PLI_INT32 {
-  //           py::gil_scoped_acquire gil; // 获取 GIL
-  //           py::object cb_rtn = py::cast(cb_data->cb_rtn);
-  //           return cb_rtn(cb_data).cast<PLI_INT32>();
-  //         };
-  //         data.obj = obj;
-  //         data.time = time;
-  //         data.value = value;
-  //         data.index = index;
-  //         data.user_data = const_cast<PLI_BYTE8 *>(user_data.c_str());
-  //         return data;
-  //       }))
-  //       .def(py::init<>())
-  //       .def_readwrite("reason", &s_cb_data::reason)
-  //       .def_property(
-  //           "cb_rtn",
-  //           [](s_cb_data &data) -> py::object {
-  //             return py::cpp_function(data.cb_rtn, py::keep_alive<0, 1>());
-  //           },
-  //           [](s_cb_data &data, py::object cb_rtn) {
-  //             data.cb_rtn = [](struct t_cb_data *cb_data) -> PLI_INT32 {
-  //               py::gil_scoped_acquire gil; // 获取 GIL
-  //               py::object cb_rtn_obj = py::cast(cb_data->cb_rtn);
-  //               return cb_rtn_obj(cb_data).cast<PLI_INT32>();
-  //             };
-  //           })
-  //       .def_readwrite("obj", &s_cb_data::obj)
-  //       .def_readwrite("time", &s_cb_data::time)
-  //       .def_readwrite("value", &s_cb_data::value)
-  //       .def_readwrite("index", &s_cb_data::index)
-  //       .def_property(
-  //           "user_data",
-  //           [](s_cb_data &data) -> std::string {
-  //             return std::string(data.user_data);
-  //           },
-  //           [](s_cb_data &data, std::string user_data) {
-  //             data.user_data = const_cast<PLI_BYTE8 *>(user_data.c_str());
-  //           });
+   py::class_<s_cb_data>(vpi, "CbData")
+       .def(py::init([](int reason, const std::function<PLI_INT32(struct t_cb_data *cb_data)> &cb_rtn, vpiHandle obj,
+                        p_vpi_time time, p_vpi_value value, int index,
+                        std::string user_data) {
+         s_cb_data data;
+         data.reason = reason;
+         data.cb_rtn = *cb_rtn.target<PLI_INT32(*)(struct t_cb_data *)>();
+         data.obj = obj;
+         data.time = time;
+         data.value = value;
+         data.index = index;
+         data.user_data = const_cast<PLI_BYTE8 *>(user_data.c_str());
+         return data;
+       }))
+       .def(py::init<>())
+       .def_readwrite("reason", &s_cb_data::reason)
+       .def_readwrite("obj", &s_cb_data::obj)
+       .def_readwrite("time", &s_cb_data::time)
+       .def_readwrite("value", &s_cb_data::value)
+       .def_readwrite("index", &s_cb_data::index)
+       .def_property(
+           "user_data",
+           [](s_cb_data &data) -> std::string {
+             return std::string(data.user_data);
+           },
+           [](s_cb_data &data, std::string user_data) {
+             data.user_data = const_cast<PLI_BYTE8 *>(user_data.c_str());
+           });
   // functions
   vpi.def("vpi_register_cb", &vpi_register_cb, py::arg("cb_data_p"),
           "Register a callback.");
