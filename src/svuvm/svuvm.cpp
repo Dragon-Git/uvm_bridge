@@ -507,6 +507,7 @@ PYBIND11_MODULE(svuvm, m) {
   m.attr("UVM_HIGH") = M_UVM_HIGH;
   m.attr("UVM_FULL") = M_UVM_FULL;
   m.attr("UVM_DEBUG") = M_UVM_DEBUG;
+  m.attr("VpiVecVal") = vpi.attr("VpiVecVal");
 
 #if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
   // Binding functions

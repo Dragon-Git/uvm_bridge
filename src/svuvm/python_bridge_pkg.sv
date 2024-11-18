@@ -307,17 +307,17 @@ package python_bridge_pkg;
             item.randomize();
         end
     `ifndef VERILATOR
-        if (background)  begin: background
+        if (background)  begin: bg
             fork: start_seq__bg_thread
                 begin
                     if (item.is_item())  begin
-                        sqr.start_item(item);
+                        sqr.execute_item(item);
                     end else if ($cast(seq, item))  begin
                         seq.start(sqr);
                     end
                 end
             join_none: start_seq__bg_thread
-        end else begin: foreground
+        end else begin: fg
             if (item.is_item())  begin
                 sqr.execute_item(item);
             end else if ($cast(seq, item))  begin
