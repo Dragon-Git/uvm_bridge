@@ -2,9 +2,9 @@
 #include <dlfcn.h>
 #include <libgen.h>
 #include <pybind11/embed.h>
+#include <pybind11/functional.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include <pybind11/functional.h>
 #include <string>
 #if defined(VCS) || defined(VCSMX)
 #include <mhpi_user.h>
@@ -276,22 +276,25 @@ PYBIND11_MODULE(svuvm, m) {
       .def_readwrite("flags", &s_vpi_arrayvalue::flags)
       .def_readwrite("value", &s_vpi_arrayvalue::value);
 
-  //     py::class_<s_vpi_systf_data>(vpi, "VpiSystfData")
-  //         .def(py::init([](int type, int sysfunctype, const char *tfname,
-  //                          int (*calltf)(char *), int (*compiletf)(char *),
-  //                          int (*sizetf)(char *), const char *user_data) {
-  //           return new s_vpi_systf_data{
-  //               type,      sysfunctype, tfname,           calltf,
-  //               compiletf, sizetf,      (char *)user_data};
-  //         }))
-  //         .def(py::init<>())
-  //         .def_readwrite("type", &s_vpi_systf_data::type)
-  //         .def_readwrite("sysfunctype", &s_vpi_systf_data::sysfunctype)
-  //         .def_readwrite("tfname", &s_vpi_systf_data::tfname)
-  //         .def_readwrite("calltf", &s_vpi_systf_data::calltf)
-  //         .def_readwrite("compiletf", &s_vpi_systf_data::compiletf)
-  //         .def_readwrite("sizetf", &s_vpi_systf_data::sizetf)
-  //         .def_readwrite("user_data", &s_vpi_systf_data::user_data);
+  py::class_<s_vpi_systf_data>(vpi, "VpiSystfData")
+      .def(py::init([](int type, int sysfunctype, const char *tfname,
+                       const std::function<PLI_INT32(char *)> &calltf,
+                       const std::function<PLI_INT32(char *)> &compiletf,
+                       const std::function<PLI_INT32(char *)> &sizetf,
+                       const char *user_data) {
+        return new s_vpi_systf_data{type,
+                                    sysfunctype,
+                                    (char *)tfname,
+                                    *calltf.target<PLI_INT32 (*)(char *)>(),
+                                    *compiletf.target<PLI_INT32 (*)(char *)>(),
+                                    *sizetf.target<PLI_INT32 (*)(char *)>(),
+                                    (char *)user_data};
+      }))
+      .def(py::init<>())
+      .def_readwrite("type", &s_vpi_systf_data::type)
+      .def_readwrite("sysfunctype", &s_vpi_systf_data::sysfunctype)
+      .def_readwrite("tfname", &s_vpi_systf_data::tfname)
+      .def_readwrite("user_data", &s_vpi_systf_data::user_data);
 
   py::class_<s_vpi_vlog_info>(vpi, "VpiVlogInfo")
       .def(py::init([]() {
@@ -328,34 +331,36 @@ PYBIND11_MODULE(svuvm, m) {
       .def_readwrite("file", &s_vpi_error_info::file)
       .def_readwrite("line", &s_vpi_error_info::line);
 
-   py::class_<s_cb_data>(vpi, "CbData")
-       .def(py::init([](int reason, const std::function<PLI_INT32(struct t_cb_data *cb_data)> &cb_rtn, vpiHandle obj,
-                        p_vpi_time time, p_vpi_value value, int index,
-                        std::string user_data) {
-         s_cb_data data;
-         data.reason = reason;
-         data.cb_rtn = *cb_rtn.target<PLI_INT32(*)(struct t_cb_data *)>();
-         data.obj = obj;
-         data.time = time;
-         data.value = value;
-         data.index = index;
-         data.user_data = const_cast<PLI_BYTE8 *>(user_data.c_str());
-         return data;
-       }))
-       .def(py::init<>())
-       .def_readwrite("reason", &s_cb_data::reason)
-       .def_readwrite("obj", &s_cb_data::obj)
-       .def_readwrite("time", &s_cb_data::time)
-       .def_readwrite("value", &s_cb_data::value)
-       .def_readwrite("index", &s_cb_data::index)
-       .def_property(
-           "user_data",
-           [](s_cb_data &data) -> std::string {
-             return std::string(data.user_data);
-           },
-           [](s_cb_data &data, std::string user_data) {
-             data.user_data = const_cast<PLI_BYTE8 *>(user_data.c_str());
-           });
+  py::class_<s_cb_data>(vpi, "CbData")
+      .def(py::init(
+          [](int reason,
+             const std::function<PLI_INT32(struct t_cb_data * cb_data)> &cb_rtn,
+             vpiHandle obj, p_vpi_time time, p_vpi_value value, int index,
+             std::string user_data) {
+            s_cb_data data;
+            data.reason = reason;
+            data.cb_rtn = *cb_rtn.target<PLI_INT32 (*)(struct t_cb_data *)>();
+            data.obj = obj;
+            data.time = time;
+            data.value = value;
+            data.index = index;
+            data.user_data = const_cast<PLI_BYTE8 *>(user_data.c_str());
+            return data;
+          }))
+      .def(py::init<>())
+      .def_readwrite("reason", &s_cb_data::reason)
+      .def_readwrite("obj", &s_cb_data::obj)
+      .def_readwrite("time", &s_cb_data::time)
+      .def_readwrite("value", &s_cb_data::value)
+      .def_readwrite("index", &s_cb_data::index)
+      .def_property(
+          "user_data",
+          [](s_cb_data &data) -> std::string {
+            return std::string(data.user_data);
+          },
+          [](s_cb_data &data, std::string user_data) {
+            data.user_data = const_cast<PLI_BYTE8 *>(user_data.c_str());
+          });
   // functions
   vpi.def("vpi_register_cb", &vpi_register_cb, py::arg("cb_data_p"),
           "Register a callback.");
@@ -670,6 +675,51 @@ PYBIND11_MODULE(svuvm, m) {
   m.def(
       "finish", []() { return vpi_control(vpiFinish); },
       "Finished the simulation");
+  m.def(
+      "get_sim_time",
+      [](const char *name) {
+        uint64_t time;
+        s_vpi_time vpi_time_s;
+        vpi_time_s.type = vpiSimTime;
+        const svScope scope = svGetScopeFromName(name);
+        if (scope == nullptr) {
+          vpi_printf((PLI_BYTE8 *)"DPI Error: unable to locate scope (%s), the "
+                                  "name is incorrect.\n",
+                     name);
+        }
+        svGetTime(scope, &vpi_time_s);
+        time = (uint64_t)vpi_time_s.high << 32 | vpi_time_s.low;
+        return time;
+      },
+      "Get the current simulation time, scaled to the time unit of the scope.");
+  m.def(
+      "get_timeunit",
+      [](const char *name) {
+        int32_t time_unit;
+        const svScope scope = svGetScopeFromName(name);
+        if (scope == nullptr) {
+          vpi_printf((PLI_BYTE8 *)"DPI Error: unable to locate scope (%s), the "
+                                  "name is incorrect.\n",
+                     name);
+        }
+        svGetTimeUnit(scope, &time_unit);
+        return time_unit;
+      },
+      "Get the time unit for scope");
+  m.def(
+      "get_precision",
+      [](const char *name) {
+        int32_t precision;
+        const svScope scope = svGetScopeFromName(name);
+        if (scope == nullptr) {
+          vpi_printf((PLI_BYTE8 *)"DPI Error: unable to locate scope (%s), the "
+                                  "name is incorrect.\n",
+                     name);
+        }
+        svGetTimePrecision(scope, &precision);
+        return precision;
+      },
+      "Get time precision for scope");
 }
 
 void py_func(const char *mod_name, const char *func_name,
