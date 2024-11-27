@@ -89,14 +89,17 @@ void wrap_walk_level(int lvl, std::vector<std::string> args, int cmd) {
 }
 
 void wrap_uvm_report(char *message, int verbosity, int severity) {
-  py::object inspect = py:mmodule::import("inspact");
+  py::object inspect = py : mmodule::import("inspact");
   py::object current_frame = inspect.attr("currentframe")();
 
-  if (!current_frame.is_none()){
-    std::string funcname = current_frame.attr("f_code").attr("co_name").cast<std::string>();
-    std::string filename = current_frame.attr("f_code").attr("co_filename").cast<std::string>();
+  if (!current_frame.is_none()) {
+    std::string funcname =
+        current_frame.attr("f_code").attr("co_name").cast<std::string>();
+    std::string filename =
+        current_frame.attr("f_code").attr("co_filename").cast<std::string>();
     int lineno = current_frame.attr("lineno").cast<int>();
-    m_uvm_report_dpi(severity, const_cast<char *>(funcname.c_str()),massage, verbosity, const_cast<char *>(filename.c_str()), lineno);
+    m_uvm_report_dpi(severity, const_cast<char *>(funcname.c_str()), massage,
+                     verbosity, const_cast<char *>(filename.c_str()), lineno);
   } else {
     std::cout << "currentframe is not available!" << std::endl;
   }
@@ -166,6 +169,10 @@ int vpi_control_wrap(int operation, py::args args) {
     c_args.push_back(arg.cast<void *>());
   }
   return vpi_control(operation, c_args.data());
+}
+
+static PLI_INT32 vpi_callback_wrap(s_cb_data* data) {
+  return vpi_printf((char *)"test callback");
 }
 #endif
 
@@ -353,7 +360,7 @@ PYBIND11_MODULE(svuvm, m) {
              std::string user_data) {
             s_cb_data data;
             data.reason = reason;
-            data.cb_rtn = *cb_rtn.target<PLI_INT32 (*)(struct t_cb_data *)>();
+            data.cb_rtn = vpi_callback_wrap;
             data.obj = obj;
             data.time = time;
             data.value = value;
@@ -600,16 +607,20 @@ PYBIND11_MODULE(svuvm, m) {
         py::arg("cmd"));
 
   m.def("uvm_info", &wrap_uvm_report, "UVM_INFO report function.",
-        py::arg("message"), py::arg("verbosity"), py::arg("severity") = M_UVM_INFO);
+        py::arg("message"), py::arg("verbosity"),
+        py::arg("severity") = M_UVM_INFO);
 
   m.def("uvm_warning", &wrap_uvm_report, "UVM_WARNING report function.",
-        py::arg("message"), py::arg("verbosity") = M_UVM_NONE, py::arg("severity") = M_UVM_WARNING);
+        py::arg("message"), py::arg("verbosity") = M_UVM_NONE,
+        py::arg("severity") = M_UVM_WARNING);
 
   m.def("uvm_error", &wrap_uvm_report, "UVM_ERROR report function.",
-        py::arg("message"), py::arg("verbosity") = M_UVM_NONE, py::arg("severity") = M_UVM_ERROR);
+        py::arg("message"), py::arg("verbosity") = M_UVM_NONE,
+        py::arg("severity") = M_UVM_ERROR);
 
   m.def("uvm_fatal", &wrap_uvm_report, "UVM_FATAL report function.",
-        py::arg("message"), py::arg("verbosity") = M_UVM_NONE, py::arg("severity") = M_UVM_FATAL);
+        py::arg("message"), py::arg("verbosity") = M_UVM_NONE,
+        py::arg("severity") = M_UVM_FATAL);
 #endif
 
   m.def("print_factory", &print_factory, "Prints factory information.",
