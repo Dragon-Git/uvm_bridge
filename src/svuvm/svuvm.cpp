@@ -705,16 +705,15 @@ PYBIND11_MODULE(svuvm, m) {
       "get_sim_time",
       [](const char *name) {
         uint64_t time;
+#if defined(VCS) || defined(VCSMX)
+        time = (uint64_t)tf_gettime();
+#else
         s_vpi_time vpi_time_s;
         vpi_time_s.type = vpiSimTime;
         const svScope scope = svGetScopeFromName(name);
-        if (scope == nullptr) {
-          vpi_printf((PLI_BYTE8 *)"DPI Error: unable to locate scope (%s), the "
-                                  "name is incorrect.\n",
-                     name);
-        }
         svGetTime(scope, &vpi_time_s);
         time = (uint64_t)vpi_time_s.high << 32 | vpi_time_s.low;
+#endif
         return time;
       },
       "Get the current simulation time, scaled to the time unit of the scope.");
@@ -722,13 +721,12 @@ PYBIND11_MODULE(svuvm, m) {
       "get_timeunit",
       [](const char *name) {
         int32_t time_unit;
+#if defined(VCS) || defined(VCSMX)
+        time_unit = tf_gettimeunit();
+#else
         const svScope scope = svGetScopeFromName(name);
-        if (scope == nullptr) {
-          vpi_printf((PLI_BYTE8 *)"DPI Error: unable to locate scope (%s), the "
-                                  "name is incorrect.\n",
-                     name);
-        }
         svGetTimeUnit(scope, &time_unit);
+#endif
         return time_unit;
       },
       "Get the time unit for scope");
@@ -736,13 +734,12 @@ PYBIND11_MODULE(svuvm, m) {
       "get_precision",
       [](const char *name) {
         int32_t precision;
+#if defined(VCS) || defined(VCSMX)
+        precision = tf_gettimeprecision();
+#else
         const svScope scope = svGetScopeFromName(name);
-        if (scope == nullptr) {
-          vpi_printf((PLI_BYTE8 *)"DPI Error: unable to locate scope (%s), the "
-                                  "name is incorrect.\n",
-                     name);
-        }
         svGetTimePrecision(scope, &precision);
+#endif
         return precision;
       },
       "Get time precision for scope");
