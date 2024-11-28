@@ -5,7 +5,7 @@
 #include <pybind11/functional.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include <string>
+#include <iostream>
 #if defined(VCS) || defined(VCSMX)
 #include <mhpi_user.h>
 #elif defined(XCELIUM) || defined(NCSC)
@@ -89,7 +89,7 @@ void wrap_walk_level(int lvl, std::vector<std::string> args, int cmd) {
 }
 
 void wrap_uvm_report(char *message, int verbosity, int severity) {
-  py::object inspect = py : mmodule::import("inspact");
+  py::object inspect = py::module::import("inspect");
   py::object current_frame = inspect.attr("currentframe")();
 
   if (!current_frame.is_none()) {
@@ -97,8 +97,8 @@ void wrap_uvm_report(char *message, int verbosity, int severity) {
         current_frame.attr("f_code").attr("co_name").cast<std::string>();
     std::string filename =
         current_frame.attr("f_code").attr("co_filename").cast<std::string>();
-    int lineno = current_frame.attr("lineno").cast<int>();
-    m_uvm_report_dpi(severity, const_cast<char *>(funcname.c_str()), massage,
+    int lineno = current_frame.attr("f_lineno").cast<int>();
+    m_uvm_report_dpi(severity, const_cast<char *>(funcname.c_str()), message,
                      verbosity, const_cast<char *>(filename.c_str()), lineno);
   } else {
     std::cout << "currentframe is not available!" << std::endl;
@@ -171,8 +171,28 @@ int vpi_control_wrap(int operation, py::args args) {
   return vpi_control(operation, c_args.data());
 }
 
-static PLI_INT32 vpi_callback_wrap(s_cb_data* data) {
-  return vpi_printf((char *)"test callback");
+struct CallbackInfo {
+  py::function py_callback;
+  std::string user_data;
+
+  CallbackInfo(py::function cb, std::string ud)
+    : py_callback(cb), user_data(ud) {}
+
+};
+
+static PLI_INT32 vpi_callback_wrap(p_cb_data cb_data) {
+  auto callback_info = reinterpret_cast<CallbackInfo*>(cb_data->user_data);
+  py::gil_scoped_acquire gil;
+
+  try {
+    py::object py_cb_data = py::cast(cb_data);
+    py::object py_result = callback_info->py_callback(cb_data);
+    PLI_INT32 result = py_result.cast<PLI_INT32>();
+    return result;
+  } catch (const py::error_already_set & e) {
+    std::cerr << "Exception in python callback: " << e.what() << std::endl;
+    return 0;
+  }
 }
 #endif
 
@@ -354,18 +374,13 @@ PYBIND11_MODULE(svuvm, m) {
 
   py::class_<s_cb_data>(vpi, "CbData")
       .def(py::init(
-          [](int reason,
-             const std::function<PLI_INT32(struct t_cb_data * cb_data)> &cb_rtn,
-             vpiHandle obj, p_vpi_time time, p_vpi_value value, int index,
+          [](int reason, py::function cb_rtn, vpiHandle obj, 
+             p_vpi_time time, p_vpi_value value, int index,
              std::string user_data) {
             s_cb_data data;
-            data.reason = reason;
-            data.cb_rtn = vpi_callback_wrap;
-            data.obj = obj;
-            data.time = time;
-            data.value = value;
-            data.index = index;
-            data.user_data = const_cast<PLI_BYTE8 *>(user_data.c_str());
+            data = {reason, vpi_callback_wrap, obj, time, value, index, NULL};
+            auto callback_info = new CallbackInfo(cb_rtn, user_data);
+            data.user_data = reinterpret_cast<PLI_BYTE8 *>(callback_info);
             return data;
           }))
       .def(py::init<>())
