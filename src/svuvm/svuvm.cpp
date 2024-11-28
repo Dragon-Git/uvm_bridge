@@ -194,6 +194,20 @@ static PLI_INT32 vpi_callback_wrap(p_cb_data cb_data) {
     return 0;
   }
 }
+
+static PLI_INT32 systf_callback_wrap(PLI_BYTE8 *user_data) {
+  auto callback_info = reinterpret_cast<CallbackInfo*>(user_data);
+  py::gil_scoped_acquire gil;
+
+  try {
+    py::object py_result = callback_info->py_callback();
+    PLI_INT32 result = py_result.cast<PLI_INT32>();
+    return result;
+  } catch (const py::error_already_set & e) {
+    std::cerr << "Exception in python callback: " << e.what() << std::endl;
+    return 0;
+  }
+}
 #endif
 
 PYBIND11_MODULE(svuvm, m) {
@@ -318,18 +332,13 @@ PYBIND11_MODULE(svuvm, m) {
       .def_readwrite("value", &s_vpi_arrayvalue::value);
 
   py::class_<s_vpi_systf_data>(vpi, "VpiSystfData")
-      .def(py::init([](int type, int sysfunctype, const char *tfname,
-                       const std::function<PLI_INT32(char *)> &calltf,
-                       const std::function<PLI_INT32(char *)> &compiletf,
-                       const std::function<PLI_INT32(char *)> &sizetf,
-                       const char *user_data) {
-        return new s_vpi_systf_data{type,
-                                    sysfunctype,
-                                    (char *)tfname,
-                                    *calltf.target<PLI_INT32 (*)(char *)>(),
-                                    *compiletf.target<PLI_INT32 (*)(char *)>(),
-                                    *sizetf.target<PLI_INT32 (*)(char *)>(),
-                                    (char *)user_data};
+      .def(py::init([](int type, int sysfunctype, py::function calltf) {
+        std::string func_name = calltf.attr("__name__").cast<std::string>();
+        std::string tfname = "$" + func_name;
+        auto callback_info = new CallbackInfo(calltf, "user_data");
+        PLI_BYTE8 *user_data = reinterpret_cast<PLI_BYTE8 *>(callback_info);
+        return new s_vpi_systf_data{type, sysfunctype, (PLI_BYTE8 *)tfname.c_str(),
+                                    systf_callback_wrap, NULL, NULL, user_data};
       }))
       .def(py::init<>())
       .def_readwrite("type", &s_vpi_systf_data::type)
