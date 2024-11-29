@@ -423,19 +423,12 @@ PYBIND11_MODULE(svuvm, m) {
           py::arg("systf_data_p"), "Get system task/function information.");
 
   vpi.def(
-      "create_empty_capsule",
-      []() {
-        return py::capsule(&"empty_capsule", "vpiHandle", [](void *ptr) {});
-      },
-      "Create an empty capsule");
-
-  vpi.def(
       "vpi_handle_by_name",
-      [](const std::string &name, py::capsule scope_capsule) {
+      [](const std::string &name, py::object scope_capsule) {
         vpiHandle scope;
-        const char *is_nullptr = scope_capsule.get_pointer<const char>();
-        if (strcmp(is_nullptr, "empty_capsule") != 0) {
-          scope = scope_capsule.get_pointer<unsigned int>();
+        if (!scope_capsule.is_none()) {
+          py::capsule scope_capsule_ = scope_capsule;
+          scope = scope_capsule_.get_pointer<unsigned int>();
         } else {
           scope = nullptr;
         }
