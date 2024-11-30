@@ -1,22 +1,17 @@
 #include "svdpi.h"
 #include <dlfcn.h>
+#include <iostream>
 #include <libgen.h>
 #include <pybind11/embed.h>
 #include <pybind11/functional.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include <iostream>
 #if defined(VCS) || defined(VCSMX)
 #include <mhpi_user.h>
 #elif defined(XCELIUM) || defined(NCSC)
 #include <cfclib.h>
 #elif defined(MENTOR)
 #include <mti.h>
-#endif
-
-#ifndef NO_VPI
-#include "sv_vpi_user.h"
-#include "vpi_user.h"
 #endif
 
 extern "C" {
@@ -135,79 +130,7 @@ void exec_tcl_cmd(char *cmd) {
 };
 
 #ifndef NO_VPI
-vpiHandle vpi_handle_multi_wrap(int type, vpiHandle refHandle1,
-                                vpiHandle refHandle2, py::args ref_handles) {
-  std::vector<vpiHandle> c_ref_handles;
-  for (const auto &arg : ref_handles) {
-    if (py::isinstance<py::capsule>(arg)) {
-      c_ref_handles.push_back(
-          reinterpret_cast<vpiHandle>(arg.cast<py::capsule>().ptr()));
-    } else {
-      throw std::runtime_error(
-          "Invalid argument type for vpiHandle conversion.");
-    }
-  }
-  return vpi_handle_multi(type, refHandle1, refHandle2, c_ref_handles.data());
-}
-
-int vpi_mcd_printf_wrap(unsigned int mcd, py::str format, py::args args,
-                        py::kwargs kwargs) {
-  std::string formatted = format.format(*args, **kwargs);
-  int result = vpi_mcd_printf(mcd, (char *)"%s", formatted.c_str());
-  return result;
-}
-
-int vpi_printf_wrap(py::str format, py::args args, py::kwargs kwargs) {
-  std::string formatted = format.format(*args, **kwargs);
-  int result = vpi_printf((char *)"%s", formatted.c_str());
-  return result;
-}
-
-int vpi_control_wrap(int operation, py::args args) {
-  std::vector<void *> c_args;
-  for (const auto &arg : args) {
-    c_args.push_back(arg.cast<void *>());
-  }
-  return vpi_control(operation, c_args.data());
-}
-
-struct CallbackInfo {
-  py::function py_callback;
-  std::string user_data;
-
-  CallbackInfo(py::function cb, std::string ud)
-    : py_callback(cb), user_data(ud) {}
-
-};
-
-static PLI_INT32 vpi_callback_wrap(p_cb_data cb_data) {
-  auto callback_info = reinterpret_cast<CallbackInfo*>(cb_data->user_data);
-  py::gil_scoped_acquire gil;
-
-  try {
-    py::object py_cb_data = py::cast(cb_data);
-    py::object py_result = callback_info->py_callback(cb_data);
-    PLI_INT32 result = py_result.cast<PLI_INT32>();
-    return result;
-  } catch (const py::error_already_set & e) {
-    std::cerr << "Exception in python callback: " << e.what() << std::endl;
-    return 0;
-  }
-}
-
-static PLI_INT32 systf_callback_wrap(PLI_BYTE8 *user_data) {
-  auto callback_info = reinterpret_cast<CallbackInfo*>(user_data);
-  py::gil_scoped_acquire gil;
-
-  try {
-    py::object py_result = callback_info->py_callback();
-    PLI_INT32 result = py_result.cast<PLI_INT32>();
-    return result;
-  } catch (const py::error_already_set & e) {
-    std::cerr << "Exception in python callback: " << e.what() << std::endl;
-    return 0;
-  }
-}
+#include "vpi_user_wrap.h"
 #endif
 
 PYBIND11_MODULE(svuvm, m) {
@@ -337,8 +260,13 @@ PYBIND11_MODULE(svuvm, m) {
         std::string tfname = "$" + func_name;
         auto callback_info = new CallbackInfo(calltf, "user_data");
         PLI_BYTE8 *user_data = reinterpret_cast<PLI_BYTE8 *>(callback_info);
-        return new s_vpi_systf_data{type, sysfunctype, (PLI_BYTE8 *)tfname.c_str(),
-                                    systf_callback_wrap, NULL, NULL, user_data};
+        return new s_vpi_systf_data{type,
+                                    sysfunctype,
+                                    (PLI_BYTE8 *)tfname.c_str(),
+                                    systf_callback_wrap,
+                                    NULL,
+                                    NULL,
+                                    user_data};
       }))
       .def(py::init<>())
       .def_readwrite("type", &s_vpi_systf_data::type)
@@ -382,16 +310,16 @@ PYBIND11_MODULE(svuvm, m) {
       .def_readwrite("line", &s_vpi_error_info::line);
 
   py::class_<s_cb_data>(vpi, "CbData")
-      .def(py::init(
-          [](int reason, py::function cb_rtn, vpiHandle obj, 
-             p_vpi_time time, p_vpi_value value, int index,
-             std::string user_data) {
-            s_cb_data data;
-            data = {reason, vpi_callback_wrap, obj, time, value, index, NULL};
-            auto callback_info = new CallbackInfo(cb_rtn, user_data);
-            data.user_data = reinterpret_cast<PLI_BYTE8 *>(callback_info);
-            return data;
-          }))
+      .def(py::init([](int reason, py::function cb_rtn, py::object object,
+                       p_vpi_time time, p_vpi_value value, int index,
+                       std::string user_data) {
+        s_cb_data data;
+        GET_HANDLE(object, obj);
+        data = {reason, vpi_callback_wrap, obj, time, value, index, NULL};
+        auto callback_info = new CallbackInfo(cb_rtn, user_data);
+        data.user_data = reinterpret_cast<PLI_BYTE8 *>(callback_info);
+        return data;
+      }))
       .def(py::init<>())
       .def_readwrite("reason", &s_cb_data::reason)
       .def_readwrite("obj", &s_cb_data::obj)
@@ -407,88 +335,70 @@ PYBIND11_MODULE(svuvm, m) {
             data.user_data = const_cast<PLI_BYTE8 *>(user_data.c_str());
           });
   // functions
-  vpi.def("vpi_register_cb", &vpi_register_cb, py::arg("cb_data_p"),
+  vpi.def("vpi_register_cb", &vpi_register_cb_wrap, py::arg("cb_data_p"),
           "Register a callback.");
 
-  vpi.def("vpi_remove_cb", &vpi_remove_cb, py::arg("cb_obj"),
+  vpi.def("vpi_remove_cb", &vpi_remove_cb_wrap, py::arg("cb_obj"),
           "Remove a callback.");
 
-  vpi.def("vpi_get_cb_info", &vpi_get_cb_info, py::arg("object"),
+  vpi.def("vpi_get_cb_info", &vpi_get_cb_info_wrap, py::arg("object"),
           py::arg("cb_data_p"), "Get callback information.");
 
-  vpi.def("vpi_register_systf", &vpi_register_systf, py::arg("systf_data_p"),
-          "Register a system task/function.");
+  vpi.def("vpi_register_systf", &vpi_register_systf_wrap,
+          py::arg("systf_data_p"), "Register a system task/function.");
 
-  vpi.def("vpi_get_systf_info", &vpi_get_systf_info, py::arg("object"),
+  vpi.def("vpi_get_systf_info", &vpi_get_systf_info_wrap, py::arg("object"),
           py::arg("systf_data_p"), "Get system task/function information.");
 
-  vpi.def(
-      "vpi_handle_by_name",
-      [](const std::string &name, py::object scope_capsule) {
-        vpiHandle scope;
-        if (!scope_capsule.is_none()) {
-          py::capsule scope_capsule_ = scope_capsule;
-          scope = scope_capsule_.get_pointer<unsigned int>();
-        } else {
-          scope = nullptr;
-        }
-        vpiHandle handle = vpi_handle_by_name((PLI_BYTE8 *)name.c_str(), scope);
-        if (handle == nullptr) {
-          vpi_printf((PLI_BYTE8 *)"VPI Error: unable to locate vpiHandle (%s), "
-                                  "Either the name is incorrect, or you may "
-                                  "not have PLI/ACC visibility to that name\n",
-                     name.c_str());
-        }
-        return py::capsule(handle, "vpiHandle");
-      },
-      py::arg("name"), py::arg("scope"), "Get a handle by name.");
+  vpi.def("vpi_handle_by_name", &vpi_handle_by_name_wrap, py::arg("name"),
+          py::arg("scope") = py::none(), "Get a handle by name.");
 
-  vpi.def("vpi_handle_by_index", &vpi_handle_by_index, py::arg("object"),
+  vpi.def("vpi_handle_by_index", &vpi_handle_by_index_wrap, py::arg("object"),
           py::arg("indx"), "Get a handle by index.");
 
-  vpi.def("vpi_handle", &vpi_handle, py::arg("type"), py::arg("refHandle"),
+  vpi.def("vpi_handle", &vpi_handle_wrap, py::arg("type"), py::arg("refHandle"),
           "Get a handle for a specific type and reference handle.");
 
   vpi.def("vpi_handle_multi", &vpi_handle_multi_wrap,
           "Get a handle for multiple reference handles.");
 
-  vpi.def("vpi_iterate", &vpi_iterate, py::arg("type"), py::arg("refHandle"),
-          "Iterate over objects of a specific type.");
+  vpi.def("vpi_iterate", &vpi_iterate_wrap, py::arg("type"),
+          py::arg("refHandle"), "Iterate over objects of a specific type.");
 
-  vpi.def("vpi_scan", &vpi_scan, py::arg("iterator"), "Scan an iterator.");
+  vpi.def("vpi_scan", &vpi_scan_wrap, py::arg("iterator"), "Scan an iterator.");
 
-  vpi.def("vpi_get", &vpi_get, py::arg("property"), py::arg("object"),
+  vpi.def("vpi_get", &vpi_get_wrap, py::arg("property"), py::arg("object"),
           "Get a property value.");
 
-  vpi.def("vpi_get64", &vpi_get64, py::arg("property"), py::arg("object"),
+  vpi.def("vpi_get64", &vpi_get64_wrap, py::arg("property"), py::arg("object"),
           "Get a 64-bit property value.");
 
-  vpi.def("vpi_get_str", &vpi_get_str, py::arg("property"), py::arg("object"),
-          "Get a string property value.");
+  vpi.def("vpi_get_str", &vpi_get_str_wrap, py::arg("property"),
+          py::arg("object"), "Get a string property value.");
 
-  vpi.def("vpi_get_delays", &vpi_get_delays, py::arg("object"),
+  vpi.def("vpi_get_delays", &vpi_get_delays_wrap, py::arg("object"),
           py::arg("delay_p"), "Get delays for an object.");
 
-  vpi.def("vpi_put_delays", &vpi_put_delays, py::arg("object"),
+  vpi.def("vpi_put_delays", &vpi_put_delays_wrap, py::arg("object"),
           py::arg("delay_p"), "Put delays for an object.");
 
-  vpi.def("vpi_get_value", &vpi_get_value, py::arg("expr"), py::arg("value_p"),
-          "Get a value.");
+  vpi.def("vpi_get_value", &vpi_get_value_wrap, py::arg("expr"),
+          py::arg("value_p"), "Get a value.");
 
-  vpi.def("vpi_put_value", &vpi_put_value, py::arg("object"),
+  vpi.def("vpi_put_value", &vpi_put_value_wrap, py::arg("object"),
           py::arg("value_p"), py::arg("time_p"), py::arg("flags"),
           "Put a value.");
 
-  vpi.def("vpi_get_value_array", &vpi_get_value_array, py::arg("object"),
+  vpi.def("vpi_get_value_array", &vpi_get_value_array_wrap, py::arg("object"),
           py::arg("arrayvalue_p"), py::arg("index_p"), py::arg("num"),
           "Get an array of values.");
 
-  vpi.def("vpi_put_value_array", &vpi_put_value_array, py::arg("object"),
+  vpi.def("vpi_put_value_array", &vpi_put_value_array_wrap, py::arg("object"),
           py::arg("arrayvalue_p"), py::arg("index_p"), py::arg("num"),
           "Put an array of values.");
 
-  vpi.def("vpi_get_time", &vpi_get_time, py::arg("object"), py::arg("time_p"),
-          "Get time for an object.");
+  vpi.def("vpi_get_time", &vpi_get_time_wrap, py::arg("object"),
+          py::arg("time_p"), "Get time for an object.");
 
   vpi.def("vpi_mcd_open", &vpi_mcd_open, py::arg("fileName"),
           "Open a multichannel description file.");
@@ -504,13 +414,13 @@ PYBIND11_MODULE(svuvm, m) {
 
   vpi.def("vpi_printf", &vpi_printf_wrap, "Print to standard output.");
 
-  vpi.def("vpi_compare_objects", &vpi_compare_objects, py::arg("object1"),
-          py::arg("object2"), "Compare two objects.");
+  vpi.def("vpi_compare_objects", &vpi_compare_objects_wrap,
+          "Compare two objects.");
 
-  vpi.def("vpi_free_object", &vpi_free_object, py::arg("object"),
+  vpi.def("vpi_free_object", &vpi_free_object_wrap, py::arg("object"),
           "Free an object. (Deprecated)");
 
-  vpi.def("vpi_release_handle", &vpi_release_handle, py::arg("object"),
+  vpi.def("vpi_release_handle", &vpi_release_handle_wrap, py::arg("object"),
           "Release a handle.");
 
 #if !defined(VCS) && !defined(VCSMX)
@@ -521,10 +431,10 @@ PYBIND11_MODULE(svuvm, m) {
           py::arg("numOfBytes"), "Put data.");
 #endif
 
-  vpi.def("vpi_get_userdata", &vpi_get_userdata, py::arg("obj"),
+  vpi.def("vpi_get_userdata", &vpi_get_userdata_wrap, py::arg("obj"),
           "Get user data.");
 
-  vpi.def("vpi_put_userdata", &vpi_put_userdata, py::arg("obj"),
+  vpi.def("vpi_put_userdata", &vpi_put_userdata_wrap, py::arg("obj"),
           py::arg("userdata"), "Put user data.");
 
   vpi.def("vpi_flush", &vpi_flush, "Flush output.");
@@ -534,7 +444,7 @@ PYBIND11_MODULE(svuvm, m) {
 
   vpi.def("vpi_control", &vpi_control_wrap, "Control simulator operations.");
 
-  vpi.def("vpi_handle_by_multi_index", &vpi_handle_by_multi_index,
+  vpi.def("vpi_handle_by_multi_index", &vpi_handle_by_multi_index_wrap,
           py::arg("obj"), py::arg("num_index"), py::arg("index_array"),
           "Get a handle by multiple indices.");
 #endif
