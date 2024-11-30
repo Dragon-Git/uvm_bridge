@@ -3,148 +3,74 @@
 
 #include "sv_vpi_user.h"
 #include "vpi_user.h"
-#include <dlfcn.h>
-#include <functional>
-#include <nanobind/nanobind.h>
-#include <nanobind/stl/string.h>
-#include <nanobind/stl/vector.h>
 
-namespace nb = nanobind;
-
-template <typename T>
-struct replace_type { using type = T; };
-
-template <>
-struct replace_type<vpiHandle> { using type = nb::object; };
-
-template <>
-struct replace_type<char*> { using type = const char*; };
-
-// 函数特征萃取
-template <typename Func>
-struct func_traits;
-
-template <typename R, typename... Args>
-struct func_traits<R (*)(Args...)> {
-    using return_type = typename replace_type<R>::type;
-    using raw_args = std::tuple<Args...>;
-    using adapted_args = std::tuple<typename replace_type<Args>::type...>;
-};
-
-template <typename T> auto convert(T t) {
-  if constexpr (std::is_same_v<T, vpiHandle>) {
-    // replace_type<vpiHandle> is specialized to nb::object
-    // (see top of this file), so the Python-facing return
-    // type is always nb::object. Returning nb::none() here
-    // would give the auto return type a conflicting
-    // deduction (nb::none vs nb::object) and GCC refuses to
-    // compile under nanobind 3.0.0 (it tolerated this in
-    // 2.4.x because nb::none had a more relaxed conversion
-    // path to nb::object). Wrap into nb::object so both
-    // branches agree on the deduced type.
-    if (t == nullptr) {
-      return nb::object(nb::none());
-    }
-    return nb::object(nb::capsule((void *)t, [](void *) noexcept {}));
-  } else if constexpr (std::is_same_v<T, nb::object>) {
-    vpiHandle handle;
-    if (!t.is_none()) {
-      nb::capsule cap = nb::cast<nb::capsule>(t);
-      return (vpiHandle) cap.data();
-    } else {
-      handle = nullptr;
-    }
-    return handle;
-  } else if constexpr (std::is_same_v<T, const char*>) {
-    return const_cast<char*>(t);
-  } else {
-    return t;
+#define GET_HANDLE(cap, handle)                                                \
+  vpiHandle handle;                                                            \
+  if (!cap.is_none()) {                                                        \
+    py::capsule cap_ = cap;                                                        \
+    handle = cap_.get_pointer<unsigned int>();                                    \
+  } else {                                                                     \
+    handle = nullptr;                                                          \
   }
+
+#define RETURN_HANDLE(handle)                                                  \
+  if (handle == nullptr) {                                                     \
+    return py::none();                                                         \
+  }                                                                            \
+  return py::capsule(handle, "vpiHandle");
+
+py::object vpi_register_cb_wrap(p_cb_data cb_data_p) {
+  vpiHandle h = vpi_register_cb(cb_data_p);
+  RETURN_HANDLE(h)
 }
 
-template <typename Ret, typename... Args>
-struct wrap_func_type {
-  using type = std::function<Ret(Args...)>;
-};
-
-// 定义包装函数类型，展开 tuple 中的元素作为参数类型
-template <typename Ret, typename Tuple, std::size_t... Is>
-auto make_wrap_func_type(std::index_sequence<Is...>) {
-  return typename wrap_func_type<Ret, std::tuple_element_t<Is, Tuple>...>::type{};
+PLI_INT32 vpi_remove_cb_wrap(py::object cb_obj) {
+  GET_HANDLE(cb_obj, handle)
+  return vpi_remove_cb(handle);
 }
 
-template <typename Func> auto vpi_func_wrap(Func func) {
-  using FuncPointerType = std::decay_t<Func>;
-  using FuncType = std::remove_pointer_t<FuncPointerType>;
-  using traits = func_traits<FuncPointerType>;
-  using ReturnType = typename traits::return_type;
-  using AdaptedArgs = typename traits::adapted_args;
-
-  auto wrapFuncType = make_wrap_func_type<ReturnType, AdaptedArgs>(std::make_index_sequence<std::tuple_size_v<AdaptedArgs>>{});
-  return decltype(wrapFuncType)([func](auto&&... args) {
-      auto converted_args = std::make_tuple(convert(std::forward<decltype(args)>(args))...);
-      auto result = std::apply(func, converted_args);
-      return convert<decltype(result)>(result);
-  });
-}
-
-// 运行时检测指定的 VPI 函数是否存在。若存在则返回经过 vpi_func_wrap
-// 包装后的可调用对象；否则返回一个调用时抛出 runtime_error 的占位函数。
-// 这样既统一了参数/返回值类型转换，也避免在绑定点写大段重复的 if/else。
-template <typename Func>
-auto vpi_func_optional(const char *name, Func fallback_func) {
-  using FuncPointerType = std::decay_t<Func>;
-  using FuncType = std::remove_pointer_t<FuncPointerType>;
-  using traits = func_traits<FuncPointerType>;
-  using ReturnType = typename traits::return_type;
-  using AdaptedArgs = typename traits::adapted_args;
-
-  dlerror();
-  void *sym = dlsym(RTLD_DEFAULT, name);
-  const char *err = dlerror();
-  auto *raw_ptr = (err == nullptr && sym != nullptr)
-                      ? reinterpret_cast<FuncPointerType>(sym)
-                      : nullptr;
-
-  auto wrapFuncType = make_wrap_func_type<ReturnType, AdaptedArgs>(
-      std::make_index_sequence<std::tuple_size_v<AdaptedArgs>>{});
-
-  if (raw_ptr != nullptr) {
-    return decltype(wrapFuncType)([raw_ptr](auto &&...args) {
-      auto converted_args = std::make_tuple(
-          convert(std::forward<decltype(args)>(args))...);
-      auto result = std::apply(raw_ptr, converted_args);
-      return convert<decltype(result)>(result);
-    });
-  }
-  return decltype(wrapFuncType)(
-      [name, fallback_func](auto &&...args) -> ReturnType {
-        if (fallback_func != nullptr) {
-          return convert(std::apply(
-              fallback_func,
-              std::make_tuple(convert(std::forward<decltype(args)>(args))...)));
-        }
-        std::string msg = std::string(name) + " not supported by this simulator";
-        throw std::runtime_error(msg);
-      });
-}
-void vpi_get_cb_info_wrap(nb::object object, p_cb_data cb_data_p) {
-  vpiHandle handle = convert(object);
+void vpi_get_cb_info_wrap(py::object object, p_cb_data cb_data_p) {
+  GET_HANDLE(object, handle)
   vpi_get_cb_info(handle, cb_data_p);
 }
-void vpi_get_systf_info_wrap(nb::object object, p_vpi_systf_data systf_data_p) {
-  vpiHandle handle = convert(object);
+
+py::object vpi_register_systf_wrap(p_vpi_systf_data systf_data_p) {
+  vpiHandle h = vpi_register_systf(systf_data_p);
+  RETURN_HANDLE(h)
+}
+
+void vpi_get_systf_info_wrap(py::object object, p_vpi_systf_data systf_data_p) {
+  GET_HANDLE(object, handle)
   vpi_get_systf_info(handle, systf_data_p);
 }
-nb::object vpi_handle_multi_wrap(int type, nb::args ref_handles) {
+
+py::object vpi_handle_by_name_wrap(const std::string &name, py::object scope) {
+  GET_HANDLE(scope, handle)
+  vpiHandle h = vpi_handle_by_name((PLI_BYTE8 *)name.c_str(), handle);
+  RETURN_HANDLE(h)
+}
+
+py::object vpi_handle_by_index_wrap(py::object object, PLI_INT32 indx) {
+  GET_HANDLE(object, handle)
+  vpiHandle h = vpi_handle_by_index(handle, indx);
+  RETURN_HANDLE(h)
+}
+
+py::object vpi_handle_wrap(PLI_INT32 type, py::object refHandle) {
+  GET_HANDLE(refHandle, handle)
+  vpiHandle h = vpi_handle(type, handle);
+  RETURN_HANDLE(h)
+}
+
+py::object vpi_handle_multi_wrap(int type, py::args ref_handles) {
   std::vector<vpiHandle> c_ref_handles;
-  vpiHandle refHandle1 = nullptr;
-  vpiHandle refHandle2 = nullptr;
+  vpiHandle refHandle1;
+  vpiHandle refHandle2;
 
   for (const auto &arg : ref_handles) {
-    if (nb::isinstance<nb::capsule>(arg)) {
-      nb::capsule cap = nb::cast<nb::capsule>(arg);
-      c_ref_handles.push_back((vpiHandle) cap.data());
+    if (py::isinstance<py::capsule>(arg)) {
+      c_ref_handles.push_back(reinterpret_cast<vpiHandle>(
+          arg.cast<py::capsule>().get_pointer<vpiHandle>()));
     } else {
       throw std::runtime_error(
           "Invalid argument type for vpiHandle conversion.");
@@ -155,115 +81,164 @@ nb::object vpi_handle_multi_wrap(int type, nb::args ref_handles) {
     refHandle2 = c_ref_handles[1];
     c_ref_handles.erase(c_ref_handles.begin(), c_ref_handles.begin() + 2);
   } else {
-    vpi_printf((PLI_BYTE8*)"Error: c_ref_handles does not contain at least two elements.\n");
+    vpi_printf((
+        PLI_BYTE8
+            *)"Error: c_ref_handles does not contain at least two elements.\n");
   }
-  vpiHandle h = vpi_handle_multi(type, refHandle1, refHandle2, c_ref_handles.data());
-  return convert(h);
+  vpiHandle h =
+      vpi_handle_multi(type, refHandle1, refHandle2, c_ref_handles.data());
+  RETURN_HANDLE(h)
 }
 
-void vpi_get_delays_wrap(nb::object object, p_vpi_delay delay_p) {
-  vpiHandle handle = convert(object);
+py::object vpi_iterate_wrap(PLI_INT32 type, py::object refHandle) {
+  GET_HANDLE(refHandle, handle)
+  vpiHandle h = vpi_iterate(type, handle);
+  RETURN_HANDLE(h)
+}
+
+py::object vpi_scan_wrap(py::object object) {
+  GET_HANDLE(object, iter)
+  vpiHandle h = vpi_scan(iter);
+  RETURN_HANDLE(h)
+}
+
+PLI_INT32 vpi_get_wrap(PLI_INT32 property, py::object object) {
+  GET_HANDLE(object, handle)
+  return vpi_get(property, handle);
+}
+
+PLI_INT64 vpi_get64_wrap(PLI_INT32 property, py::object object) {
+  GET_HANDLE(object, handle)
+  return vpi_get64(property, handle);
+}
+
+PLI_BYTE8 *vpi_get_str_wrap(PLI_INT32 property, py::object object) {
+  GET_HANDLE(object, handle)
+  return vpi_get_str(property, handle);
+}
+
+void vpi_get_delays_wrap(py::object object, p_vpi_delay delay_p) {
+  GET_HANDLE(object, handle)
   vpi_get_delays(handle, delay_p);
 }
 
-void vpi_put_delays_wrap(nb::object object, p_vpi_delay delay_p) {
-  vpiHandle handle = convert(object);
+void vpi_put_delays_wrap(py::object object, p_vpi_delay delay_p) {
+  GET_HANDLE(object, handle)
   vpi_put_delays(handle, delay_p);
 }
 
-void vpi_get_value_wrap(nb::object object, p_vpi_value value_p) {
-  vpiHandle handle = convert(object);
+void vpi_get_value_wrap(py::object expr, p_vpi_value value_p) {
+  GET_HANDLE(expr, handle)
   vpi_get_value(handle, value_p);
 }
 
-nb::object vpi_put_value_wrap(nb::object object, p_vpi_value value_p,
+py::object vpi_put_value_wrap(py::object object, p_vpi_value value_p,
                               p_vpi_time time_p, PLI_INT32 flags) {
-  vpiHandle handle = convert(object);
+  GET_HANDLE(object, handle)
   vpiHandle h = vpi_put_value(handle, value_p, time_p, flags);
-  return convert(h);
+  RETURN_HANDLE(h)
 }
 
-void vpi_get_value_array_wrap(nb::object object, p_vpi_arrayvalue arrayvalue_p,
-                              PLI_INT32 *index_p, PLI_UINT32 num) {
-  vpiHandle handle = convert(object);
+void vpi_get_value_array_wrap(py::object object, p_vpi_arrayvalue arrayvalue_p,
+                              PLI_INT32 * index_p, PLI_UINT32 num) {
+  GET_HANDLE(object, handle)
   vpi_get_value_array(handle, arrayvalue_p, index_p, num);
 }
 
-void vpi_put_value_array_wrap(nb::object object, p_vpi_arrayvalue arrayvalue_p,
-                              PLI_INT32 *index_p, PLI_UINT32 num) {
-  vpiHandle handle = convert(object);
+void vpi_put_value_array_wrap(py::object object, p_vpi_arrayvalue arrayvalue_p,
+                              PLI_INT32 * index_p, PLI_UINT32 num) {
+  GET_HANDLE(object, handle)
   vpi_put_value_array(handle, arrayvalue_p, index_p, num);
 }
 
-void vpi_get_time_wrap(nb::object object, p_vpi_time time_p) {
-  vpiHandle handle = convert(object);
+void vpi_get_time_wrap(py::object object, p_vpi_time time_p) {
+  GET_HANDLE(object, handle)
   vpi_get_time(handle, time_p);
 }
 
-void *vpi_get_userdata_wrap(nb::object object) {
-  vpiHandle handle = convert(object);
+PLI_INT32 vpi_compare_objects_wrap(py::args ref_handles) {
+  std::vector<vpiHandle> c_ref_handles;
+  for (const auto &arg : ref_handles) {
+    if (py::isinstance<py::capsule>(arg)) {
+      c_ref_handles.push_back(reinterpret_cast<vpiHandle>(
+          arg.cast<py::capsule>().get_pointer<vpiHandle>()));
+    } else {
+      throw std::runtime_error(
+          "Invalid argument type for vpiHandle conversion.");
+    }
+  }
+  if (c_ref_handles.size() != 2) {
+    vpi_printf((PLI_BYTE8 *)"Error: objects must contain two elements.\n");
+  }
+  return vpi_compare_objects(c_ref_handles[0], c_ref_handles[1]);
+}
+
+PLI_INT32 vpi_free_object_wrap(py::object object) {
+  GET_HANDLE(object, handle)
+  return vpi_free_object(handle);
+}
+
+PLI_INT32 vpi_release_handle_wrap(py::object object) {
+  GET_HANDLE(object, handle)
+  return vpi_release_handle(handle);
+}
+void *vpi_get_userdata_wrap(py::object obj) {
+  GET_HANDLE(obj, handle)
   return vpi_get_userdata(handle);
 }
 
-PLI_INT32 vpi_put_userdata_wrap(nb::object object, nb::object userdata) {
-  vpiHandle handle = convert(object);
-  void *data = nullptr;
-  if (!userdata.is_none() && nb::isinstance<nb::capsule>(userdata)) {
-    nb::capsule cap = nb::cast<nb::capsule>(userdata);
-    data = cap.data();
-  }
+PLI_INT32 vpi_put_userdata_wrap(py::object obj, py::object userdata) {
+  GET_HANDLE(obj, handle)
+  void *data = userdata.cast<void *>();
   return vpi_put_userdata(handle, data);
 }
 
-nb::object vpi_handle_by_multi_index_wrap(nb::object object, PLI_INT32 num_index,
+py::object vpi_handle_by_multi_index_wrap(py::object obj, PLI_INT32 num_index,
                                           PLI_INT32 *index_array) {
-  vpiHandle handle = convert(object);
+  GET_HANDLE(obj, handle)
   vpiHandle h = vpi_handle_by_multi_index(handle, num_index, index_array);
-  return convert(h);
+  RETURN_HANDLE(h)
 }
 
-int vpi_mcd_printf_wrap(unsigned int mcd, const std::string &format) {
-  int result = vpi_mcd_printf(mcd, (char *)"%s", format.c_str());
+int vpi_mcd_printf_wrap(unsigned int mcd, py::str format, py::args args,
+                        py::kwargs kwargs) {
+  std::string formatted = format.format(*args, **kwargs);
+  int result = vpi_mcd_printf(mcd, (char *)"%s", formatted.c_str());
   return result;
 }
 
-int vpi_printf_wrap(const std::string &format) {
-  int result = vpi_printf((char *)"%s", format.c_str());
+int vpi_printf_wrap(py::str format, py::args args, py::kwargs kwargs) {
+  std::string formatted = format.format(*args, **kwargs);
+  int result = vpi_printf((char *)"%s", formatted.c_str());
   return result;
 }
 
-int vpi_control_wrap(int operation, nb::args args) {
+int vpi_control_wrap(int operation, py::args args) {
   std::vector<void *> c_args;
   for (const auto &arg : args) {
-    if (nb::isinstance<nb::capsule>(arg)) {
-      nb::capsule cap = nb::cast<nb::capsule>(arg);
-      c_args.push_back(cap.data());
-    } else if (!arg.is_none()) {
-      c_args.push_back(nullptr);
-    }
+    c_args.push_back(arg.cast<void *>());
   }
   return vpi_control(operation, c_args.data());
 }
 
 struct CallbackInfo {
-  nb::object nb_callback;
+  py::function py_callback;
   std::string user_data;
 
-  CallbackInfo(nb::object cb, std::string ud)
-      : nb_callback(cb), user_data(ud) {}
+  CallbackInfo(py::function cb, std::string ud)
+      : py_callback(cb), user_data(ud) {}
 };
 
 static PLI_INT32 vpi_callback_wrap(p_cb_data cb_data) {
   auto callback_info = reinterpret_cast<CallbackInfo *>(cb_data->user_data);
-  nb::gil_scoped_acquire gil;
+  py::gil_scoped_acquire gil;
 
   try {
-    nb::object nb_result = callback_info->nb_callback(cb_data);
-    if (nb_result.is_none()) {
-      return 0;
-    }
-    return nb::cast<PLI_INT32>(nb_result);
-  } catch (const nb::python_error &e) {
+    py::object py_cb_data = py::cast(cb_data);
+    py::object py_result = callback_info->py_callback(cb_data);
+    PLI_INT32 result = py_result.cast<PLI_INT32>();
+    return result;
+  } catch (const py::error_already_set &e) {
     std::cerr << "Exception in python callback: " << e.what() << std::endl;
     return 0;
   }
@@ -271,15 +246,13 @@ static PLI_INT32 vpi_callback_wrap(p_cb_data cb_data) {
 
 static PLI_INT32 systf_callback_wrap(PLI_BYTE8 *user_data) {
   auto callback_info = reinterpret_cast<CallbackInfo *>(user_data);
-  nb::gil_scoped_acquire gil;
+  py::gil_scoped_acquire gil;
 
   try {
-    nb::object nb_result = callback_info->nb_callback();
-    if (nb_result.is_none()) {
-      return 0;
-    }
-    return nb::cast<PLI_INT32>(nb_result);
-  } catch (const nb::python_error &e) {
+    py::object py_result = callback_info->py_callback();
+    PLI_INT32 result = py_result.cast<PLI_INT32>();
+    return result;
+  } catch (const py::error_already_set &e) {
     std::cerr << "Exception in python callback: " << e.what() << std::endl;
     return 0;
   }
