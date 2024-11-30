@@ -14,9 +14,12 @@
 #include <mti.h>
 #endif
 
-extern "C" {
-
 namespace py = pybind11;
+#ifndef NO_VPI
+#include "vpi_user_wrap.h"
+#endif
+
+extern "C" {
 #include "uvm_dpi.h"
 
 void print_factory(int all_types = 1);
@@ -129,9 +132,6 @@ void exec_tcl_cmd(char *cmd) {
 #endif
 };
 
-#ifndef NO_VPI
-#include "vpi_user_wrap.h"
-#endif
 
 PYBIND11_MODULE(svuvm, m) {
   m.doc() = "svuvm api module";
@@ -298,6 +298,7 @@ PYBIND11_MODULE(svuvm, m) {
         s_vpi_error_info info;
         memset(&info, 0, sizeof(info));
         int level = vpi_chk_error(&info);
+        vpi_printf((PLI_BYTE8 *)"error level is:%d", level);
         return info;
       }))
       .def(py::init<>())
