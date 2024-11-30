@@ -81,6 +81,8 @@ py::object vpi_handle_multi_wrap(int type, py::args ref_handles) {
     refHandle2 = c_ref_handles[1];
     c_ref_handles.erase(c_ref_handles.begin(), c_ref_handles.begin() + 2);
   } else {
+    refHandle1 = nullptr;
+    refHandle2 = nullptr;
     vpi_printf((
         PLI_BYTE8
             *)"Error: c_ref_handles does not contain at least two elements.\n");
