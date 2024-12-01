@@ -607,7 +607,7 @@ PYBIND11_MODULE(svuvm, m) {
         "Get the time of the last trigger event", py::arg("ev_name"));
   m.def("is_on", &is_on, "Check if the signal is on", py::arg("ev_name"));
   m.def("is_off", &is_off, "Check if the signal is off", py::arg("ev_name"));
-  m.def("reset", &reset, "Reset the signal state", py::arg("ev_name"),
+  m.def("ev_reset", &reset, "Reset the signal state", py::arg("ev_name"),
         py::arg("wakeup") = 0);
   m.def("cancel", &cancel, "Cancel the current wait operation",
         py::arg("ev_name"));
