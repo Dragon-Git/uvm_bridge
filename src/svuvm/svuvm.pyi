@@ -1,5 +1,5 @@
 from typing import List, Any
-
+from . import vpi  # noqa: F401
 class VpiVecVal:
     """
     Represents a VPI (Verilog Programming Interface) vector value.
@@ -143,6 +143,26 @@ def find_factory_override(requested_type: str, context: str, override_type_name:
     Finds and displays information about a factory type override.
     """
 
+def uvm_info(msg: str, verbosity: int) -> None:
+    """
+    Reports an informational message with the specified ID and verbosity level.
+    """
+
+def uvm_warning(msg: str, verbosity: int) -> None:
+    """
+    Reports a warning message with the specified ID and verbosity level.
+    """
+
+def uvm_error(msg: str, verbosity: int) -> None:
+    """
+    Reports an error message with the specified ID and verbosity level.
+    """
+
+def uvm_fatal(msg: str, verbosity: int) -> None:
+    """
+    Reports a fatal error message with the specified ID and verbosity level.
+    """
+
 def print_topology(context: str = "") -> None:
     """
     Prints the component topology starting from the given context.
@@ -198,7 +218,7 @@ def is_off(ev_name: str) -> int:
     Checks if an event is currently inactive, returning 1 for true, 0 for false.
     """
 
-def reset(ev_name: str, wakeup: int = 0) -> None:
+def ev_reset(ev_name: str, wakeup: int = 0) -> None:
     """
     Resets an event, optionally waking up waiters.
     """
@@ -268,7 +288,32 @@ def wait_unit(n: int) -> None:
     Waits for a specified unit of time.
     """
 
+def reset() -> None:
+    """
+    Stops the simulation.
+    """
+
 def stop() -> None:
     """
     Stops the simulation.
+    """
+
+def finish() -> None:
+    """
+    Finishes the simulation.
+    """
+
+def get_sim_time(name: str) -> int:
+    """
+    Returns the current simulation time.
+    """
+
+def get_time_unit(name: str) -> int:
+    """
+    Returns the current time unit.
+    """
+
+def get_time_precision(name: str) -> int:
+    """
+    Returns the current time precision.
     """
