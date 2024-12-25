@@ -260,12 +260,24 @@ package python_bridge_pkg;
 
     function automatic void set_config_int(string contxt, string inst_name, string field_name, longint unsigned value);
         uvm_component comp = get_contxt(contxt);
-        uvm_config_db#(uvm_bitstream_t)::set(comp, inst_name, field_name, value);
+        uvm_config_db#(longint unsigned)::set(comp, inst_name, field_name, value);
     endfunction
 
-    function automatic longint get_config_int(string contxt, string inst_name, string field_name);
+    function automatic longint unsigned get_config_int(string contxt, string inst_name, string field_name);
         uvm_component comp = get_contxt(contxt);
-        uvm_config_db#(uvm_bitstream_t)::get(comp, inst_name, field_name, get_config_int);
+        uvm_config_db#(longint unsigned)::get(comp, inst_name, field_name, get_config_int);
+    endfunction
+
+    typedef int int_array_t[];
+
+    function automatic void set_config_int_array(string contxt, string inst_name, string field_name, int_array_t value);
+        uvm_component comp = get_contxt(contxt);
+        uvm_config_db#(int_array_t)::set(comp, inst_name, field_name, value);
+    endfunction
+
+    function automatic int_array_t get_config_int_array(string contxt, string inst_name, string field_name);
+        uvm_component comp = get_contxt(contxt);
+        uvm_config_db#(int_array_t)::get(comp, inst_name, field_name, get_config_int_array);
     endfunction
 
     function automatic void set_config_string (string contxt, string inst_name, string field_name, string value);
