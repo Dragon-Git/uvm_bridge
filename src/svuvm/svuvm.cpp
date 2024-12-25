@@ -62,9 +62,9 @@ void trigger(const char *ev_name);
 // void set_default_data(uvm_object *data);
 #endif
 
-void set_config_int(const char *contxt, const char *inst_name,
+void set_config_uint64_t(const char *contxt, const char *inst_name,
                     const char *field_name, uint64_t value);
-uint64_t get_config_int(const char *contxt, const char *inst_name,
+uint64_t get_config_uint64_t(const char *contxt, const char *inst_name,
                         const char *field_name);
 void set_config_string(const char *contxt, const char *inst_name,
                        const char *field_name, const char *value);
@@ -616,9 +616,9 @@ PYBIND11_MODULE(svuvm, m) {
   m.def("trigger", &trigger, "Trigger the event", py::arg("ev_name"));
 #endif
   // config db
-  m.def("set_config_int", &set_config_int,
+  m.def("set_config_int", &set_config_uint64_t,
         "Set integer configuration in the UVM environment");
-  m.def("get_config_int", &get_config_int,
+  m.def("get_config_int", &get_config_uint64_t,
         "Get integer configuration from the UVM environment");
   m.def("set_config_string", &set_config_string,
         "Set string configuration in the UVM environment");

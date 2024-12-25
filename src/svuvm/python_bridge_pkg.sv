@@ -258,38 +258,32 @@ package python_bridge_pkg;
     
     `endif //VERILATOR
 
-    function automatic void set_config_int(string contxt, string inst_name, string field_name, longint unsigned value);
-        uvm_component comp = get_contxt(contxt);
-        uvm_config_db#(longint unsigned)::set(comp, inst_name, field_name, value);
-    endfunction
-
-    function automatic longint unsigned get_config_int(string contxt, string inst_name, string field_name);
-        uvm_component comp = get_contxt(contxt);
-        uvm_config_db#(longint unsigned)::get(comp, inst_name, field_name, get_config_int);
-    endfunction
-
+    `define SET_CONFIG_FUNC(datatype) \
+        function automatic void set_config_``datatype``(string contxt, string inst_name, string field_name, datatype value); \
+            uvm_component comp = get_contxt(contxt); \
+            uvm_config_db#(datatype)::set(comp, inst_name, field_name, value); \
+        endfunction
+    
+    `define GET_CONFIG_FUNC(datatype) \
+        function automatic datatype get_config_``datatype``(string contxt, string inst_name, string field_name); \
+            uvm_component comp = get_contxt(contxt); \
+            uvm_config_db#(datatype)::get(comp, inst_name, field_name, get_config_``datatype``); \
+        endfunction
+    
+    typedef longint unsigned uint64_t;
     typedef int int_array_t[];
+    typedef byte byte_array_t[];
+    
+    `SET_CONFIG_FUNC(uint64_t)
+    `GET_CONFIG_FUNC(uint64_t)
+    `SET_CONFIG_FUNC(string)
+    `GET_CONFIG_FUNC(string)
+    `SET_CONFIG_FUNC(int_array_t)
+    `GET_CONFIG_FUNC(int_array_t)
+    `SET_CONFIG_FUNC(byte_array_t)
+    `GET_CONFIG_FUNC(byte_array_t)
 
-    function automatic void set_config_int_array(string contxt, string inst_name, string field_name, int_array_t value);
-        uvm_component comp = get_contxt(contxt);
-        uvm_config_db#(int_array_t)::set(comp, inst_name, field_name, value);
-    endfunction
-
-    function automatic int_array_t get_config_int_array(string contxt, string inst_name, string field_name);
-        uvm_component comp = get_contxt(contxt);
-        uvm_config_db#(int_array_t)::get(comp, inst_name, field_name, get_config_int_array);
-    endfunction
-
-    function automatic void set_config_string (string contxt, string inst_name, string field_name, string value);
-        uvm_component comp = get_contxt(contxt);
-        uvm_config_db #(string)::set(comp, inst_name, field_name, value);
-    endfunction
-
-    function automatic string get_config_string (string contxt, string inst_name, string field_name);
-        uvm_component comp = get_contxt(contxt);
-        uvm_config_db #(string)::get(comp, inst_name, field_name, get_config_string);
-    endfunction
-
+    // 你可以根据需要继续添加其他类型
     task start_seq(string seq_name, string sqr_name, bit rand_en=0, bit background=0);
         uvm_root top = uvm_root::get();
         uvm_factory factory = uvm_factory::get();
@@ -484,10 +478,14 @@ package python_bridge_pkg;
     `endif //VERILATOR
 
     // config db
-    export "DPI-C" function set_config_int;
-    export "DPI-C" function get_config_int;
+    export "DPI-C" function set_config_uint64_t;
+    export "DPI-C" function get_config_uint64_t;
     export "DPI-C" function set_config_string;
     export "DPI-C" function get_config_string;
+    // export "DPI-C" function set_config_int_array_t;
+    // export "DPI-C" function get_config_int_array_t;
+    // export "DPI-C" function set_config_byte_array_t;
+    // export "DPI-C" function get_config_byte_array_t;
 
     // register access
     export "DPI-C" task write_reg;
