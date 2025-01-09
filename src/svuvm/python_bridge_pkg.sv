@@ -284,6 +284,7 @@ package python_bridge_pkg;
     `GET_CONFIG_FUNC(byte_array_t)
 
     function string base16_encode(input byte data_in []);
+        base16_encode = "";
         foreach (data_in[i]) begin
             base16_encode = {base16_encode, $sformatf("%02h", data_in[i])};
         end
@@ -291,18 +292,19 @@ package python_bridge_pkg;
 
     function byte_array_t base16_decode(input string hex_str);
         int str_len;
+        static int i;
+        base16_decode = {};
         str_len = hex_str.len();
         if (str_len % 2!= 0) begin
             $display("Invalid hexadecimal string length for conversion.");
             return base16_decode;
         end
-        for (int i = 0; i < str_len; i += 2) begin
+        for (i = 0; i < str_len; i += 2) begin
             base16_decode = {base16_decode, hex_str.substr(i, i+1).atohex()};
         end
         return base16_decode;
     endfunction
 
-    // 你可以根据需要继续添加其他类型
     task start_seq(string seq_name, string sqr_name, bit rand_en=0, bit background=0);
         uvm_root top = uvm_root::get();
         uvm_factory factory = uvm_factory::get();
