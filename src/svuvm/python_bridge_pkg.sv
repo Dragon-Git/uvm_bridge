@@ -293,14 +293,14 @@ package python_bridge_pkg;
     function byte_array_t base16_decode(input string hex_str);
         int str_len;
         static int i;
-        base16_decode = {};
         str_len = hex_str.len();
         if (str_len % 2!= 0) begin
             $display("Invalid hexadecimal string length for conversion.");
             return base16_decode;
         end
+        base16_decode = new[str_len>>1];
         for (i = 0; i < str_len; i += 2) begin
-            base16_decode = {base16_decode, hex_str.substr(i, i+1).atohex()};
+            base16_decode[i>>1] = hex_str.substr(i, i+1).atohex();
         end
         return base16_decode;
     endfunction
