@@ -119,16 +119,19 @@ int wrap_read_reg(const char *name) {
 }
 
 // execute a tcl comamnd in simulator
-void exec_tcl_cmd(char *cmd) {
+char* exec_tcl_cmd(char *cmd) {
 #if defined(VCS) || defined(VCSMX)
-  mhpi_ucliTclExec(cmd);
+  return mhpi_ucliTclExec(cmd);
 #elif defined(XCELIUM) || defined(NCSC)
   cfcExecuteCommand(cmd);
+  return cfcGetOutput();
 #elif defined(MENTOR)
   mti_Cmd(cmd);
+  return "";
 #else
   // not supported
   printf("tcl intregation is not support in this simulator\n");
+  return "";
 #endif
 };
 
