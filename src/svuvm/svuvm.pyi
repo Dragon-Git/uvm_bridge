@@ -2,7 +2,8 @@ from typing import List, Any
 from . import vpi  # noqa: F401
 
 class VpiVecVal:
-    """Represents a VPI (Verilog Programming Interface) vector value.
+    """Represents a VPI (Verilog Programming Interface) vector value, bit encoding: aval bval: 00=0, 10=1, 11=X, 01=Z.
+
 
     Attributes:
         aval (int): The first part of the vector value.
