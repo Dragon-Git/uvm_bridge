@@ -63,13 +63,35 @@ void trigger(const char *ev_name);
 #endif
 
 void set_config_uint64_t(const char *contxt, const char *inst_name,
-                    const char *field_name, uint64_t value);
+                         const char *field_name, uint64_t value);
 uint64_t get_config_uint64_t(const char *contxt, const char *inst_name,
-                        const char *field_name);
+                             const char *field_name);
 void set_config_string(const char *contxt, const char *inst_name,
                        const char *field_name, const char *value);
 const char *get_config_string(const char *contxt, const char *inst_name,
                               const char *field_name);
+/* UVM报告配置DPI接口 */
+// 详细度相关
+int get_report_verbosity_level(const char *contxt, int severity,
+                               const char *id);
+int get_report_max_verbosity_level(const char *contxt);
+void set_report_verbosity_level(const char *contxt, int verbosity_level);
+void set_report_id_verbosity(const char *contxt, const char *id, int verbosity);
+void set_report_severity_id_verbosity(const char *contxt, int severity,
+                                      const char *id, int verbosity);
+
+// 报告动作相关
+int get_report_action(const char *contxt, int severity, const char *id);
+void set_report_severity_action(const char *contxt, int severity, int action);
+void set_report_id_action(const char *contxt, const char *id, int action);
+void set_report_severity_id_action(const char *contxt, int severity,
+                                   const char *id, int action);
+
+// 严重级别覆盖
+void set_report_severity_override(const char *contxt, int cur_severity,
+                                  int new_severity);
+void set_report_severity_id_override(const char *contxt, int cur_severity,
+                                     const char *id, int new_severity);
 
 #if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
 // 使用pybind11创建的包装器函数
@@ -119,7 +141,7 @@ int wrap_read_reg(const char *name) {
 }
 
 // execute a tcl comamnd in simulator
-char* exec_tcl_cmd(char *cmd) {
+char *exec_tcl_cmd(char *cmd) {
 #if defined(VCS) || defined(VCSMX)
   return mhpi_ucliTclExec(cmd);
 #elif defined(XCELIUM) || defined(NCSC)
@@ -134,7 +156,6 @@ char* exec_tcl_cmd(char *cmd) {
   return "";
 #endif
 };
-
 
 PYBIND11_MODULE(svuvm, m) {
   m.doc() = "svuvm api module";
@@ -466,6 +487,16 @@ PYBIND11_MODULE(svuvm, m) {
   m.attr("UVM_DEBUG") = M_UVM_DEBUG;
   m.attr("VpiVecVal") = vpi.attr("VpiVecVal");
 
+  // UVM report action
+  m.attr("UVM_NO_ACTION") = 0b0000000;
+  m.attr("UVM_DISPLAY") = 0b0000001;
+  m.attr("UVM_LOG") = 0b0000010;
+  m.attr("UVM_COUNT") = 0b0000100;
+  m.attr("UVM_EXIT") = 0b0001000;
+  m.attr("UVM_CALL_HOOK") = 0b0010000;
+  m.attr("UVM_STOP") = 0b0100000;
+  m.attr("UVM_RM_RECORD") = 0b1000000;
+
 #if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
   // Binding functions
 
@@ -627,7 +658,28 @@ PYBIND11_MODULE(svuvm, m) {
         "Set string configuration in the UVM environment");
   m.def("get_config_string", &get_config_string,
         "Get string configuration from the UVM environment");
-
+  m.def("get_report_verbosity_level", &get_report_verbosity_level,
+        "Get the verbosity level for a given severity and id");
+  m.def("get_report_max_verbosity_level", &get_report_max_verbosity_level,
+        "Get the maximum verbosity level");
+  m.def("set_report_verbosity_level", &set_report_verbosity_level,
+        "Set the verbosity level for a given context");
+  m.def("set_report_id_verbosity", &set_report_id_verbosity,
+        "Set the verbosity level for a given id");
+  m.def("set_report_severity_id_verbosity", &set_report_severity_id_verbosity,
+        "Set the verbosity level for a given severity and id");
+  m.def("get_report_action", &get_report_action,
+        "Get the action for a given severity and id");
+  m.def("set_report_severity_action", &set_report_severity_action,
+        "Set the action for a given severity");
+  m.def("set_report_id_action", &set_report_id_action,
+        "Set the action for a given id");
+  m.def("set_report_severity_id_action", &set_report_severity_id_action,
+        "Set the action for a given severity and id");
+  m.def("set_report_severity_override", &set_report_severity_override,
+        "Set the severity override for a given context");
+  m.def("set_report_severity_id_override", &set_report_severity_id_override,
+        "Set the severity override for a given id");
   m.def("write_reg", &write_reg, "write register");
   m.def("read_reg", &wrap_read_reg, "read register");
   m.def("check_reg", &check_reg, "check register", py::arg("name"),

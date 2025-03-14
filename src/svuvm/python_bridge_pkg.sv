@@ -283,6 +283,66 @@ package python_bridge_pkg;
     `SET_CONFIG_FUNC(byte_array_t)
     `GET_CONFIG_FUNC(byte_array_t)
 
+    `define DECLARE_COMP(contxt) \
+        uvm_component comp; \
+        comp = get_contxt(contxt);
+
+    function int get_report_verbosity_level(string contxt, uvm_severity severity, string id);
+        `DECLARE_COMP(contxt)
+        return comp.get_report_verbosity_level(severity, id);
+    endfunction
+
+    function int get_report_max_verbosity_level(string contxt);
+        `DECLARE_COMP(contxt)
+        return comp.get_report_max_verbosity_level();
+    endfunction
+
+    function void set_report_verbosity_level (string contxt, int verbosity_level);
+        `DECLARE_COMP(contxt)
+        comp.set_report_verbosity_level(verbosity_level);
+    endfunction
+
+    function void set_report_id_verbosity (string contxt, string id, int verbosity);
+        `DECLARE_COMP(contxt)
+        comp.set_report_id_verbosity(id, verbosity);
+    endfunction
+
+    function void set_report_severity_id_verbosity (string contxt, uvm_severity severity, string id, int verbosity);
+        `DECLARE_COMP(contxt)
+        comp.set_report_severity_id_verbosity(severity, id, verbosity);
+    endfunction
+
+    function int get_report_action(string contxt, uvm_severity severity, string id);
+        `DECLARE_COMP(contxt)
+        return comp.get_report_action(severity, id);
+    endfunction
+
+    function void set_report_severity_action (string contxt, uvm_severity severity, uvm_action action);
+        `DECLARE_COMP(contxt)
+        comp.set_report_severity_action(severity, action);
+    endfunction
+
+
+    function void set_report_id_action (string contxt, string id, uvm_action action);
+        `DECLARE_COMP(contxt)
+        comp.set_report_id_action(id, action);
+    endfunction
+
+    function void set_report_severity_id_action (string contxt, uvm_severity severity, string id, uvm_action action);
+        `DECLARE_COMP(contxt)
+        comp.set_report_severity_id_action(severity, id, action);
+    endfunction
+
+    function void set_report_severity_override(string contxt, uvm_severity cur_severity, uvm_severity new_severity);
+        `DECLARE_COMP(contxt)
+        comp.set_report_severity_override(cur_severity, new_severity);
+    endfunction
+
+    function void set_report_severity_id_override(string contxt, uvm_severity cur_severity, string id, uvm_severity new_severity);
+        `DECLARE_COMP(contxt)
+        comp.set_report_severity_id_override(cur_severity, id, new_severity);
+    endfunction
+
     function string base16_encode(input byte data_in []);
         base16_encode = "";
         foreach (data_in[i]) begin
@@ -507,6 +567,19 @@ package python_bridge_pkg;
     // export "DPI-C" function get_config_int_array_t;
     // export "DPI-C" function set_config_byte_array_t;
     // export "DPI-C" function get_config_byte_array_t;
+
+    // report
+    export "DPI-C" function get_report_verbosity_level;
+    export "DPI-C" function get_report_max_verbosity_level;
+    export "DPI-C" function set_report_verbosity_level;
+    export "DPI-C" function set_report_id_verbosity;
+    export "DPI-C" function set_report_severity_id_verbosity;
+    export "DPI-C" function get_report_action;
+    export "DPI-C" function set_report_severity_action;
+    export "DPI-C" function set_report_id_action;
+    export "DPI-C" function set_report_severity_id_action;
+    export "DPI-C" function set_report_severity_override;
+    export "DPI-C" function set_report_severity_id_override;
 
     // register access
     export "DPI-C" task write_reg;
