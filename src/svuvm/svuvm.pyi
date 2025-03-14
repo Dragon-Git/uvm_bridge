@@ -244,47 +244,47 @@ def set_factory_type_override(original_type_name: str, override_type_name: str, 
         replace (bool): Whether to replace existing overrides. Defaults to True.
     """
 
-def create_object_by_name(requested_type: str, context: str = "", name: str = "") -> None:
+def create_object_by_name(requested_type: str, contxt: str = "", name: str = "") -> None:
     """Creates an object by its type name within a specified context.
 
     Args:
         requested_type (str): The type name of the object to create.
-        context (str): The context in which to create the object. Defaults to "".
+        contxt (str): The context in which to create the object. Defaults to "".
         name (str): The name of the object. Defaults to "".
     """
 
-def create_component_by_name(requested_type: str, context: str = "", parent_name: str = "", name: str = "") -> None:
+def create_component_by_name(requested_type: str, contxt: str = "", parent_name: str = "", name: str = "") -> None:
     """Creates a UVM component by name, specifying its context and optionally its parent and own name.
 
     Args:
         requested_type (str): The type name of the component to create.
-        context (str): The context in which to create the component. Defaults to "".
+        contxt (str): The context in which to create the component. Defaults to "".
         parent_name (str): The name of the parent component. Defaults to "".
         name (str): The name of the component. Defaults to "".
     """
 
-def debug_factory_create(requested_type: str, context: str = "") -> None:
+def debug_factory_create(requested_type: str, contxt: str = "") -> None:
     """Debug utility to create an object using the factory and prints creation details.
 
     Args:
         requested_type (str): The type name of the object to create.
-        context (str): The context in which to create the object. Defaults to "".
+        contxt (str): The context in which to create the object. Defaults to "".
     """
 
-def find_factory_override(requested_type: str, context: str, override_type_name: str) -> None:
+def find_factory_override(requested_type: str, contxt: str, override_type_name: str) -> None:
     """Finds and displays information about a factory type override.
 
     Args:
         requested_type (str): The type name of the object to check.
-        context (str): The context in which to check the override.
+        contxt (str): The context in which to check the override.
         override_type_name (str): The name of the override type.
     """
 
-def print_topology(context: str = "") -> None:
+def print_topology(contxt: str = "") -> None:
     """Prints the component topology starting from the given context.
 
     Args:
-        context (str): The context from which to start printing the topology. Defaults to "".
+        contxt (str): The context from which to start printing the topology. Defaults to "".
     """
 
 def set_timeout(timeout: int, overridable: int = 1) -> None:
@@ -457,6 +457,84 @@ def write_reg(name: str, data: int) -> None:
         data (int): The integer value to write.
     """
 
+def get_report_verbosity_level(contxt: str, severity: int, id: str = "") -> int:
+    """Get message verbosity level for specific context and message ID.
+
+    Args:
+        contxt: UVM component context path (e.g. "uvm_test_top.env")
+        severity: UVM severity level (use UvmSeverity enum values)
+        id: Message identifier, empty string for default
+
+    Returns:
+        int: Current verbosity level value
+    """
+
+def set_report_verbosity_level(contxt: str, level: int) -> None:
+    """Set default verbosity level for a component hierarchy.
+
+    Args:
+        contxt: UVM component context path
+        level: Verbosity level to set (use UVM_LEVEL constants)
+    """
+
+def set_report_id_verbosity(contxt: str, id: str, verbosity: int) -> None:
+    """Configure verbosity for specific message ID.
+
+    Args:
+        contxt: UVM component context path
+        id: Target message ID to configure
+        verbosity: Verbosity level to apply
+    """
+
+def get_report_action(contxt: str, severity: int, id: str = "") -> int:
+    """Get current report action configuration.
+
+    Args:
+        contxt: UVM component context path
+        severity: UVM severity level to check
+        id: Message identifier, empty string for default
+
+    Returns:
+        int: Combined bitmask of current actions (use UvmAction flags)
+    """
+
+def set_report_severity_action(contxt: str, severity: int, action: int) -> None:
+    """Configure report actions for specific severity level.
+
+    Args:
+        contxt: UVM component context path
+        severity: Target severity level to configure
+        action: Action bitmask (bitwise OR of UvmAction values)
+    """
+
+def set_report_severity_override(contxt: str, original_severity: int, new_severity: int) -> None:
+    """Override severity level for report messages.
+
+    Args:
+        contxt: UVM component context path
+        original_severity: Original severity level to override
+        new_severity: New severity level to apply
+    """
+
+def set_report_severity_id_override(contxt: str, original_severity: int, id: str, new_severity: int) -> None:
+    """Override severity level for specific message ID.
+
+    Args:
+        contxt: UVM component context path
+        original_severity: Original severity level to override
+        id: Target message ID
+        new_severity: New severity level to apply
+    """
+
+def get_report_max_verbosity_level(contxt: str) -> int:
+    """Get maximum allowed verbosity level for context.
+
+    Args:
+        contxt: UVM component context path
+
+    Returns:
+        int: Maximum permitted verbosity level
+    """
 def read_reg(name: str) -> int:
     """Reads and returns the integer value of a register by name.
 
