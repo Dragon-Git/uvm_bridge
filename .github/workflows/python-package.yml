@@ -38,9 +38,9 @@ jobs:
 
     - name: Install verilator-uvm
       run: |
-        git clone https://github.com/antmicro/uvm-verilator.git
+        git clone https://github.com/Dragon-Git/uvm-verilator.git
         cd uvm-verilator
-        git checkout current-patches
+        git checkout patch
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
