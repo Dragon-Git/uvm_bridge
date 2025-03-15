@@ -93,7 +93,6 @@ void set_report_severity_override(const char *contxt, int cur_severity,
 void set_report_severity_id_override(const char *contxt, int cur_severity,
                                      const char *id, int new_severity);
 
-#if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
 // 使用pybind11创建的包装器函数
 void wrap_walk_level(int lvl, std::vector<std::string> args, int cmd) {
   // Convert Python string list to C-style char**
@@ -124,7 +123,6 @@ void wrap_uvm_report(char *message, int verbosity, int severity) {
     std::cout << "currentframe is not available!" << std::endl;
   }
 }
-#endif
 
 void start_seq(const char *seq_name, const char *sqr_name, svBit rand_en,
                svBit background);
@@ -497,7 +495,6 @@ PYBIND11_MODULE(svuvm, m) {
   m.attr("UVM_STOP") = 0b0100000;
   m.attr("UVM_RM_RECORD") = 0b1000000;
 
-#if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
   // Binding functions
 
   m.def("uvm_report", &m_uvm_report_dpi, "report function", py::arg("severity"),
@@ -583,7 +580,6 @@ PYBIND11_MODULE(svuvm, m) {
   m.def("uvm_fatal", &wrap_uvm_report, "UVM_FATAL report function.",
         py::arg("message"), py::arg("verbosity") = M_UVM_NONE,
         py::arg("severity") = M_UVM_FATAL);
-#endif
 
   m.def("print_factory", &print_factory, "Prints factory information.",
         py::arg("all_types") = 1);

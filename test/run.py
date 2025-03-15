@@ -12,9 +12,20 @@ def main():
     svuvm.print_factory()
 
     svuvm.vpi.vpi_printf("*"*120+"\n")
+    svuvm.vpi.vpi_printf("*        TEST uvm_report \n")
+    svuvm.vpi.vpi_printf("*"*120+"\n")
+
+    svuvm.uvm_report(svuvm.UVM_INFO, "uvm_report_test", "UVM_INFO TEST SUCCESS!", svuvm.UVM_LOW, "run.py", 1)
+    svuvm.uvm_report(svuvm.UVM_WARNING, "uvm_report_test", "UVM_WARNING TEST SUCCESS!", svuvm.UVM_LOW, "run.py", 1)
+    svuvm.uvm_report(svuvm.UVM_ERROR, "uvm_report_test", "UVM_ERROR TEST SUCCESS!", svuvm.UVM_LOW, "run.py", 1)
+    # TODO: Can not import module in `wrap_uvm_report`
+    # svuvm.uvm_info("hello world", svuvm.UVM_MEDIUM)
+
+    svuvm.vpi.vpi_printf("*"*120+"\n")
     svuvm.vpi.vpi_printf("*        TEST config_db \n")
     svuvm.vpi.vpi_printf("*"*120+"\n")
 
+    # TODO: scope is change, need to debug
     # svuvm.set_config_int("", "", "int_value", 1)
     # int_value = svuvm.get_config_int("", "", "int_value")
     # svuvm.vpi.vpi_printf("int_value: {}\n", int_value)

@@ -258,15 +258,19 @@ package python_bridge_pkg;
     
     `endif //VERILATOR
 
+    `define DECLARE_COMP(contxt) \
+        uvm_component comp; \
+        comp = get_contxt(contxt);
+
     `define SET_CONFIG_FUNC(datatype) \
-        function automatic void set_config_``datatype``(string contxt, string inst_name, string field_name, datatype value); \
-            uvm_component comp = get_contxt(contxt); \
+        function void set_config_``datatype``(string contxt, string inst_name, string field_name, datatype value); \
+            `DECLARE_COMP(contxt) \
             uvm_config_db#(datatype)::set(comp, inst_name, field_name, value); \
         endfunction
     
     `define GET_CONFIG_FUNC(datatype) \
-        function automatic datatype get_config_``datatype``(string contxt, string inst_name, string field_name); \
-            uvm_component comp = get_contxt(contxt); \
+        function datatype get_config_``datatype``(string contxt, string inst_name, string field_name); \
+            `DECLARE_COMP(contxt) \
             uvm_config_db#(datatype)::get(comp, inst_name, field_name, get_config_``datatype``); \
         endfunction
     
@@ -282,10 +286,6 @@ package python_bridge_pkg;
     `GET_CONFIG_FUNC(int_array_t)
     `SET_CONFIG_FUNC(byte_array_t)
     `GET_CONFIG_FUNC(byte_array_t)
-
-    `define DECLARE_COMP(contxt) \
-        uvm_component comp; \
-        comp = get_contxt(contxt);
 
     function int get_report_verbosity_level(string contxt, uvm_severity severity, string id);
         `DECLARE_COMP(contxt)
