@@ -469,6 +469,16 @@ def get_report_verbosity_level(contxt: str, severity: int, id: str = "") -> int:
         int: Current verbosity level value
     """
 
+def get_report_max_verbosity_level(contxt: str) -> int:
+    """Get maximum allowed verbosity level for context.
+
+    Args:
+        contxt: UVM component context path
+
+    Returns:
+        int: Maximum permitted verbosity level
+    """
+
 def set_report_verbosity_level(contxt: str, level: int) -> None:
     """Set default verbosity level for a component hierarchy.
 
@@ -482,6 +492,16 @@ def set_report_id_verbosity(contxt: str, id: str, verbosity: int) -> None:
 
     Args:
         contxt: UVM component context path
+        id: Target message ID to configure
+        verbosity: Verbosity level to apply
+    """
+
+def set_report_severity_id_verbosity(contxt: str, severity: int, id: str, verbosity: int) -> None:
+    """Configure verbosity for specific severity, id, or severity-id pair.
+
+    Args:
+        contxt: UVM component context path
+        severity: UVM severity level to check
         id: Target message ID to configure
         verbosity: Verbosity level to apply
     """
@@ -507,6 +527,25 @@ def set_report_severity_action(contxt: str, severity: int, action: int) -> None:
         action: Action bitmask (bitwise OR of UvmAction values)
     """
 
+def set_report_id_action(contxt: str, id: int, action: int) -> None:
+    """Configure report actions for specific message ID.
+
+    Args:
+        contxt: UVM component context path
+        id: Message identifier, empty string for default
+        action: Action bitmask (bitwise OR of UvmAction values)
+    """
+
+def set_report_severity_id_action(contxt: str, severity: int, id: int, action: int) -> None:
+    """Configure report actions for specific severity, id, or severity-id pair.
+
+    Args:
+        contxt: UVM component context path
+        severity: Target severity level to configure
+        id: Message identifier, empty string for default
+        action: Action bitmask (bitwise OR of UvmAction values)
+    """
+
 def set_report_severity_override(contxt: str, original_severity: int, new_severity: int) -> None:
     """Override severity level for report messages.
 
@@ -526,15 +565,6 @@ def set_report_severity_id_override(contxt: str, original_severity: int, id: str
         new_severity: New severity level to apply
     """
 
-def get_report_max_verbosity_level(contxt: str) -> int:
-    """Get maximum allowed verbosity level for context.
-
-    Args:
-        contxt: UVM component context path
-
-    Returns:
-        int: Maximum permitted verbosity level
-    """
 def read_reg(name: str) -> int:
     """Reads and returns the integer value of a register by name.
 
