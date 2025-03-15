@@ -15,11 +15,17 @@ def main():
     svuvm.vpi.vpi_printf("*        TEST uvm_report \n")
     svuvm.vpi.vpi_printf("*"*120+"\n")
 
+    svuvm.uvm_report(svuvm.UVM_INFO, "uvm_report_test", "UVM_INFO TEST SUCCESS!", svuvm.UVM_DEBUG, "run.py", 1)
+    svuvm.uvm_report(svuvm.UVM_INFO, "uvm_report_test", "UVM_INFO TEST SUCCESS!", svuvm.UVM_FULL, "run.py", 1)
+    svuvm.uvm_report(svuvm.UVM_INFO, "uvm_report_test", "UVM_INFO TEST SUCCESS!", svuvm.UVM_HIGH, "run.py", 1)
+    svuvm.uvm_report(svuvm.UVM_INFO, "uvm_report_test", "UVM_INFO TEST SUCCESS!", svuvm.UVM_MEDIUM, "run.py", 1)
     svuvm.uvm_report(svuvm.UVM_INFO, "uvm_report_test", "UVM_INFO TEST SUCCESS!", svuvm.UVM_LOW, "run.py", 1)
-    svuvm.uvm_report(svuvm.UVM_WARNING, "uvm_report_test", "UVM_WARNING TEST SUCCESS!", svuvm.UVM_LOW, "run.py", 1)
-    svuvm.uvm_report(svuvm.UVM_ERROR, "uvm_report_test", "UVM_ERROR TEST SUCCESS!", svuvm.UVM_LOW, "run.py", 1)
-    # TODO: Can not import module in `wrap_uvm_report`
-    # svuvm.uvm_info("hello world", svuvm.UVM_MEDIUM)
+    svuvm.uvm_report(svuvm.UVM_INFO, "uvm_report_test", "UVM_INFO TEST SUCCESS!", svuvm.UVM_NONE, "run.py", 1)
+    svuvm.uvm_report(svuvm.UVM_WARNING, "uvm_report_test", "UVM_WARNING TEST SUCCESS!", svuvm.UVM_NONE, "run.py", 1)
+    svuvm.uvm_report(svuvm.UVM_ERROR, "uvm_report_test", "UVM_ERROR TEST SUCCESS!", svuvm.UVM_NONE, "run.py", 1)
+    svuvm.uvm_info("UVM_INFO TEST SUCCESS!", svuvm.UVM_MEDIUM)
+    svuvm.uvm_warning("UVM_WARNING TEST SUCCESS!")
+    svuvm.uvm_error("UVM_ERROR TEST SUCCESS!")
 
     svuvm.vpi.vpi_printf("*"*120+"\n")
     svuvm.vpi.vpi_printf("*        TEST config_db \n")
