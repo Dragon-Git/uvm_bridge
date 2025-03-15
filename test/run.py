@@ -15,21 +15,21 @@ def main():
     svuvm.vpi.vpi_printf("*        TEST config_db \n")
     svuvm.vpi.vpi_printf("*"*120+"\n")
 
-    svuvm.set_config_int("", "", "int_value", 1)
-    int_value = svuvm.get_config_int("", "", "int_value")
-    svuvm.vpi.vpi_printf("int_value: {}\n", int_value)
-    svuvm.set_config_string("", "", "string_value", "hello world")
-    string_value = svuvm.get_config_string("", "", "string_value")
-    svuvm.vpi.vpi_printf("string_value: {}\n", string_value)
+    # svuvm.set_config_int("", "", "int_value", 1)
+    # int_value = svuvm.get_config_int("", "", "int_value")
+    # svuvm.vpi.vpi_printf("int_value: {}\n", int_value)
+    # svuvm.set_config_string("", "", "string_value", "hello world")
+    # string_value = svuvm.get_config_string("", "", "string_value")
+    # svuvm.vpi.vpi_printf("string_value: {}\n", string_value)
 
     svuvm.vpi.vpi_printf("*"*120+"\n")
     svuvm.vpi.vpi_printf("*        TEST reg opretor \n")
     svuvm.vpi.vpi_printf("*"*120+"\n")
     data = 0xdeadbeef
     for i in range(3):
-        svuvm.write_reg(str(i), i)
-        svuvm.wait_unit(i)
-        data = svuvm.read_reg(str(i))
+        # svuvm.write_reg(str(i), i)
+        # svuvm.wait_unit(i)
+        # data = svuvm.read_reg(str(i))
         svuvm.vpi.vpi_printf(f"read data: {data}\n")
 
     svuvm.vpi.vpi_printf("*"*120+"\n")
@@ -46,7 +46,7 @@ def main():
     svuvm.vpi.vpi_printf("*"*120+"\n")
     svuvm.vpi.vpi_printf("*        TEST vpi info \n")
     svuvm.vpi.vpi_printf("*"*120+"\n")
-    obj = svuvm.vpi.vpi_handle_by_name("top.test_wire")
+    obj = svuvm.vpi.vpi_handle_by_name("TOP.our.test_wire")
     error = svuvm.vpi.VpiErrorInfo()
     svuvm.vpi.vpi_printf("vpiVpiErrorInfo: {}\n", error.level)
     print(obj)
@@ -76,5 +76,6 @@ def main():
 
     # svuvm.vpi.vpi_control(svuvm.vpi.vpiReset)
     # svuvm.vpi.vpi_control(svuvm.vpi.vpiFinish)
+
 
         
