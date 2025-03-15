@@ -366,14 +366,16 @@ package python_bridge_pkg;
     endfunction
 
     task start_seq(string seq_name, string sqr_name, bit rand_en=0, bit background=0);
-        uvm_root top = uvm_root::get();
-        uvm_factory factory = uvm_factory::get();
+        uvm_root top;
+        uvm_factory factory;
         uvm_object obj;
         uvm_component comp;
         uvm_sequence_item item;
         uvm_sequence_base seq;
         uvm_sequencer_base sqr;
  
+        top = uvm_root::get();
+        factory = uvm_factory::get();
         obj = factory.create_object_by_name(seq_name, "", seq_name);
         if (obj == null)  begin
             factory.print(1);
