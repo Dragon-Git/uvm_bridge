@@ -147,11 +147,11 @@ char *exec_tcl_cmd(char *cmd) {
   return cfcGetOutput();
 #elif defined(MENTOR)
   mti_Cmd(cmd);
-  return "";
+  return const_cast<char*>("");
 #else
   // not supported
   printf("tcl intregation is not support in this simulator\n");
-  return "";
+  return const_cast<char*>("");
 #endif
 };
 
@@ -771,10 +771,16 @@ void py_func(const char *mod_name, const char *func_name,
     }
   }
 #elif defined(__APPLE__)
-  Dl_info dl_info;
-  if (dladdr((void *)py_func, &dl_info)) {
-    dir_path = dirname(dirname(const_cast<char *>(dl_info.dli_fname)));
-    path.attr("append")(dir_path);
+//   Dl_info dl_info;
+//   if (dladdr((void *)py_func, &dl_info)) {
+//     dir_path = dirname(dirname(const_cast<char *>(dl_info.dli_fname)));
+//     path.attr("append")(dir_path);
+//   }
+  // Add the virtual environment site package path
+  if (getenv("VIRTUAL_ENV")) {
+    auto version_info = sysconfig.attr("get_config_var")("VERSION");
+    std::string site_packages_path = std::string(getenv("VIRTUAL_ENV")) + "/lib/python" + version_info.cast<std::string>() + "/site-packages";;
+    path.attr("append")(site_packages_path);
   }
 #else
 #error Platform not supported.
