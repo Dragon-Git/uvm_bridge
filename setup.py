@@ -6,17 +6,17 @@ from pybind11.setup_helpers import Pybind11Extension, build_ext
 
 
 class CustomExtension(Pybind11Extension):
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if "-fvisibility=hidden" in self.extra_compile_args:
             self.extra_compile_args.remove("-fvisibility=hidden")
-        
+
+
 class custom_build_ext(build_ext):  # noqa: N801
-    """ Customized build_ext that remove some compile flags. """
+    """Customized build_ext that remove some compile flags."""
 
     def build_extensions(self) -> None:
-        """ Build extensions, remove some compile flags. """
+        """Build extensions, remove some compile flags."""
 
         if "-bundle" in self.compiler.linker_so:
             self.compiler.linker_so.remove("-bundle")
@@ -24,7 +24,7 @@ class custom_build_ext(build_ext):  # noqa: N801
         if "-bundle" in self.compiler.linker_so_cxx:
             self.compiler.linker_so_cxx.remove("-bundle")
             self.compiler.linker_so_cxx.append("-dynamiclib")
-            self.compiler.library_dirs.append(getvar('LIBDIR'))
+        self.compiler.library_dirs.append(getvar("LIBDIR"))
         super().build_extensions()
 
     def run(self):
@@ -32,7 +32,7 @@ class custom_build_ext(build_ext):  # noqa: N801
             content = file.read()
         with open("inc/sv_vpi_user.h", "r") as file:
             content += file.read()
-        pattern = re.compile(r'#define\s+(vpi\w+|cb\w+)\s+(\d+)')
+        pattern = re.compile(r"#define\s+(vpi\w+|cb\w+)\s+(\d+)")
         matches = pattern.findall(content)
         vpi_attr = [f'vpi.attr("{match[0]}") = {match[0]};' for match in matches]
         with open("inc/vpi_attr.h", "w") as file:
