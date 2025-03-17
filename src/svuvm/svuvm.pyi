@@ -527,7 +527,7 @@ def set_report_severity_action(contxt: str, severity: int, action: int) -> None:
         action: Action bitmask (bitwise OR of UvmAction values)
     """
 
-def set_report_id_action(contxt: str, id: int, action: int) -> None:
+def set_report_id_action(contxt: str, id: str, action: int) -> None:
     """Configure report actions for specific message ID.
 
     Args:
@@ -536,7 +536,7 @@ def set_report_id_action(contxt: str, id: int, action: int) -> None:
         action: Action bitmask (bitwise OR of UvmAction values)
     """
 
-def set_report_severity_id_action(contxt: str, severity: int, id: int, action: int) -> None:
+def set_report_severity_id_action(contxt: str, severity: int, id: str, action: int) -> None:
     """Configure report actions for specific severity, id, or severity-id pair.
 
     Args:
@@ -608,13 +608,13 @@ def wait_unit(n: int) -> None:
 
 def reset() -> None:
     """Stops the simulation."""
-    
+
 def stop() -> None:
     """Stops the simulation."""
-    
+
 def finish() -> None:
     """Finishes the simulation."""
-    
+
 def get_sim_time(name: str) -> int:
     """Returns the current simulation time.
 
@@ -624,7 +624,7 @@ def get_sim_time(name: str) -> int:
     Returns:
         int: The current simulation time.
     """
-    
+
 def get_time_unit(name: str) -> int:
     """Returns the current time unit.
 
@@ -634,7 +634,7 @@ def get_time_unit(name: str) -> int:
     Returns:
         int: The current time unit.
     """
-    
+
 def get_time_precision(name: str) -> int:
     """Returns the current time precision.
 

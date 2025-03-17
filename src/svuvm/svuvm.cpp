@@ -19,6 +19,18 @@ namespace py = pybind11;
 #include "vpi_user_wrap.h"
 #endif
 
+#include <type_traits> // 添加头文件
+
+template <typename Func> auto dpi_func_wrap(Func func) {
+  // 使用 std::remove_pointer 去除函数指针的指针，获取函数类型
+  using FuncPointerType = std::decay_t<Func>;
+  using FuncType = std::remove_pointer_t<FuncPointerType>;
+  return std::function<FuncType>([func](auto &&...args) {
+    svSetScope(svGetScopeFromName("python_bridge_pkg"));
+    return func(std::forward<decltype(args)>(args)...);
+  });
+}
+
 extern "C" {
 #include "uvm_dpi.h"
 
@@ -147,11 +159,11 @@ char *exec_tcl_cmd(char *cmd) {
   return cfcGetOutput();
 #elif defined(MENTOR)
   mti_Cmd(cmd);
-  return const_cast<char*>("");
+  return const_cast<char *>("");
 #else
   // not supported
   printf("tcl intregation is not support in this simulator\n");
-  return const_cast<char*>("");
+  return const_cast<char *>("");
 #endif
 };
 
@@ -581,109 +593,121 @@ PYBIND11_MODULE(svuvm, m) {
         py::arg("message"), py::arg("verbosity") = M_UVM_NONE,
         py::arg("severity") = M_UVM_FATAL);
 
-  m.def("print_factory", &print_factory, "Prints factory information.",
-        py::arg("all_types") = 1);
+  m.def("print_factory", dpi_func_wrap(print_factory),
+        "Prints factory information.", py::arg("all_types") = 1);
 
-  m.def("set_factory_inst_override", &set_factory_inst_override,
+  m.def("set_factory_inst_override", dpi_func_wrap(set_factory_inst_override),
         "Sets an instance override in the factory.",
         py::arg("original_type_name"), py::arg("override_type_name"),
         py::arg("full_inst_path"));
 
-  m.def("set_factory_type_override", &set_factory_type_override,
+  m.def("set_factory_type_override", dpi_func_wrap(set_factory_type_override),
         "Sets a type override in the factory.", py::arg("original_type_name"),
         py::arg("override_type_name"), py::arg("replace") = true);
 
-  m.def("debug_factory_create", &debug_factory_create,
+  m.def("debug_factory_create", dpi_func_wrap(debug_factory_create),
         "Debugs the creation of a factory object.", py::arg("requested_type"),
         py::arg("context") = "");
 
-  m.def("create_object_by_name", &create_object_by_name, "create a uvm object.",
-        py::arg("requested_type"), py::arg("context") = "",
-        py::arg("name") = "");
+  m.def("create_object_by_name", dpi_func_wrap(create_object_by_name),
+        "create a uvm object.", py::arg("requested_type"),
+        py::arg("context") = "", py::arg("name") = "");
 
-  m.def("create_component_by_name", &create_component_by_name,
+  m.def("create_component_by_name", dpi_func_wrap(create_component_by_name),
         "create a uvm object.", py::arg("requested_type"),
         py::arg("context") = "", py::arg("parent_name") = "",
         py::arg("name") = "");
 
-  m.def("find_factory_override", &find_factory_override,
+  m.def("find_factory_override", dpi_func_wrap(find_factory_override),
         "Finds an override for a given factory type.",
         py::arg("requested_type"), py::arg("context"),
         py::arg("override_type_name"));
 
-  m.def("print_topology", &print_topology, "Prints the topology.",
+  m.def("print_topology", dpi_func_wrap(print_topology), "Prints the topology.",
         py::arg("context") = "");
 
-  m.def("set_timeout", &set_timeout, "Set the timeout value.",
+  m.def("set_timeout", dpi_func_wrap(set_timeout), "Set the timeout value.",
         py::arg("timeout"), py::arg("overridable") = 1);
 
-  m.def("uvm_objection_op", &uvm_objection_op, "uvm_objection_op",
+  m.def("uvm_objection_op", dpi_func_wrap(uvm_objection_op), "uvm_objection_op",
         py::arg("op"), py::arg("name"), py::arg("contxt"),
         py::arg("description"), py::arg("delta") = 0);
 
-  m.def("dbg_print", &dbg_print, "Prints the object.", py::arg("name") = "");
+  m.def("dbg_print", dpi_func_wrap(dbg_print), "Prints the object.",
+        py::arg("name") = "");
 
 #if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
   // uvm event
-  m.def("wait_on", &wait_on, "Wait until the signal is on", py::arg("ev_name"),
-        py::arg("delta") = 0);
-  m.def("wait_off", &wait_off, "Wait until the signal is off",
+  m.def("wait_on", dpi_func_wrap(wait_on), "Wait until the signal is on",
         py::arg("ev_name"), py::arg("delta") = 0);
-  m.def("wait_trigger", &wait_trigger, "Wait for the trigger event",
-        py::arg("ev_name"));
-  m.def("wait_ptrigger", &wait_ptrigger, "Wait for the positive trigger event",
-        py::arg("ev_name"));
-  m.def("get_trigger_time", &get_trigger_time,
+  m.def("wait_off", dpi_func_wrap(wait_off), "Wait until the signal is off",
+        py::arg("ev_name"), py::arg("delta") = 0);
+  m.def("wait_trigger", dpi_func_wrap(wait_trigger),
+        "Wait for the trigger event", py::arg("ev_name"));
+  m.def("wait_ptrigger", dpi_func_wrap(wait_ptrigger),
+        "Wait for the positive trigger event", py::arg("ev_name"));
+  m.def("get_trigger_time", dpi_func_wrap(get_trigger_time),
         "Get the time of the last trigger event", py::arg("ev_name"));
-  m.def("is_on", &is_on, "Check if the signal is on", py::arg("ev_name"));
-  m.def("is_off", &is_off, "Check if the signal is off", py::arg("ev_name"));
-  m.def("ev_reset", &reset, "Reset the signal state", py::arg("ev_name"),
-        py::arg("wakeup") = 0);
-  m.def("cancel", &cancel, "Cancel the current wait operation",
+  m.def("is_on", dpi_func_wrap(is_on), "Check if the signal is on",
         py::arg("ev_name"));
-  m.def("get_num_waiters", &get_num_waiters, "Get the number of waiters",
+  m.def("is_off", dpi_func_wrap(is_off), "Check if the signal is off",
         py::arg("ev_name"));
-  m.def("trigger", &trigger, "Trigger the event", py::arg("ev_name"));
+  m.def("ev_reset", dpi_func_wrap(reset), "Reset the signal state",
+        py::arg("ev_name"), py::arg("wakeup") = 0);
+  m.def("cancel", dpi_func_wrap(cancel), "Cancel the current wait operation",
+        py::arg("ev_name"));
+  m.def("get_num_waiters", dpi_func_wrap(get_num_waiters),
+        "Get the number of waiters", py::arg("ev_name"));
+  m.def("trigger", dpi_func_wrap(trigger), "Trigger the event",
+        py::arg("ev_name"));
 #endif
   // config db
-  m.def("set_config_int", &set_config_uint64_t,
+  m.def("set_config_int", dpi_func_wrap(set_config_uint64_t),
         "Set integer configuration in the UVM environment");
-  m.def("get_config_int", &get_config_uint64_t,
+  m.def("get_config_int", dpi_func_wrap(get_config_uint64_t),
         "Get integer configuration from the UVM environment");
-  m.def("set_config_string", &set_config_string,
+  m.def("set_config_string", dpi_func_wrap(set_config_string),
         "Set string configuration in the UVM environment");
-  m.def("get_config_string", &get_config_string,
+  m.def("get_config_string", dpi_func_wrap(get_config_string),
         "Get string configuration from the UVM environment");
-  m.def("get_report_verbosity_level", &get_report_verbosity_level,
+  m.def("get_report_verbosity_level", dpi_func_wrap(get_report_verbosity_level),
         "Get the verbosity level for a given severity and id");
-  m.def("get_report_max_verbosity_level", &get_report_max_verbosity_level,
+  m.def("get_report_max_verbosity_level",
+        dpi_func_wrap(get_report_max_verbosity_level),
         "Get the maximum verbosity level");
-  m.def("set_report_verbosity_level", &set_report_verbosity_level,
+  m.def("set_report_verbosity_level", dpi_func_wrap(set_report_verbosity_level),
         "Set the verbosity level for a given context");
-  m.def("set_report_id_verbosity", &set_report_id_verbosity,
+  m.def("set_report_id_verbosity", dpi_func_wrap(set_report_id_verbosity),
         "Set the verbosity level for a given id");
-  m.def("set_report_severity_id_verbosity", &set_report_severity_id_verbosity,
+  m.def("set_report_severity_id_verbosity",
+        dpi_func_wrap(set_report_severity_id_verbosity),
         "Set the verbosity level for a given severity and id");
-  m.def("get_report_action", &get_report_action,
+  m.def("get_report_action", dpi_func_wrap(get_report_action),
         "Get the action for a given severity and id");
-  m.def("set_report_severity_action", &set_report_severity_action,
+  m.def("set_report_severity_action", dpi_func_wrap(set_report_severity_action),
         "Set the action for a given severity");
-  m.def("set_report_id_action", &set_report_id_action,
+  m.def("set_report_id_action", dpi_func_wrap(set_report_id_action),
         "Set the action for a given id");
-  m.def("set_report_severity_id_action", &set_report_severity_id_action,
+  m.def("set_report_severity_id_action",
+        dpi_func_wrap(set_report_severity_id_action),
         "Set the action for a given severity and id");
-  m.def("set_report_severity_override", &set_report_severity_override,
+  m.def("set_report_severity_override",
+        dpi_func_wrap(set_report_severity_override),
         "Set the severity override for a given context");
-  m.def("set_report_severity_id_override", &set_report_severity_id_override,
+  m.def("set_report_severity_id_override",
+        dpi_func_wrap(set_report_severity_id_override),
         "Set the severity override for a given id");
-  m.def("write_reg", &write_reg, "write register");
-  m.def("read_reg", &wrap_read_reg, "read register");
-  m.def("check_reg", &check_reg, "check register", py::arg("name"),
-        py::arg("data") = 0, py::arg("predict") = 0);
-  m.def("start_seq", &start_seq, "start seq on sqr", py::arg("seq_name"),
-        py::arg("sqr_name"), py::arg("rand_en") = 1, py::arg("background") = 0);
-  m.def("run_test", &run_test_wrap, "uvm run test", py::arg("test_name"));
-  m.def("wait_unit", &wait_unit, "wait unit time");
+  m.def("write_reg", dpi_func_wrap(write_reg), "write register");
+  m.def("read_reg", dpi_func_wrap(wrap_read_reg),
+        "read register"); // 注意：wrap_read_reg 已经是函数包装
+  m.def("check_reg", dpi_func_wrap(check_reg), "check register",
+        py::arg("name"), py::arg("data") = 0, py::arg("predict") = 0);
+  m.def("start_seq", dpi_func_wrap(start_seq), "start seq on sqr",
+        py::arg("seq_name"), py::arg("sqr_name"), py::arg("rand_en") = 1,
+        py::arg("background") = 0);
+  m.def("run_test", dpi_func_wrap(run_test_wrap), "uvm run test",
+        py::arg("test_name"));
+  m.def("wait_unit", dpi_func_wrap(wait_unit), "wait unit time");
   m.def(
       "reset", []() { return vpi_control(vpiReset); }, "Reset the simulation");
   m.def(
@@ -737,7 +761,6 @@ PYBIND11_MODULE(svuvm, m) {
 
 void py_func(const char *mod_name, const char *func_name,
              const char *mod_paths) {
-  char *dir_path;
   py::scoped_interpreter guard{}; // start the interpreter and keep it alive
 
   py::module_ sys = py::module_::import("sys");
@@ -748,6 +771,7 @@ void py_func(const char *mod_name, const char *func_name,
       sysconfig.attr("get_config_var")("EXT_SUFFIX").cast<std::string>();
 
 #ifdef __linux__
+  char *dir_path;
   FILE *maps = fopen("/proc/self/maps", "r");
   if (!maps) {
     perror("Failed to open /proc/self/maps");
@@ -771,15 +795,19 @@ void py_func(const char *mod_name, const char *func_name,
     }
   }
 #elif defined(__APPLE__)
-//   Dl_info dl_info;
-//   if (dladdr((void *)py_func, &dl_info)) {
-//     dir_path = dirname(dirname(const_cast<char *>(dl_info.dli_fname)));
-//     path.attr("append")(dir_path);
-//   }
+  //   char *dir_path;
+  //   Dl_info dl_info;
+  //   if (dladdr((void *)py_func, &dl_info)) {
+  //     dir_path = dirname(dirname(const_cast<char *>(dl_info.dli_fname)));
+  //     path.attr("append")(dir_path);
+  //   }
   // Add the virtual environment site package path
   if (getenv("VIRTUAL_ENV")) {
     auto version_info = sysconfig.attr("get_config_var")("VERSION");
-    std::string site_packages_path = std::string(getenv("VIRTUAL_ENV")) + "/lib/python" + version_info.cast<std::string>() + "/site-packages";;
+    std::string site_packages_path =
+        std::string(getenv("VIRTUAL_ENV")) + "/lib/python" +
+        version_info.cast<std::string>() + "/site-packages";
+    ;
     path.attr("append")(site_packages_path);
   }
 #else
