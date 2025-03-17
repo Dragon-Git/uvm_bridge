@@ -35,9 +35,22 @@ def main():
         svuvm.uvm_report(svuvm.UVM_ERROR, "uvm_report_test", "UVM_ERROR TEST SUCCESS!", svuvm.UVM_NONE, "run.py", 1)
     # svuvm.set_report_severity_action("", svuvm.UVM_ERROR, svuvm.UVM_NO_ACTION)
     # svuvm.set_report_severity_override("", svuvm.UVM_ERROR, svuvm.UVM_INFO)
+    # svuvm.set_report_severity_id_verbosity("", svuvm.UVM_ERROR, "main", svuvm.UVM_NO_ACTION)
+    # svuvm.set_report_severity_id_action("", svuvm.UVM_ERROR, "main", svuvm.UVM_NO_ACTION)
+    # svuvm.set_report_severity_id_override("", svuvm.UVM_ERROR, "main", svuvm.UVM_INFO)
     svuvm.uvm_info("UVM_INFO TEST SUCCESS!", svuvm.UVM_MEDIUM)
     svuvm.uvm_warning("UVM_WARNING TEST SUCCESS!")
     svuvm.uvm_error("UVM_ERROR TEST SUCCESS!")
+
+    svuvm.set_report_id_verbosity("", "main", svuvm.UVM_LOW)
+    svuvm.uvm_info("set_report_id_verbosity TEST SUCCESS!", svuvm.UVM_DEBUG)
+    svuvm.set_report_verbosity_level("", svuvm.UVM_DEBUG)
+    svuvm.uvm_info("UVM_DEBUG TEST SUCCESS!", svuvm.UVM_DEBUG)
+    svuvm.set_report_verbosity_level("", svuvm.UVM_MEDIUM)
+
+    # svuvm.vpi.vpi_printf(f"report_action: {svuvm.get_report_action("", svuvm.UVM_INFO, "main")}\n")
+    # svuvm.vpi.vpi_printf(f"verbosity_level: {svuvm.get_report_verbosity_level("", svuvm.UVM_INFO, "main")}\n")
+    svuvm.vpi.vpi_printf(f"max_verbosity_level: {svuvm.get_report_max_verbosity_level("")}\n")
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST config_db \n")
