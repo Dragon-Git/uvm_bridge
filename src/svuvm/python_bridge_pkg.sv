@@ -155,122 +155,117 @@ package python_bridge_pkg;
     endfunction
 
 
-    `ifndef VERILATOR
     //------------
     // uvm event
     //------------
 
     // Wrapper for wait_on
-    task wait_on(string ev_name, bit delta = 0);
-        uvm_event ev = uvm_event_pool::get_global(ev_name);
+    task automatic wait_on(string ev_name, bit delta = 0);
+        uvm_event ev;
+        ev = uvm_event_pool::get_global(ev_name);
         ev.wait_on(delta);
     endtask
 
     // Wrapper for wait_off
-    task wait_off(string ev_name, bit delta = 0);
+    task automatic wait_off(string ev_name, bit delta = 0);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         ev.wait_off(delta);
     endtask
 
     // Wrapper for wait_trigger
-    task wait_trigger(string ev_name);
+    task automatic wait_trigger(string ev_name);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         ev.wait_trigger();
     endtask
 
     // Wrapper for wait_ptrigger
-    task wait_ptrigger(string ev_name);
+    task automatic wait_ptrigger(string ev_name);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         ev.wait_ptrigger();
     endtask
 
     // Wrapper for wait_trigger_data
-    task wait_trigger_data(string ev_name, output uvm_object data);
+    task automatic wait_trigger_data(string ev_name, output uvm_object data);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         ev.wait_trigger_data(data);
     endtask
 
     // Wrapper for wait_ptrigger_data
-    task wait_ptrigger_data(string ev_name, output uvm_object data);
+    task automatic wait_ptrigger_data(string ev_name, output uvm_object data);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         ev.wait_ptrigger_data(data);
     endtask
 
     // Wrapper for get_trigger_time
-    function longint get_trigger_time(string ev_name);
+    function automatic longint get_trigger_time(string ev_name);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         return ev.get_trigger_time();
     endfunction
 
     // Wrapper for is_on
-    function bit is_on(string ev_name);
+    function automatic bit is_on(string ev_name);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         return ev.is_on();
     endfunction
 
     // Wrapper for is_off
-    function bit is_off(string ev_name);
+    function automatic bit is_off(string ev_name);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         return ev.is_off();
     endfunction
 
     // Wrapper for reset
-    function void reset(string ev_name, bit wakeup = 0);
+    function automatic void reset(string ev_name, bit wakeup = 0);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         ev.reset(wakeup);
     endfunction
 
     // Wrapper for cancel
-    function void cancel(string ev_name);
+    function automatic void cancel(string ev_name);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         ev.cancel();
     endfunction
 
     // Wrapper for get_num_waiters
-    function int get_num_waiters(string ev_name);
+    function automatic int get_num_waiters(string ev_name);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         return ev.get_num_waiters();
     endfunction
 
     // Wrapper for trigger
-    function void trigger(string ev_name);
+    function automatic void trigger(string ev_name);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         ev.trigger();
     endfunction
     
     // Wrapper for get_trigger_data
-    function uvm_object get_trigger_data(string ev_name);
+    function automatic uvm_object get_trigger_data(string ev_name);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         return ev.get_trigger_data();
     endfunction
 
     // Wrapper for get_default_data
-    function uvm_object get_default_data(string ev_name);
+    function automatic uvm_object get_default_data(string ev_name);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         return ev.get_default_data();
     endfunction
 
     // Wrapper for set_default_data
-    function void set_default_data(string ev_name, uvm_object data);
+    function automatic void set_default_data(string ev_name, uvm_object data);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         ev.set_default_data(data);
     endfunction
     
-    `endif //VERILATOR
-
-    `define DECLARE_COMP(contxt) \
-        uvm_component comp; \
-        comp = get_contxt(contxt);
 
     `define SET_CONFIG_FUNC(datatype) \
-        function void set_config_``datatype``(string contxt, string inst_name, string field_name, datatype value); \
-            `DECLARE_COMP(contxt) \
+        function automatic void set_config_``datatype``(string contxt, string inst_name, string field_name, datatype value); \
+            uvm_component comp = get_contxt(contxt); \
             uvm_config_db#(datatype)::set(comp, inst_name, field_name, value); \
         endfunction
     
     `define GET_CONFIG_FUNC(datatype) \
-        function datatype get_config_``datatype``(string contxt, string inst_name, string field_name); \
-            `DECLARE_COMP(contxt) \
+        function automatic datatype get_config_``datatype``(string contxt, string inst_name, string field_name); \
+            uvm_component comp = get_contxt(contxt); \
             uvm_config_db#(datatype)::get(comp, inst_name, field_name, get_config_``datatype``); \
         endfunction
     
@@ -287,70 +282,70 @@ package python_bridge_pkg;
     `SET_CONFIG_FUNC(byte_array_t)
     `GET_CONFIG_FUNC(byte_array_t)
 
-    function int get_report_verbosity_level(string contxt, int severity, string id);
-        `DECLARE_COMP(contxt)
+    function automatic int get_report_verbosity_level(string contxt, int severity, string id);
+        uvm_component comp = get_contxt(contxt);
         return comp.get_report_verbosity_level(uvm_severity'(severity), id);
     endfunction
 
-    function int get_report_max_verbosity_level(string contxt);
-        `DECLARE_COMP(contxt)
+    function automatic int get_report_max_verbosity_level(string contxt);
+        uvm_component comp = get_contxt(contxt);
         return comp.get_report_max_verbosity_level();
     endfunction
 
-    function void set_report_verbosity_level (string contxt, int verbosity_level);
-        `DECLARE_COMP(contxt)
+    function automatic void set_report_verbosity_level (string contxt, int verbosity_level);
+        uvm_component comp = get_contxt(contxt);
         comp.set_report_verbosity_level(verbosity_level);
     endfunction
 
-    function void set_report_id_verbosity (string contxt, string id, int verbosity);
-        `DECLARE_COMP(contxt)
+    function automatic void set_report_id_verbosity (string contxt, string id, int verbosity);
+        uvm_component comp = get_contxt(contxt);
         comp.set_report_id_verbosity(id, verbosity);
     endfunction
 
-    function void set_report_severity_id_verbosity (string contxt, int severity, string id, int verbosity);
-        `DECLARE_COMP(contxt)
+    function automatic void set_report_severity_id_verbosity (string contxt, int severity, string id, int verbosity);
+        uvm_component comp = get_contxt(contxt);
         comp.set_report_severity_id_verbosity(uvm_severity'(severity), id, verbosity);
     endfunction
 
-    function int get_report_action(string contxt, int severity, string id);
-        `DECLARE_COMP(contxt)
+    function automatic int get_report_action(string contxt, int severity, string id);
+        uvm_component comp = get_contxt(contxt);
         return comp.get_report_action(uvm_severity'(severity), id);
     endfunction
 
-    function void set_report_severity_action (string contxt, int severity, uvm_action action);
-        `DECLARE_COMP(contxt)
+    function automatic void set_report_severity_action (string contxt, int severity, uvm_action action);
+        uvm_component comp = get_contxt(contxt);
         comp.set_report_severity_action(uvm_severity'(severity), action);
     endfunction
 
 
-    function void set_report_id_action (string contxt, string id, uvm_action action);
-        `DECLARE_COMP(contxt)
+    function automatic void set_report_id_action (string contxt, string id, uvm_action action);
+        uvm_component comp = get_contxt(contxt);
         comp.set_report_id_action(id, action);
     endfunction
 
-    function void set_report_severity_id_action (string contxt, int severity, string id, uvm_action action);
-        `DECLARE_COMP(contxt)
+    function automatic void set_report_severity_id_action (string contxt, int severity, string id, uvm_action action);
+        uvm_component comp = get_contxt(contxt);
         comp.set_report_severity_id_action(uvm_severity'(severity), id, action);
     endfunction
 
-    function void set_report_severity_override(string contxt, int cur_severity, int new_severity);
-        `DECLARE_COMP(contxt)
+    function automatic void set_report_severity_override(string contxt, int cur_severity, int new_severity);
+        uvm_component comp = get_contxt(contxt);
         comp.set_report_severity_override(uvm_severity'(cur_severity), uvm_severity'(new_severity));
     endfunction
 
-    function void set_report_severity_id_override(string contxt, int cur_severity, string id, int new_severity);
-        `DECLARE_COMP(contxt)
+    function automatic void set_report_severity_id_override(string contxt, int cur_severity, string id, int new_severity);
+        uvm_component comp = get_contxt(contxt);
         comp.set_report_severity_id_override(uvm_severity'(cur_severity), id, uvm_severity'(new_severity));
     endfunction
 
-    function string base16_encode(input byte data_in []);
+    function automatic string base16_encode(input byte data_in []);
         base16_encode = "";
         foreach (data_in[i]) begin
             base16_encode = {base16_encode, $sformatf("%02h", data_in[i])};
         end
     endfunction
 
-    function byte_array_t base16_decode(input string hex_str);
+    function automatic byte_array_t base16_decode(input string hex_str);
         int str_len;
         static int i;
         str_len = hex_str.len();
@@ -365,7 +360,7 @@ package python_bridge_pkg;
         return base16_decode;
     endfunction
 
-    task start_seq(string seq_name, string sqr_name, bit rand_en=0, bit background=0);
+    task automatic start_seq(string seq_name, string sqr_name, bit rand_en=0, bit background=0);
         uvm_root top;
         uvm_factory factory;
         uvm_object obj;
@@ -491,33 +486,33 @@ package python_bridge_pkg;
 
     endclass:reg_operator
 
-    task write_reg(input string name, input int data);
+    task automatic write_reg(input string name, input int data);
        `ifndef VERILATOR
         reg_operator::inst.write_reg(name, data);
         `endif //VERILATOR
     endtask:write_reg
 
-    task read_reg(input string name, output int data);
+    task automatic read_reg(input string name, output int data);
         `ifndef VERILATOR
         reg_operator::inst.read_reg(name, data);
         `endif //VERILATOR
     endtask:read_reg
 
-    task check_reg(input string name, input int data=0, input bit predict=1'b0);
+    task automatic check_reg(input string name, input int data=0, input bit predict=1'b0);
         `ifndef VERILATOR
         reg_operator::inst.check_reg(name, data, predict);
         `endif //VERILATOR
     endtask:check_reg
 
     // custom task
-    task wait_unit(int n);
+    task automatic wait_unit(int n);
     `ifndef VERILATOR
         #n;
     `endif //VERILATOR
         $display("=== time: %d ===", $time);
     endtask:wait_unit
 
-    task run_test_wrap(string test_name="");
+    task automatic run_test_wrap(string test_name="");
     `ifndef VERILATOR
         run_test(test_name);
     `endif //VERILATOR
@@ -547,6 +542,7 @@ package python_bridge_pkg;
     export "DPI-C" task wait_ptrigger;
     //export "DPI-C" task wait_trigger_data;
     //export "DPI-C" task wait_ptrigger_data;
+    `endif //VERILATOR
 
     export "DPI-C" function get_trigger_time;
     export "DPI-C" function is_on;
@@ -558,7 +554,6 @@ package python_bridge_pkg;
     //export "DPI-C" function get_trigger_data;
     //export "DPI-C" function get_default_data;
     //export "DPI-C" function set_default_data;
-    `endif //VERILATOR
 
     // config db
     export "DPI-C" function set_config_uint64_t;

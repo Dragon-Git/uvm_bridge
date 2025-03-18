@@ -62,6 +62,7 @@ void wait_trigger(const char *ev_name);
 void wait_ptrigger(const char *ev_name);
 // void wait_trigger_data(uvm_object *data, const char* ev_name);
 // void wait_ptrigger_data(uvm_object *data, const char* ev_name);
+#endif
 uint64_t get_trigger_time(const char *ev_name);
 int is_on(const char *ev_name);
 int is_off(const char *ev_name);
@@ -72,7 +73,6 @@ void trigger(const char *ev_name);
 // uvm_object *get_trigger_data();
 // uvm_object *get_default_data();
 // void set_default_data(uvm_object *data);
-#endif
 
 void set_config_uint64_t(const char *contxt, const char *inst_name,
                          const char *field_name, uint64_t value);
@@ -646,6 +646,7 @@ PYBIND11_MODULE(svuvm, m) {
         "Wait for the trigger event", py::arg("ev_name"));
   m.def("wait_ptrigger", dpi_func_wrap(wait_ptrigger),
         "Wait for the positive trigger event", py::arg("ev_name"));
+#endif
   m.def("get_trigger_time", dpi_func_wrap(get_trigger_time),
         "Get the time of the last trigger event", py::arg("ev_name"));
   m.def("is_on", dpi_func_wrap(is_on), "Check if the signal is on",
@@ -660,7 +661,6 @@ PYBIND11_MODULE(svuvm, m) {
         "Get the number of waiters", py::arg("ev_name"));
   m.def("trigger", dpi_func_wrap(trigger), "Trigger the event",
         py::arg("ev_name"));
-#endif
   // config db
   m.def("set_config_int", dpi_func_wrap(set_config_uint64_t),
         "Set integer configuration in the UVM environment");
