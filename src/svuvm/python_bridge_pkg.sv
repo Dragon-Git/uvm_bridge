@@ -287,9 +287,9 @@ package python_bridge_pkg;
     `SET_CONFIG_FUNC(byte_array_t)
     `GET_CONFIG_FUNC(byte_array_t)
 
-    function int get_report_verbosity_level(string contxt, uvm_severity severity, string id);
+    function int get_report_verbosity_level(string contxt, int severity, string id);
         `DECLARE_COMP(contxt)
-        return comp.get_report_verbosity_level(severity, id);
+        return comp.get_report_verbosity_level(uvm_severity'(severity), id);
     endfunction
 
     function int get_report_max_verbosity_level(string contxt);
@@ -307,19 +307,19 @@ package python_bridge_pkg;
         comp.set_report_id_verbosity(id, verbosity);
     endfunction
 
-    function void set_report_severity_id_verbosity (string contxt, uvm_severity severity, string id, int verbosity);
+    function void set_report_severity_id_verbosity (string contxt, int severity, string id, int verbosity);
         `DECLARE_COMP(contxt)
-        comp.set_report_severity_id_verbosity(severity, id, verbosity);
+        comp.set_report_severity_id_verbosity(uvm_severity'(severity), id, verbosity);
     endfunction
 
-    function int get_report_action(string contxt, uvm_severity severity, string id);
+    function int get_report_action(string contxt, int severity, string id);
         `DECLARE_COMP(contxt)
-        return comp.get_report_action(severity, id);
+        return comp.get_report_action(uvm_severity'(severity), id);
     endfunction
 
-    function void set_report_severity_action (string contxt, uvm_severity severity, uvm_action action);
+    function void set_report_severity_action (string contxt, int severity, uvm_action action);
         `DECLARE_COMP(contxt)
-        comp.set_report_severity_action(severity, action);
+        comp.set_report_severity_action(uvm_severity'(severity), action);
     endfunction
 
 
@@ -328,19 +328,19 @@ package python_bridge_pkg;
         comp.set_report_id_action(id, action);
     endfunction
 
-    function void set_report_severity_id_action (string contxt, uvm_severity severity, string id, uvm_action action);
+    function void set_report_severity_id_action (string contxt, int severity, string id, uvm_action action);
         `DECLARE_COMP(contxt)
-        comp.set_report_severity_id_action(severity, id, action);
+        comp.set_report_severity_id_action(uvm_severity'(severity), id, action);
     endfunction
 
-    function void set_report_severity_override(string contxt, uvm_severity cur_severity, uvm_severity new_severity);
+    function void set_report_severity_override(string contxt, int cur_severity, int new_severity);
         `DECLARE_COMP(contxt)
-        comp.set_report_severity_override(cur_severity, new_severity);
+        comp.set_report_severity_override(uvm_severity'(cur_severity), uvm_severity'(new_severity));
     endfunction
 
-    function void set_report_severity_id_override(string contxt, uvm_severity cur_severity, string id, uvm_severity new_severity);
+    function void set_report_severity_id_override(string contxt, int cur_severity, string id, int new_severity);
         `DECLARE_COMP(contxt)
-        comp.set_report_severity_id_override(cur_severity, id, new_severity);
+        comp.set_report_severity_id_override(uvm_severity'(cur_severity), id, uvm_severity'(new_severity));
     endfunction
 
     function string base16_encode(input byte data_in []);
