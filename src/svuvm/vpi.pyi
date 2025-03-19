@@ -29,9 +29,11 @@ class VpiDelay:
         append_flag (int): Append flag.
         pulsere_flag (int): Pulse repeat flag.
     """
-    def __init__(self, da: 'VpiTime', no_of_delays: int, time_type: int, mtm_flag: int, append_flag: int, pulsere_flag: int) -> None: ...
+    def __init__(
+        self, da: "VpiTime", no_of_delays: int, time_type: int, mtm_flag: int, append_flag: int, pulsere_flag: int
+    ) -> None: ...
 
-    da: 'VpiTime'
+    da: "VpiTime"
     no_of_delays: int
     time_type: int
     mtm_flag: int
@@ -74,10 +76,12 @@ class VpiValue:
         format (int): The format of the value.
         value (Union[str, int, float, VpiTime, VpiVecVal, VpiStrengthVal]): The actual value.
     """
-    def __init__(self, format: int, value: Union[str, int, float, 'VpiTime', 'VpiVecVal', 'VpiStrengthVal']) -> None: ...
+    def __init__(
+        self, format: int, value: Union[str, int, float, "VpiTime", "VpiVecVal", "VpiStrengthVal"]
+    ) -> None: ...
 
     format: int
-    value: Union[str, int, float, 'VpiTime', 'VpiVecVal', 'VpiStrengthVal']
+    value: Union[str, int, float, "VpiTime", "VpiVecVal", "VpiStrengthVal"]
 
 class VpiArrayValue:
     """
@@ -88,11 +92,13 @@ class VpiArrayValue:
         flags (int): Flags associated with the array value.
         value (Union[List[int], List[float], List[VpiVecVal], List[VpiTime]]): The array of values.
     """
-    def __init__(self, format: int, flags: int, value: Union[List[int], List[float], List['VpiVecVal'], List['VpiTime']]) -> None: ...
+    def __init__(
+        self, format: int, flags: int, value: Union[List[int], List[float], List["VpiVecVal"], List["VpiTime"]]
+    ) -> None: ...
 
     format: int
     flags: int
-    value: Union[List[int], List[float], List['VpiVecVal'], List['VpiTime']]
+    value: Union[List[int], List[float], List["VpiVecVal"], List["VpiTime"]]
 
 class VpiSystfData:
     """
@@ -164,16 +170,18 @@ class CbData:
         index (int): The index associated with the callback.
         user_data (str): User-defined data.
     """
-    def __init__(self, reason: int, cb_rtn: Callable, object: Any, time: 'VpiTime', value: 'VpiValue', index: int, user_data: str) -> None: ...
+    def __init__(
+        self, reason: int, cb_rtn: Callable, object: Any, time: "VpiTime", value: "VpiValue", index: int, user_data: str
+    ) -> None: ...
 
     reason: int
     obj: Any
-    time: 'VpiTime'
-    value: 'VpiValue'
+    time: "VpiTime"
+    value: "VpiValue"
     index: int
     user_data: str
 
-def vpi_register_cb(cb_data_p: 'CbData') -> Any:
+def vpi_register_cb(cb_data_p: "CbData") -> Any:
     """
     Registers a callback with the VPI.
 
@@ -192,7 +200,7 @@ def vpi_remove_cb(cb_obj: Any) -> None:
         cb_obj (Any): The callback object to remove.
     """
 
-def vpi_get_cb_info(object: Any, cb_data_p: 'CbData') -> Any:
+def vpi_get_cb_info(object: Any, cb_data_p: "CbData") -> Any:
     """
     Gets information about a callback.
 
@@ -204,7 +212,7 @@ def vpi_get_cb_info(object: Any, cb_data_p: 'CbData') -> Any:
         Any: Information about the callback.
     """
 
-def vpi_register_systf(systf_data_p: 'VpiSystfData') -> None:
+def vpi_register_systf(systf_data_p: "VpiSystfData") -> None:
     """
     Registers a system task or function with the VPI.
 
@@ -212,7 +220,7 @@ def vpi_register_systf(systf_data_p: 'VpiSystfData') -> None:
         systf_data_p (VpiSystfData): The system task or function data to register.
     """
 
-def vpi_get_systf_info(object: Any, systf_data_p: 'VpiSystfData') -> Any:
+def vpi_get_systf_info(object: Any, systf_data_p: "VpiSystfData") -> Any:
     """
     Gets information about a registered system task or function.
 
@@ -327,7 +335,7 @@ def vpi_get_str(property: int, object: Any) -> bytes:
         bytes: The string value of the property.
     """
 
-def vpi_get_delays(object: Any, delay_p: 'VpiDelay') -> None:
+def vpi_get_delays(object: Any, delay_p: "VpiDelay") -> None:
     """
     Gets the delays associated with an object.
 
@@ -336,7 +344,7 @@ def vpi_get_delays(object: Any, delay_p: 'VpiDelay') -> None:
         delay_p (VpiDelay): The delay data.
     """
 
-def vpi_put_delays(object: Any, delay_p: 'VpiDelay') -> None:
+def vpi_put_delays(object: Any, delay_p: "VpiDelay") -> None:
     """
     Sets the delays for an object.
 
@@ -345,7 +353,7 @@ def vpi_put_delays(object: Any, delay_p: 'VpiDelay') -> None:
         delay_p (VpiDelay): The delay data.
     """
 
-def vpi_get_value(expr: Any, value_p: 'VpiValue') -> None:
+def vpi_get_value(expr: Any, value_p: "VpiValue") -> None:
     """
     Gets the value of an expression.
 
@@ -354,7 +362,7 @@ def vpi_get_value(expr: Any, value_p: 'VpiValue') -> None:
         value_p (VpiValue): The value data.
     """
 
-def vpi_put_value(object: Any, value_p: 'VpiValue', time_p: 'VpiTime', flags: int) -> None:
+def vpi_put_value(object: Any, value_p: "VpiValue", time_p: "VpiTime", flags: int) -> None:
     """
     Sets the value of an object.
 
@@ -365,7 +373,7 @@ def vpi_put_value(object: Any, value_p: 'VpiValue', time_p: 'VpiTime', flags: in
         flags (int): Flags associated with the operation.
     """
 
-def vpi_get_value_array(object: Any, arrayvalue_p: 'VpiArrayValue', index_p: List[int], num: int) -> None:
+def vpi_get_value_array(object: Any, arrayvalue_p: "VpiArrayValue", index_p: List[int], num: int) -> None:
     """
     Gets an array value from an object.
 
@@ -376,7 +384,7 @@ def vpi_get_value_array(object: Any, arrayvalue_p: 'VpiArrayValue', index_p: Lis
         num (int): The number of elements to get.
     """
 
-def vpi_put_value_array(object: Any, arrayvalue_p: 'VpiArrayValue', index_p: List[int], num: int) -> None:
+def vpi_put_value_array(object: Any, arrayvalue_p: "VpiArrayValue", index_p: List[int], num: int) -> None:
     """
     Sets an array value for an object.
 
@@ -387,7 +395,7 @@ def vpi_put_value_array(object: Any, arrayvalue_p: 'VpiArrayValue', index_p: Lis
         num (int): The number of elements to set.
     """
 
-def vpi_get_time(object: Any, time_p: 'VpiTime') -> None:
+def vpi_get_time(object: Any, time_p: "VpiTime") -> None:
     """
     Gets the time associated with an object.
 
