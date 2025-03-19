@@ -49,9 +49,9 @@ def main():
     svuvm.uvm_info("UVM_DEBUG TEST SUCCESS!", svuvm.UVM_DEBUG)
     svuvm.set_report_verbosity_level("", svuvm.UVM_MEDIUM)
 
-    # svuvm.vpi.vpi_printf(f"report_action: {svuvm.get_report_action("", svuvm.UVM_INFO, "main")}\n")
-    # svuvm.vpi.vpi_printf(f"verbosity_level: {svuvm.get_report_verbosity_level("", svuvm.UVM_INFO, "main")}\n")
-    svuvm.vpi.vpi_printf(f"max_verbosity_level: {svuvm.get_report_max_verbosity_level("")}\n")
+    svuvm.vpi.vpi_printf(f"report_action: {svuvm.get_report_action('', svuvm.UVM_INFO, 'main')}\n")
+    svuvm.vpi.vpi_printf(f"verbosity_level: {svuvm.get_report_verbosity_level('', svuvm.UVM_INFO, 'main')}\n")
+    svuvm.vpi.vpi_printf(f"max_verbosity_level: {svuvm.get_report_max_verbosity_level('')}\n")
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST config_db \n")
