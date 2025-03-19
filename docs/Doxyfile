@@ -1,0 +1,68 @@
+PROJECT_NAME           = svuvm
+PROJECT_NUMBER         = 0.1.0
+OUTPUT_DIRECTORY       = build
+CREATE_SUBDIRS         = YES
+FULL_PATH_NAMES        = NO
+OPTIMIZE_OUTPUT_FOR_C  = YES
+EXTENSION_MAPPING      = sv=C++ \
+                         svh=C++ \
+                         pyi=Python
+TYPEDEF_HIDES_STRUCT   = YES
+TIMESTAMP              = YES
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_PRIV_VIRTUAL   = YES
+EXTRACT_PACKAGE        = YES
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_METHODS  = YES
+EXTRACT_ANON_NSPACES   = YES
+INPUT                  = ../src \
+                         ../inc
+FILE_PATTERNS          = *.c \
+                         *.cc \
+                         *.cxx \
+                         *.cxxm \
+                         *.cpp \
+                         *.cppm \
+                         *.ccm \
+                         *.c++ \
+                         *.c++m \
+                         *.java \
+                         *.ii \
+                         *.ixx \
+                         *.ipp \
+                         *.i++ \
+                         *.inl \
+                         *.idl \
+                         *.ddl \
+                         *.odl \
+                         *.h \
+                         *.hh \
+                         *.hxx \
+                         *.hpp \
+                         *.h++ \
+                         *.ixx \
+                         *.l \
+                         *.inc \
+                         *.markdown \
+                         *.md \
+                         *.py \
+                         *.pyw \
+                         *.vhd \
+                         *.vhdl \
+                         *.sv \
+                         *.svh \
+                         *.pyi
+RECURSIVE              = YES
+FILTER_PATTERNS        = *.sv=./idv_doxyfilter_sv.pl \
+                         *.svh=./idv_doxyfilter_sv.pl
+DISABLE_INDEX          = NO
+GENERATE_TREEVIEW      = NO
+GENERATE_LATEX         = NO
+LATEX_BIB_STYLE        = plain
+INCLUDE_PATH           = ../inc
+HAVE_DOT               = YES
+DOT_NUM_THREADS        = 8
+UML_LOOK               = YES
+UML_LIMIT_NUM_FIELDS   = 100
+DOT_UML_DETAILS        = YES
