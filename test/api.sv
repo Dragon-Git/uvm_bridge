@@ -3,7 +3,7 @@ module top ();
     `include "uvm_macros.svh"
     import python_bridge_pkg::*;
 
-    reg test_wire;
+    reg test_wire/*verilator public_flat*/;
 
     class my_test extends uvm_test;
         `uvm_component_utils(my_test)
