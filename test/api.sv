@@ -62,6 +62,7 @@ module top ();
 
         virtual function void connect_phase(uvm_phase phase);
             super.connect_phase(phase);
+            call_py_func("run", "connect", dirname(`__FILE__));
         endfunction
 
         virtual task run_phase(uvm_phase phase);

@@ -154,6 +154,34 @@ package python_bridge_pkg;
         $display(info);
     endfunction
 
+    function automatic void tlm_connect(string src, string dst);
+        uvm_component src_comp = get_contxt(src);
+        uvm_component dst_comp = get_contxt(dst);
+        uvm_port_component#(uvm_port_base #()) src_port_comp;
+        uvm_port_component#(uvm_port_base #()) dst_port_comp;
+        uvm_port_base #() src_port;
+        uvm_port_base #() dst_port;
+        
+        if (src_comp == null) begin
+            `uvm_fatal("python_bridge_pkg", $sformatf("can not find %0s uvm_component", src))
+        end
+        if (dst_comp == null) begin
+            `uvm_fatal("python_bridge_pkg", $sformatf("can not find %0s uvm_component", dst))
+        end
+        if (!$cast(src_port_comp, src_comp))  begin
+            `uvm_fatal("python_bridge_pkg", $sformatf("cast failed - %0s is not a uvm_port_component", src))
+        end
+        if (!$cast(dst_port_comp, dst_comp))  begin
+            `uvm_fatal("python_bridge_pkg", $sformatf("cast failed - %0s is not a uvm_port_component", dst))
+        end
+        if (!$cast(src_port, src_port_comp.get_port()))  begin
+            `uvm_fatal("python_bridge_pkg", $sformatf("cast failed - %0s is not a uvm_port", src))
+        end
+        if (!$cast(dst_port, dst_port_comp.get_port()))  begin
+            `uvm_fatal("python_bridge_pkg", $sformatf("cast failed - %0s is not a uvm_port", dst))
+        end
+        src_port.connect(dst_port);
+    endfunction
 
     //------------
     // uvm event
@@ -526,13 +554,14 @@ package python_bridge_pkg;
     export "DPI-C" function create_object_by_name;
     export "DPI-C" function create_component_by_name;
     export "DPI-C" function debug_factory_create;
-    export "DPI-C" function find_factory_override;
+    export "DPI-C" function find_factory_override; // not tested
 
     // uvm_root
     export "DPI-C" function set_timeout;
     export "DPI-C" function print_topology;
     export "DPI-C" function uvm_objection_op;
     export "DPI-C" function dbg_print;
+    export "DPI-C" function tlm_connect;
 
     // uvm_event
     `ifndef VERILATOR
