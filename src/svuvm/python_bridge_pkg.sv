@@ -41,14 +41,14 @@ package python_bridge_pkg;
         factory.create_object_by_name(requested_type,contxt,name);
     endfunction
 
-    function automatic void create_component_by_name (string requested_type, string contxt="", string name="", string parent_name="");
+    function automatic void create_component_by_name (string requested_type, string contxt="", string name="");
         uvm_factory factory = uvm_factory::get();
         uvm_root top = uvm_root::get();
         uvm_component 	parent;
-        parent = top.find(parent_name);
+        parent = top.find(contxt);
         if (parent == null)  begin
             top.print_topology();
-            `uvm_fatal("python_bridge_pkg", $sformatf("can not find %0s uvm_component", parent_name))
+            `uvm_fatal("python_bridge_pkg", $sformatf("can not find %0s uvm_component", contxt))
         end
         factory.create_component_by_name(requested_type,contxt,name,parent);
     endfunction

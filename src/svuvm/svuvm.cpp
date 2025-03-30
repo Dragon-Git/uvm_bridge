@@ -44,8 +44,7 @@ void set_factory_type_override(const char *original_type_name,
 void create_object_by_name(const char *requested_type, const char *context = "",
                            const char *name = "");
 void create_component_by_name(const char *requested_type,
-                              const char *context = "", const char *name = "",
-                              const char *parent_name = "");
+                              const char *context = "", const char *name = "");
 void debug_factory_create(const char *requested_type, const char *context = "");
 void find_factory_override(const char *requested_type, const char *context,
                            const char *override_type_name);
@@ -615,8 +614,7 @@ PYBIND11_MODULE(svuvm, m) {
 
   m.def("create_component_by_name", dpi_func_wrap(create_component_by_name),
         "create a uvm object.", py::arg("requested_type"),
-        py::arg("context") = "", py::arg("parent_name") = "",
-        py::arg("name") = "");
+        py::arg("context") = "", py::arg("name") = "");
 
   m.def("find_factory_override", dpi_func_wrap(find_factory_override),
         "Finds an override for a given factory type.",

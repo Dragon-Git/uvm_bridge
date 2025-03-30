@@ -1,3 +1,4 @@
+import itertools
 from svuvm import svuvm
 
 
@@ -5,14 +6,41 @@ def cb_test(data):
     print("hello cb")
     return 1
 
+def build():
+    svuvm.print_factory()
+    svuvm.print_topology()
+    svuvm.debug_factory_create("base_env", "uvm_test_top")
+    for i in range(3):
+        svuvm.create_component_by_name("base_env", "uvm_test_top", f"m_env_{i}")
+        for j in range(3):
+            svuvm.create_component_by_name("base_agent", f"uvm_test_top.m_env_{i}", f"m_agent_{j}")
+            svuvm.create_component_by_name("base_driver", f"uvm_test_top.m_env_{i}.m_agent_{j}", "m_driver")
+            svuvm.create_component_by_name("base_monitor", f"uvm_test_top.m_env_{i}.m_agent_{j}", "m_monitor")
+            svuvm.create_component_by_name("base_sequencer", f"uvm_test_top.m_env_{i}.m_agent_{j}", "m_sequencer")
+    svuvm.print_topology()
 
 def main():
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST print_topology \n")
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
 
+    svuvm.create_object_by_name("env_cfg", "uvm_test_top", "m_env_cfg")
+    svuvm.set_factory_inst_override("env_cfg", "random_env_cfg", "uvm_test_top.m_env_cfg")
+    svuvm.create_object_by_name("env_cfg", "uvm_test_top", "m_random_env_cfg")
+    svuvm.set_factory_type_override("env_cfg", "direct_env_cfg", 1)
+    svuvm.create_object_by_name("env_cfg", "uvm_test_top", "m_direct_env_cfg")
     svuvm.print_topology()
     svuvm.print_factory()
+
+    svuvm.vpi.vpi_printf("*" * 120 + "\n")
+    svuvm.vpi.vpi_printf("*        TEST uvm_objection \n")
+    svuvm.vpi.vpi_printf("*" * 120 + "\n")
+    prefix = ["pre_", "", "post_"]
+    tsk_phases = ["reset", "configure", "main", "shutdown"]
+    phases = ["".join(ph[::-1]) for ph in itertools.product(tsk_phases, prefix)]
+    for phase in phases:
+        svuvm.uvm_objection_op("RAISE", phase, "uvm_test_top", "TEST OBJECTION RAISE", 1)
+        svuvm.uvm_objection_op("DROP", phase, "uvm_test_top", "TEST OBJECTION DROP", 1)
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST uvm_report \n")
