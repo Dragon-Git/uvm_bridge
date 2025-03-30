@@ -253,14 +253,14 @@ def create_object_by_name(requested_type: str, contxt: str = "", name: str = "")
         name (str): The name of the object. Defaults to "".
     """
 
-def create_component_by_name(requested_type: str, contxt: str = "", parent_name: str = "", name: str = "") -> None:
+def create_component_by_name(requested_type: str, contxt: str = "", name: str = "") -> None:
     """Creates a UVM component by name, specifying its context and optionally its parent and own name.
 
     Args:
         requested_type (str): The type name of the component to create.
         contxt (str): The context in which to create the component. Defaults to "".
-        parent_name (str): The name of the parent component. Defaults to "".
         name (str): The name of the component. Defaults to "".
+        parent_name (str): The name of the parent component. Defaults to "".
     """
 
 def debug_factory_create(requested_type: str, contxt: str = "") -> None:
