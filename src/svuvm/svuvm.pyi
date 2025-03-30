@@ -313,6 +313,14 @@ def dbg_print(name: str = "") -> None:
         name (str): The identifier to include in the debug print. Defaults to "".
     """
 
+def tlm_connect(src: str, dest: str) -> None:
+    """Connects two TLM (Transaction-Level Modeling) ports.
+
+    Args:
+        src (str): The source port.
+        dest (str): The destination port.
+    """
+
 def wait_on(ev_name: str, delta: int = 0) -> None:
     """Waits for an event to become active, optionally with a time delay.
 

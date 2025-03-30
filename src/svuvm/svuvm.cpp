@@ -53,6 +53,7 @@ void set_timeout(long long timeout, unsigned char overridable = 1);
 void uvm_objection_op(const char *op, const char *name, const char *contxt,
                       const char *description, unsigned int count);
 void dbg_print(const char *name = "");
+void tlm_connect(const char *src, const char *dst);
 
 #if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
 void wait_on(const char *ev_name, int delta);
@@ -633,6 +634,9 @@ PYBIND11_MODULE(svuvm, m) {
 
   m.def("dbg_print", dpi_func_wrap(dbg_print), "Prints the object.",
         py::arg("name") = "");
+
+  m.def("tlm_connect", dpi_func_wrap(tlm_connect),
+        "Connects two TLM ports.", py::arg("src"), py::arg("dst"));
 
 #if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
   // uvm event
