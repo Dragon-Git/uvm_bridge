@@ -349,7 +349,7 @@ PYBIND11_MODULE(svuvm, m) {
                        p_vpi_time time, p_vpi_value value, int index,
                        std::string user_data) {
         s_cb_data data;
-        GET_HANDLE(object, obj);
+        vpiHandle obj = convert(object);
         data = {reason, vpi_callback_wrap, obj, time, value, index, NULL};
         auto callback_info = new CallbackInfo(cb_rtn, user_data);
         data.user_data = reinterpret_cast<PLI_BYTE8 *>(callback_info);

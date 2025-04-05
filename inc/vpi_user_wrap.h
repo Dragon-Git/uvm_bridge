@@ -4,62 +4,79 @@
 #include "sv_vpi_user.h"
 #include "vpi_user.h"
 
-#define GET_HANDLE(cap, handle)                                                \
-  vpiHandle handle;                                                            \
-  if (!cap.is_none()) {                                                        \
-    py::capsule cap_ = cap;                                                        \
-    handle = cap_.get_pointer<unsigned int>();                                    \
-  } else {                                                                     \
-    handle = nullptr;                                                          \
+template <typename T> auto convert(T t) {
+  if constexpr (std::is_same_v<T, vpiHandle>) {
+    if (t == nullptr) {
+      return py::object(py::none());
+    }
+    return py::object(py::capsule(t, "vpiHandle"));
+  } else if constexpr (std::is_same_v<T, py::object>) {
+    vpiHandle handle;
+    if (!t.is_none()) {
+      py::capsule cap_ = t;
+      handle = cap_.get_pointer<unsigned int>();
+    } else {
+      handle = nullptr;
+    }
+    return handle;
+  } else {
+    return t;
   }
+}
 
-#define RETURN_HANDLE(handle)                                                  \
-  if (handle == nullptr) {                                                     \
-    return py::none();                                                         \
-  }                                                                            \
-  return py::capsule(handle, "vpiHandle");
+template <typename Func> auto vpi_func_wrap(Func func) {
+  using FuncPointerType = std::decay_t<Func>;
+  using FuncType = std::remove_pointer_t<FuncPointerType>;
+
+  return std::function<FuncType>([func](auto &&...args) {
+    // 对每个参数进行类型转换
+    auto converted_args = std::forward_as_tuple(convert(std::forward<decltype(args)>(args))...);
+    auto result = func(std::forward<decltype(converted_args)>(converted_args));
+    return convert<decltype(result)>(result);
+  });
+}
 
 py::object vpi_register_cb_wrap(p_cb_data cb_data_p) {
   vpiHandle h = vpi_register_cb(cb_data_p);
-  RETURN_HANDLE(h)
+  return convert(h);
 }
 
-PLI_INT32 vpi_remove_cb_wrap(py::object cb_obj) {
-  GET_HANDLE(cb_obj, handle)
+PLI_INT32 vpi_remove_cb_wrap(py::object object) {
+  vpiHandle handle = convert(object);
   return vpi_remove_cb(handle);
 }
 
 void vpi_get_cb_info_wrap(py::object object, p_cb_data cb_data_p) {
-  GET_HANDLE(object, handle)
+  vpiHandle handle = convert(object);
   vpi_get_cb_info(handle, cb_data_p);
 }
 
 py::object vpi_register_systf_wrap(p_vpi_systf_data systf_data_p) {
   vpiHandle h = vpi_register_systf(systf_data_p);
-  RETURN_HANDLE(h)
+  return convert(h);
 }
 
 void vpi_get_systf_info_wrap(py::object object, p_vpi_systf_data systf_data_p) {
-  GET_HANDLE(object, handle)
+  vpiHandle handle = convert(object);
   vpi_get_systf_info(handle, systf_data_p);
 }
 
 py::object vpi_handle_by_name_wrap(const std::string &name, py::object scope) {
-  GET_HANDLE(scope, handle)
+  vpiHandle handle = convert(scope);
   vpiHandle h = vpi_handle_by_name((PLI_BYTE8 *)name.c_str(), handle);
-  RETURN_HANDLE(h)
+  return convert(h);
 }
 
 py::object vpi_handle_by_index_wrap(py::object object, PLI_INT32 indx) {
-  GET_HANDLE(object, handle)
+  vpiHandle handle = convert(object);
   vpiHandle h = vpi_handle_by_index(handle, indx);
-  RETURN_HANDLE(h)
+  return convert(h);
 }
 
 py::object vpi_handle_wrap(PLI_INT32 type, py::object refHandle) {
-  GET_HANDLE(refHandle, handle)
+  vpiHandle handle = convert(refHandle);
   vpiHandle h = vpi_handle(type, handle);
-  RETURN_HANDLE(h)
+  return convert(h);
 }
 
 py::object vpi_handle_multi_wrap(int type, py::args ref_handles) {
@@ -89,72 +106,72 @@ py::object vpi_handle_multi_wrap(int type, py::args ref_handles) {
   }
   vpiHandle h =
       vpi_handle_multi(type, refHandle1, refHandle2, c_ref_handles.data());
-  RETURN_HANDLE(h)
+  return convert(h);
 }
 
 py::object vpi_iterate_wrap(PLI_INT32 type, py::object refHandle) {
-  GET_HANDLE(refHandle, handle)
+  vpiHandle handle = convert(refHandle);
   vpiHandle h = vpi_iterate(type, handle);
-  RETURN_HANDLE(h)
+  return convert(h);
 }
 
 py::object vpi_scan_wrap(py::object object) {
-  GET_HANDLE(object, iter)
+  vpiHandle iter = convert(object);
   vpiHandle h = vpi_scan(iter);
-  RETURN_HANDLE(h)
+  return convert(h);
 }
 
 PLI_INT32 vpi_get_wrap(PLI_INT32 property, py::object object) {
-  GET_HANDLE(object, handle)
+  vpiHandle handle = convert(object);
   return vpi_get(property, handle);
 }
 
 PLI_INT64 vpi_get64_wrap(PLI_INT32 property, py::object object) {
-  GET_HANDLE(object, handle)
+  vpiHandle handle = convert(object);
   return vpi_get64(property, handle);
 }
 
 PLI_BYTE8 *vpi_get_str_wrap(PLI_INT32 property, py::object object) {
-  GET_HANDLE(object, handle)
+  vpiHandle handle = convert(object);
   return vpi_get_str(property, handle);
 }
 
 void vpi_get_delays_wrap(py::object object, p_vpi_delay delay_p) {
-  GET_HANDLE(object, handle)
+  vpiHandle handle = convert(object);
   vpi_get_delays(handle, delay_p);
 }
 
 void vpi_put_delays_wrap(py::object object, p_vpi_delay delay_p) {
-  GET_HANDLE(object, handle)
+  vpiHandle handle = convert(object);
   vpi_put_delays(handle, delay_p);
 }
 
-void vpi_get_value_wrap(py::object expr, p_vpi_value value_p) {
-  GET_HANDLE(expr, handle)
+void vpi_get_value_wrap(py::object object, p_vpi_value value_p) {
+  vpiHandle handle = convert(object);
   vpi_get_value(handle, value_p);
 }
 
 py::object vpi_put_value_wrap(py::object object, p_vpi_value value_p,
                               p_vpi_time time_p, PLI_INT32 flags) {
-  GET_HANDLE(object, handle)
+  vpiHandle handle = convert(object);
   vpiHandle h = vpi_put_value(handle, value_p, time_p, flags);
-  RETURN_HANDLE(h)
+  return convert(h);
 }
 
 void vpi_get_value_array_wrap(py::object object, p_vpi_arrayvalue arrayvalue_p,
-                              PLI_INT32 * index_p, PLI_UINT32 num) {
-  GET_HANDLE(object, handle)
+                              PLI_INT32 *index_p, PLI_UINT32 num) {
+  vpiHandle handle = convert(object);
   vpi_get_value_array(handle, arrayvalue_p, index_p, num);
 }
 
 void vpi_put_value_array_wrap(py::object object, p_vpi_arrayvalue arrayvalue_p,
-                              PLI_INT32 * index_p, PLI_UINT32 num) {
-  GET_HANDLE(object, handle)
+                              PLI_INT32 *index_p, PLI_UINT32 num) {
+  vpiHandle handle = convert(object);
   vpi_put_value_array(handle, arrayvalue_p, index_p, num);
 }
 
 void vpi_get_time_wrap(py::object object, p_vpi_time time_p) {
-  GET_HANDLE(object, handle)
+  vpiHandle handle = convert(object);
   vpi_get_time(handle, time_p);
 }
 
@@ -176,30 +193,30 @@ PLI_INT32 vpi_compare_objects_wrap(py::args ref_handles) {
 }
 
 PLI_INT32 vpi_free_object_wrap(py::object object) {
-  GET_HANDLE(object, handle)
+  vpiHandle handle = convert(object);
   return vpi_free_object(handle);
 }
 
 PLI_INT32 vpi_release_handle_wrap(py::object object) {
-  GET_HANDLE(object, handle)
+  vpiHandle handle = convert(object);
   return vpi_release_handle(handle);
 }
-void *vpi_get_userdata_wrap(py::object obj) {
-  GET_HANDLE(obj, handle)
+void *vpi_get_userdata_wrap(py::object object) {
+  vpiHandle handle = convert(object);
   return vpi_get_userdata(handle);
 }
 
-PLI_INT32 vpi_put_userdata_wrap(py::object obj, py::object userdata) {
-  GET_HANDLE(obj, handle)
+PLI_INT32 vpi_put_userdata_wrap(py::object object, py::object userdata) {
+  vpiHandle handle = convert(object);
   void *data = userdata.cast<void *>();
   return vpi_put_userdata(handle, data);
 }
 
-py::object vpi_handle_by_multi_index_wrap(py::object obj, PLI_INT32 num_index,
+py::object vpi_handle_by_multi_index_wrap(py::object object, PLI_INT32 num_index,
                                           PLI_INT32 *index_array) {
-  GET_HANDLE(obj, handle)
+  vpiHandle handle = convert(object);
   vpiHandle h = vpi_handle_by_multi_index(handle, num_index, index_array);
-  RETURN_HANDLE(h)
+  return convert(h);
 }
 
 int vpi_mcd_printf_wrap(unsigned int mcd, py::str format, py::args args,
