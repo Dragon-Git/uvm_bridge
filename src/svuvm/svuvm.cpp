@@ -370,45 +370,45 @@ PYBIND11_MODULE(svuvm, m) {
             data.user_data = const_cast<PLI_BYTE8 *>(user_data.c_str());
           });
   // functions
-  vpi.def("vpi_register_cb", &vpi_register_cb_wrap, py::arg("cb_data_p"),
+  vpi.def("vpi_register_cb", vpi_func_wrap(vpi_register_cb), py::arg("cb_data_p"),
           "Register a callback.");
 
-  vpi.def("vpi_remove_cb", &vpi_remove_cb_wrap, py::arg("cb_obj"),
+  vpi.def("vpi_remove_cb", vpi_func_wrap(vpi_remove_cb), py::arg("cb_obj"),
           "Remove a callback.");
 
   vpi.def("vpi_get_cb_info", &vpi_get_cb_info_wrap, py::arg("object"),
           py::arg("cb_data_p"), "Get callback information.");
 
-  vpi.def("vpi_register_systf", &vpi_register_systf_wrap,
+  vpi.def("vpi_register_systf", vpi_func_wrap(vpi_register_systf),
           py::arg("systf_data_p"), "Register a system task/function.");
 
   vpi.def("vpi_get_systf_info", &vpi_get_systf_info_wrap, py::arg("object"),
           py::arg("systf_data_p"), "Get system task/function information.");
 
-  vpi.def("vpi_handle_by_name", &vpi_handle_by_name_wrap, py::arg("name"),
+  vpi.def("vpi_handle_by_name", vpi_func_wrap(vpi_handle_by_name), py::arg("name"),
           py::arg("scope") = py::none(), "Get a handle by name.");
 
-  vpi.def("vpi_handle_by_index", &vpi_handle_by_index_wrap, py::arg("object"),
+  vpi.def("vpi_handle_by_index", vpi_func_wrap(vpi_handle_by_index), py::arg("object"),
           py::arg("indx"), "Get a handle by index.");
 
-  vpi.def("vpi_handle", &vpi_handle_wrap, py::arg("type"), py::arg("refHandle"),
+  vpi.def("vpi_handle", vpi_func_wrap(vpi_handle), py::arg("type"), py::arg("refHandle"),
           "Get a handle for a specific type and reference handle.");
 
   vpi.def("vpi_handle_multi", &vpi_handle_multi_wrap,
           "Get a handle for multiple reference handles.");
 
-  vpi.def("vpi_iterate", &vpi_iterate_wrap, py::arg("type"),
+  vpi.def("vpi_iterate", vpi_func_wrap(vpi_iterate), py::arg("type"),
           py::arg("refHandle"), "Iterate over objects of a specific type.");
 
-  vpi.def("vpi_scan", &vpi_scan_wrap, py::arg("iterator"), "Scan an iterator.");
+  vpi.def("vpi_scan", vpi_func_wrap(vpi_scan), py::arg("iterator"), "Scan an iterator.");
 
-  vpi.def("vpi_get", &vpi_get_wrap, py::arg("property"), py::arg("object"),
+  vpi.def("vpi_get", vpi_func_wrap(vpi_get), py::arg("property"), py::arg("object"),
           "Get a property value.");
 
-  vpi.def("vpi_get64", &vpi_get64_wrap, py::arg("property"), py::arg("object"),
+  vpi.def("vpi_get64", vpi_func_wrap(vpi_get64), py::arg("property"), py::arg("object"),
           "Get a 64-bit property value.");
 
-  vpi.def("vpi_get_str", &vpi_get_str_wrap, py::arg("property"),
+  vpi.def("vpi_get_str", vpi_func_wrap(vpi_get_str), py::arg("property"),
           py::arg("object"), "Get a string property value.");
 
   vpi.def("vpi_get_delays", &vpi_get_delays_wrap, py::arg("object"),
@@ -452,10 +452,10 @@ PYBIND11_MODULE(svuvm, m) {
   vpi.def("vpi_compare_objects", &vpi_compare_objects_wrap,
           "Compare two objects.");
 
-  vpi.def("vpi_free_object", &vpi_free_object_wrap, py::arg("object"),
+  vpi.def("vpi_free_object", vpi_func_wrap(vpi_free_object), py::arg("object"),
           "Free an object. (Deprecated)");
 
-  vpi.def("vpi_release_handle", &vpi_release_handle_wrap, py::arg("object"),
+  vpi.def("vpi_release_handle", vpi_func_wrap(vpi_release_handle), py::arg("object"),
           "Release a handle.");
 
 #if !defined(VCS) && !defined(VCSMX)
