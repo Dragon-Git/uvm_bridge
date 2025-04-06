@@ -144,23 +144,6 @@ void vpi_get_time_wrap(py::object object, p_vpi_time time_p) {
   vpi_get_time(handle, time_p);
 }
 
-PLI_INT32 vpi_compare_objects_wrap(py::args ref_handles) {
-  std::vector<vpiHandle> c_ref_handles;
-  for (const auto &arg : ref_handles) {
-    if (py::isinstance<py::capsule>(arg)) {
-      c_ref_handles.push_back(reinterpret_cast<vpiHandle>(
-          arg.cast<py::capsule>().get_pointer<vpiHandle>()));
-    } else {
-      throw std::runtime_error(
-          "Invalid argument type for vpiHandle conversion.");
-    }
-  }
-  if (c_ref_handles.size() != 2) {
-    vpi_printf((PLI_BYTE8 *)"Error: objects must contain two elements.\n");
-  }
-  return vpi_compare_objects(c_ref_handles[0], c_ref_handles[1]);
-}
-
 void *vpi_get_userdata_wrap(py::object object) {
   vpiHandle handle = convert(object);
   return vpi_get_userdata(handle);
