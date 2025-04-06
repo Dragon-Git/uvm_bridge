@@ -4,6 +4,24 @@
 #include "sv_vpi_user.h"
 #include "vpi_user.h"
 
+
+template <typename T>
+struct replace_type { using type = T; };
+
+template <>
+struct replace_type<vpiHandle> { using type = py::object; };
+
+// 函数特征萃取
+template <typename Func>
+struct func_traits;
+
+template <typename R, typename... Args>
+struct func_traits<R (*)(Args...)> {
+    using return_type = typename replace_type<R>::type;
+    using raw_args = std::tuple<Args...>;
+    using adapted_args = std::tuple<typename replace_type<Args>::type...>;
+};
+
 template <typename T> auto convert(T t) {
   if constexpr (std::is_same_v<T, vpiHandle>) {
     if (t == nullptr) {
@@ -24,61 +42,39 @@ template <typename T> auto convert(T t) {
   }
 }
 
+template <typename Ret, typename... Args>
+struct wrap_func_type {
+  using type = std::function<Ret(Args...)>;
+};
+
+// 定义包装函数类型，展开 tuple 中的元素作为参数类型
+template <typename Ret, typename Tuple, std::size_t... Is>
+auto make_wrap_func_type(std::index_sequence<Is...>) {
+  return typename wrap_func_type<Ret, std::tuple_element_t<Is, Tuple>...>::type{};
+}
+
 template <typename Func> auto vpi_func_wrap(Func func) {
   using FuncPointerType = std::decay_t<Func>;
   using FuncType = std::remove_pointer_t<FuncPointerType>;
+  using traits = func_traits<FuncPointerType>;
+  using ReturnType = typename traits::return_type;
+  using AdaptedArgs = typename traits::adapted_args;
 
-  return std::function<FuncType>([func](auto &&...args) {
-    // 对每个参数进行类型转换
-    auto converted_args = std::forward_as_tuple(convert(std::forward<decltype(args)>(args))...);
-    auto result = func(std::forward<decltype(converted_args)>(converted_args));
-    return convert<decltype(result)>(result);
+  auto wrapFuncType = make_wrap_func_type<ReturnType, AdaptedArgs>(std::make_index_sequence<std::tuple_size_v<AdaptedArgs>>{});
+  return decltype(wrapFuncType)([func](auto&&... args) {
+      auto converted_args = std::make_tuple(convert(std::forward<decltype(args)>(args))...);
+      auto result = std::apply(func, converted_args);
+      return convert<decltype(result)>(result);
   });
-}
-
-py::object vpi_register_cb_wrap(p_cb_data cb_data_p) {
-  vpiHandle h = vpi_register_cb(cb_data_p);
-  return convert(h);
-}
-
-PLI_INT32 vpi_remove_cb_wrap(py::object object) {
-  vpiHandle handle = convert(object);
-  return vpi_remove_cb(handle);
-}
-
+} 
 void vpi_get_cb_info_wrap(py::object object, p_cb_data cb_data_p) {
   vpiHandle handle = convert(object);
   vpi_get_cb_info(handle, cb_data_p);
 }
-
-py::object vpi_register_systf_wrap(p_vpi_systf_data systf_data_p) {
-  vpiHandle h = vpi_register_systf(systf_data_p);
-  return convert(h);
-}
-
 void vpi_get_systf_info_wrap(py::object object, p_vpi_systf_data systf_data_p) {
   vpiHandle handle = convert(object);
   vpi_get_systf_info(handle, systf_data_p);
 }
-
-py::object vpi_handle_by_name_wrap(const std::string &name, py::object scope) {
-  vpiHandle handle = convert(scope);
-  vpiHandle h = vpi_handle_by_name((PLI_BYTE8 *)name.c_str(), handle);
-  return convert(h);
-}
-
-py::object vpi_handle_by_index_wrap(py::object object, PLI_INT32 indx) {
-  vpiHandle handle = convert(object);
-  vpiHandle h = vpi_handle_by_index(handle, indx);
-  return convert(h);
-}
-
-py::object vpi_handle_wrap(PLI_INT32 type, py::object refHandle) {
-  vpiHandle handle = convert(refHandle);
-  vpiHandle h = vpi_handle(type, handle);
-  return convert(h);
-}
-
 py::object vpi_handle_multi_wrap(int type, py::args ref_handles) {
   std::vector<vpiHandle> c_ref_handles;
   vpiHandle refHandle1;
@@ -107,33 +103,6 @@ py::object vpi_handle_multi_wrap(int type, py::args ref_handles) {
   vpiHandle h =
       vpi_handle_multi(type, refHandle1, refHandle2, c_ref_handles.data());
   return convert(h);
-}
-
-py::object vpi_iterate_wrap(PLI_INT32 type, py::object refHandle) {
-  vpiHandle handle = convert(refHandle);
-  vpiHandle h = vpi_iterate(type, handle);
-  return convert(h);
-}
-
-py::object vpi_scan_wrap(py::object object) {
-  vpiHandle iter = convert(object);
-  vpiHandle h = vpi_scan(iter);
-  return convert(h);
-}
-
-PLI_INT32 vpi_get_wrap(PLI_INT32 property, py::object object) {
-  vpiHandle handle = convert(object);
-  return vpi_get(property, handle);
-}
-
-PLI_INT64 vpi_get64_wrap(PLI_INT32 property, py::object object) {
-  vpiHandle handle = convert(object);
-  return vpi_get64(property, handle);
-}
-
-PLI_BYTE8 *vpi_get_str_wrap(PLI_INT32 property, py::object object) {
-  vpiHandle handle = convert(object);
-  return vpi_get_str(property, handle);
 }
 
 void vpi_get_delays_wrap(py::object object, p_vpi_delay delay_p) {
@@ -192,15 +161,6 @@ PLI_INT32 vpi_compare_objects_wrap(py::args ref_handles) {
   return vpi_compare_objects(c_ref_handles[0], c_ref_handles[1]);
 }
 
-PLI_INT32 vpi_free_object_wrap(py::object object) {
-  vpiHandle handle = convert(object);
-  return vpi_free_object(handle);
-}
-
-PLI_INT32 vpi_release_handle_wrap(py::object object) {
-  vpiHandle handle = convert(object);
-  return vpi_release_handle(handle);
-}
 void *vpi_get_userdata_wrap(py::object object) {
   vpiHandle handle = convert(object);
   return vpi_get_userdata(handle);
