@@ -49,6 +49,23 @@ def main():
         svuvm.uvm_objection_op("DROP", phase, "uvm_test_top", "TEST OBJECTION DROP", 1)
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
+    svuvm.vpi.vpi_printf("*        TEST uvm_hdl \n")
+    svuvm.vpi.vpi_printf("*" * 120 + "\n")
+
+    value = svuvm.VpiVecVal()
+    p = svuvm.uvm_hdl_check_path("top.dpi_vec_test")
+    svuvm.uvm_info(f"uvm_hdl_check_path: <top.dpi_vec_test> {p}", svuvm.UVM_LOW)
+    svuvm.uvm_hdl_deposit("top.dpi_vec_test", svuvm.VpiVecVal(0xDEADDEAD, 0x0))
+    svuvm.uvm_hdl_read("top.dpi_vec_test", value)
+    svuvm.uvm_info(f"uvm_hdl_read: <top.dpi_vec_test> 0x{value.aval:X}", svuvm.UVM_LOW)
+    svuvm.uvm_hdl_force("top.dpi_vec_test", svuvm.VpiVecVal(0xDEADBEEF, 0x0))
+    svuvm.uvm_hdl_read("top.dpi_vec_test", value)
+    svuvm.uvm_info(f"uvm_hdl_read: <top.dpi_vec_test> 0x{value.aval:X}", svuvm.UVM_LOW)
+    svuvm.uvm_hdl_release_and_read("top.dpi_vec_test", value)
+    svuvm.uvm_info(f"uvm_hdl_release_and_read: <top.dpi_vec_test> 0x{value.aval:X}", svuvm.UVM_LOW)
+    svuvm.uvm_hdl_release("top.dpi_vec_test")
+
+    svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST uvm_report \n")
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
 
@@ -122,7 +139,8 @@ def main():
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST vpi info \n")
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
-    obj = svuvm.vpi.vpi_handle_by_name("top.test_wire")
+    obj = svuvm.vpi.vpi_handle_by_name("top")
+    obj = svuvm.vpi.vpi_handle_by_name("test_wire", obj)
     error = svuvm.vpi.VpiErrorInfo()
     svuvm.vpi.vpi_printf("vpiVpiErrorInfo: {}\n", error.level)
     print(obj)
@@ -139,6 +157,10 @@ def main():
     value = svuvm.vpi.VpiValue(svuvm.vpi.vpiIntVal, 0) # value can not read
     svuvm.vpi.vpi_get_value(obj, value)
     print(name, type, size, value.format)
+    # obj1 = svuvm.vpi.vpi_handle_by_name("top.clk")
+    # result = svuvm.vpi.vpi_compare_objects(obj, obj)
+    # print(result)
+
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST dpi time \n")
