@@ -4,6 +4,7 @@ module top ();
     import python_bridge_pkg::*;
 
     reg test_wire/*verilator public_flat*/;
+    logic [31:0] dpi_vec_test/*verilator public_flat*/;
 
     class env_cfg extends uvm_object;
         `uvm_object_utils(env_cfg)
@@ -73,11 +74,14 @@ module top ();
             $display("test: %s, test1: %p", test, test1);
             `uvm_info(get_name(), $sformatf("num_children: %d", this.get_num_children()), UVM_MEDIUM);
             call_py_func("run", "main", dirname(`__FILE__));
-            #10;
+            #1000;
         endtask
     endclass
+
+    logic clk/*verilator public_flat*/ = 1'b0;
+    always #5 clk = ~clk;
     
     initial begin 
-        run_test("base_test");
+        run_test();
     end
 endmodule
