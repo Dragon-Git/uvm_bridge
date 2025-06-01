@@ -766,7 +766,14 @@ PYBIND11_MODULE(svuvm, m) {
 
 void py_func(const char *mod_name, const char *func_name,
              const char *mod_paths) {
-  py::scoped_interpreter guard{}; // start the interpreter and keep it alive
+
+  std::optional<py::scoped_interpreter> interpreter;
+
+  if (!Py_IsInitialized()) {
+    interpreter.emplace(); 
+  }
+
+  py::gil_scoped_acquire gil;
 
   py::module_ sys = py::module_::import("sys");
   py::list path = sys.attr("path");
