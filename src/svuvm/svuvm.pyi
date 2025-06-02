@@ -287,12 +287,18 @@ def print_topology(contxt: str = "") -> None:
         contxt (str): The context from which to start printing the topology. Defaults to "".
     """
 
-def set_timeout(timeout: int, overridable: int = 1) -> None:
+def set_timeout(timeout: int, overridable: bool = 1) -> None:
     """Sets a global timeout value for simulations.
 
     Args:
         timeout (int): The timeout value.
-        overridable (int): Whether the timeout is overridable. Defaults to 1.
+        overridable (bool): Whether the timeout is overridable. Defaults to 1.
+    """
+def set_finish_on_completion(f: bool = 1) -> None:
+    """Sets a global timeout value for simulations.
+
+    Args:
+        f (bool): if set 1, trun_test will call $finish after all phases are executed. Defaults to 1.
     """
 
 def uvm_objection_op(op: str, name: str, contxt: str, description: str, count: int) -> None:

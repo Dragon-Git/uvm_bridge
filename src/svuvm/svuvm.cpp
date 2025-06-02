@@ -49,7 +49,8 @@ void debug_factory_create(const char *requested_type, const char *context = "");
 void find_factory_override(const char *requested_type, const char *context,
                            const char *override_type_name);
 void print_topology(const char *context = "");
-void set_timeout(long long timeout, unsigned char overridable = 1);
+void set_timeout(long long timeout, bool overridable = 1);
+void set_finish_on_completion(bool f = 1);
 void uvm_objection_op(const char *op, const char *name, const char *contxt,
                       const char *description, unsigned int count);
 void dbg_print(const char *name = "");
@@ -630,6 +631,9 @@ PYBIND11_MODULE(svuvm, m) {
 
   m.def("set_timeout", dpi_func_wrap(set_timeout), "Set the timeout value.",
         py::arg("timeout"), py::arg("overridable") = 1);
+
+  m.def("set_finish_on_completion", dpi_func_wrap(set_finish_on_completion), "if set 1, then $finish is called after phasing completes.",
+        py::arg("f") = 1);
 
   m.def("uvm_objection_op", dpi_func_wrap(uvm_objection_op), "uvm_objection_op",
         py::arg("op"), py::arg("name"), py::arg("contxt"),
