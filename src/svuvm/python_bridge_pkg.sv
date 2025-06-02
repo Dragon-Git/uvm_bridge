@@ -100,6 +100,11 @@ package python_bridge_pkg;
         top.set_timeout(time'(timeout), overridable);
     endfunction
 
+    function automatic void set_finish_on_completion(bit f=1);
+        uvm_root top = uvm_root::get();
+        top.set_finish_on_completion(f);
+    endfunction
+
     //------------------------------------------------------------------------------
     // Group: OBJECTIONS
     //
@@ -558,6 +563,7 @@ package python_bridge_pkg;
 
     // uvm_root
     export "DPI-C" function set_timeout;
+    export "DPI-C" function set_finish_on_completion;
     export "DPI-C" function print_topology;
     export "DPI-C" function uvm_objection_op;
     export "DPI-C" function dbg_print;
