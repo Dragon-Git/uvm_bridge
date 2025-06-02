@@ -106,6 +106,18 @@ void set_report_severity_override(const char *contxt, int cur_severity,
 void set_report_severity_id_override(const char *contxt, int cur_severity,
                                      const char *id, int new_severity);
 
+// 报告服务相关
+void set_max_quit_count(int count, bool overridable);
+int get_max_quit_count(void);
+void set_quit_count(int quit_count);
+int get_quit_count(void);
+void set_severity_count(int severity, int count);
+int get_severity_count(int severity);
+void set_id_count(const char *id, int count);
+int get_id_count(const char *id);
+void print_report_server(void);
+void report_summarize(void);
+
 // 使用pybind11创建的包装器函数
 void wrap_walk_level(int lvl, std::vector<std::string> args, int cmd) {
   // Convert Python string list to C-style char**
@@ -632,7 +644,8 @@ PYBIND11_MODULE(svuvm, m) {
   m.def("set_timeout", dpi_func_wrap(set_timeout), "Set the timeout value.",
         py::arg("timeout"), py::arg("overridable") = 1);
 
-  m.def("set_finish_on_completion", dpi_func_wrap(set_finish_on_completion), "if set 1, then $finish is called after phasing completes.",
+  m.def("set_finish_on_completion", dpi_func_wrap(set_finish_on_completion),
+        "if set 1, then $finish is called after phasing completes.",
         py::arg("f") = 1);
 
   m.def("uvm_objection_op", dpi_func_wrap(uvm_objection_op), "uvm_objection_op",
@@ -679,6 +692,7 @@ PYBIND11_MODULE(svuvm, m) {
         "Set string configuration in the UVM environment");
   m.def("get_config_string", dpi_func_wrap(get_config_string),
         "Get string configuration from the UVM environment");
+  // 报告相关函数绑定
   m.def("get_report_verbosity_level", dpi_func_wrap(get_report_verbosity_level),
         "Get the verbosity level for a given severity and id");
   m.def("get_report_max_verbosity_level",
@@ -706,6 +720,32 @@ PYBIND11_MODULE(svuvm, m) {
   m.def("set_report_severity_id_override",
         dpi_func_wrap(set_report_severity_id_override),
         "Set the severity override for a given id");
+  // 报告服务相关函数绑定
+  m.def("set_max_quit_count", dpi_func_wrap(set_max_quit_count),
+        "Sets the maximum quit count for the report server.", py::arg("count"),
+        py::arg("overridable") = true);
+  m.def("get_max_quit_count", dpi_func_wrap(get_max_quit_count),
+        "Gets the maximum quit count from the report server.");
+  m.def("set_quit_count", dpi_func_wrap(set_quit_count),
+        "Sets the current quit count in the report server.",
+        py::arg("quit_count"));
+  m.def("get_quit_count", dpi_func_wrap(get_quit_count),
+        "Gets the current quit count from the report server.");
+  m.def("set_severity_count", dpi_func_wrap(set_severity_count),
+        "Sets the count for a specific severity level.", py::arg("severity"),
+        py::arg("count"));
+  m.def("get_severity_count", dpi_func_wrap(get_severity_count),
+        "Gets the count for a specific severity level.", py::arg("severity"));
+  m.def("set_id_count", dpi_func_wrap(set_id_count),
+        "Sets the count for a specific message ID.", py::arg("id"),
+        py::arg("count"));
+  m.def("get_id_count", dpi_func_wrap(get_id_count),
+        "Gets the count for a specific message ID.", py::arg("id"));
+  m.def("print_report_server", dpi_func_wrap(print_report_server),
+        "Prints the current report server information.");
+  m.def("report_summarize", dpi_func_wrap(report_summarize),
+        "Generates a summary of all reports.");
+  // 寄存器相关函数绑定
   m.def("write_reg", dpi_func_wrap(write_reg), "write register");
   m.def("read_reg", dpi_func_wrap(wrap_read_reg),
         "read register"); // 注意：wrap_read_reg 已经是函数包装
@@ -774,7 +814,7 @@ void py_func(const char *mod_name, const char *func_name,
   std::optional<py::scoped_interpreter> interpreter;
 
   if (!Py_IsInitialized()) {
-    interpreter.emplace(); 
+    interpreter.emplace();
   }
 
   py::gil_scoped_acquire gil;

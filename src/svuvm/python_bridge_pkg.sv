@@ -371,6 +371,57 @@ package python_bridge_pkg;
         comp.set_report_severity_id_override(uvm_severity'(cur_severity), id, uvm_severity'(new_severity));
     endfunction
 
+    // report server
+    function automatic void set_max_quit_count(int count, bit overridable=1);
+        uvm_report_server server = uvm_report_server::get_server();
+        server.set_max_quit_count(count, overridable);
+    endfunction
+
+    function automatic int get_max_quit_count();
+        uvm_report_server server = uvm_report_server::get_server();
+        return server.get_max_quit_count();
+    endfunction
+
+    function automatic void set_quit_count(int quit_count);
+        uvm_report_server server = uvm_report_server::get_server();
+        server.set_quit_count(quit_count);
+    endfunction
+
+    function automatic int get_quit_count();
+        uvm_report_server server = uvm_report_server::get_server();
+        return server.get_quit_count();
+    endfunction
+
+    function automatic void set_severity_count(int severity, int count);
+        uvm_report_server server = uvm_report_server::get_server();
+        server.set_severity_count(uvm_severity'(severity), count);
+    endfunction
+
+    function automatic int get_severity_count(int severity);
+        uvm_report_server server = uvm_report_server::get_server();
+        return server.get_severity_count(uvm_severity'(severity));
+    endfunction
+
+    function automatic void set_id_count(string id, int count);
+        uvm_report_server server = uvm_report_server::get_server();
+        server.set_id_count(id, count);
+    endfunction
+
+    function automatic int get_id_count(string id);
+        uvm_report_server server = uvm_report_server::get_server();
+        return server.get_id_count(id);
+    endfunction
+
+    function automatic void print_report_server();
+        uvm_report_server server = uvm_report_server::get_server();
+        server.print();
+    endfunction
+
+    function automatic void report_summarize();
+        uvm_report_server server = uvm_report_server::get_server();
+        server.report_summarize();
+    endfunction
+
     function automatic string base16_encode(input byte data_in []);
         base16_encode = "";
         foreach (data_in[i]) begin
@@ -612,6 +663,17 @@ package python_bridge_pkg;
     export "DPI-C" function set_report_severity_id_action;
     export "DPI-C" function set_report_severity_override;
     export "DPI-C" function set_report_severity_id_override;
+    // report server
+    export "DPI-C" function set_max_quit_count;
+    export "DPI-C" function get_max_quit_count;
+    export "DPI-C" function set_quit_count;
+    export "DPI-C" function get_quit_count;
+    export "DPI-C" function set_severity_count;
+    export "DPI-C" function get_severity_count;
+    export "DPI-C" function set_id_count;
+    export "DPI-C" function get_id_count;
+    export "DPI-C" function print_report_server;
+    export "DPI-C" function report_summarize;
 
     // register access
     export "DPI-C" task write_reg;

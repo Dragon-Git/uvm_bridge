@@ -105,6 +105,56 @@ def main():
     svuvm.vpi.vpi_printf(f"max_verbosity_level: {svuvm.get_report_max_verbosity_level('')}\n")
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
+    svuvm.vpi.vpi_printf("*        TEST report server \n")
+    svuvm.vpi.vpi_printf("*" * 120 + "\n")
+    svuvm.print_report_server()
+    svuvm.set_quit_count(10)
+    svuvm.set_max_quit_count(100)
+    svuvm.set_severity_count(svuvm.UVM_INFO, 40)
+    svuvm.set_severity_count(svuvm.UVM_WARNING, 30)
+    svuvm.set_severity_count(svuvm.UVM_ERROR, 20)
+    svuvm.set_severity_count(svuvm.UVM_FATAL, 10)
+    svuvm.set_id_count("main", 88)
+    svuvm.print_report_server()
+    svuvm.get_quit_count()
+    
+    msg_cnt = svuvm.get_max_quit_count()
+    if msg_cnt == 100:
+        svuvm.uvm_info("get_max_quit_count success", svuvm.UVM_LOW)
+    else:
+        svuvm.uvm_error("get_max_quit_count failed")
+    msg_cnt = svuvm.get_quit_count()
+    if msg_cnt == 10:
+        svuvm.uvm_info("get_quit_count success", svuvm.UVM_LOW)
+    else:
+        svuvm.uvm_error("get_quit_count failed")
+    msg_cnt = svuvm.get_severity_count(svuvm.UVM_INFO)
+    if msg_cnt == 40:
+        svuvm.uvm_info("get_severity_count success", svuvm.UVM_LOW)
+    else:
+        svuvm.uvm_error("get_severity_count failed")
+    msg_cnt = svuvm.get_severity_count(svuvm.UVM_WARNING)
+    if msg_cnt == 30:
+        svuvm.uvm_info("get_severity_count success", svuvm.UVM_LOW)
+    else:
+        svuvm.uvm_error("get_severity_count failed")
+    msg_cnt = svuvm.get_severity_count(svuvm.UVM_ERROR)
+    if msg_cnt == 20:
+        svuvm.uvm_info("get_severity_count success", svuvm.UVM_LOW)
+    else:
+        svuvm.uvm_error("get_severity_count failed")
+    msg_cnt = svuvm.get_severity_count(svuvm.UVM_FATAL)
+    if msg_cnt == 10:
+        svuvm.uvm_info("get_severity_count success", svuvm.UVM_LOW)
+    else:
+        svuvm.uvm_error("get_severity_count failed")
+    msg_cnt = svuvm.get_id_count("main")
+    if msg_cnt == 88:
+        svuvm.uvm_info("get_id_count success", svuvm.UVM_LOW)
+    else:
+        svuvm.uvm_error("get_id_count failed")
+
+    svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST config_db \n")
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
 

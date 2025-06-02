@@ -579,6 +579,86 @@ def set_report_severity_id_override(contxt: str, original_severity: int, id: str
         new_severity: New severity level to apply
     """
 
+def set_max_quit_count(count: int, overridable: bool = True) -> None:
+    """Sets the maximum quit count for the report server.
+
+    Args:
+        count (int): The maximum quit count.
+        overridable (bool, optional): Whether the count can be overridden. Defaults to True.
+    """
+
+def get_max_quit_count() -> int:
+    """Gets the maximum quit count from the report server.
+
+    Returns:
+        int: The maximum quit count setting.
+    """
+
+def set_quit_count(quit_count: int) -> None:
+    """Sets the current quit count in the report server.
+
+    Args:
+        quit_count (int): The new quit count value.
+    """
+
+def get_quit_count() -> int:
+    """Gets the current quit count from the report server.
+
+    Returns:
+        int: The current quit count value.
+    """
+
+def set_severity_count(severity: int, count: int) -> None:
+    """Sets the count for a specific severity level.
+
+    Args:
+        severity (int): The severity level to set (use UVM severity constants).
+        count (int): The count value to set.
+    """
+
+def get_severity_count(severity: int) -> int:
+    """Gets the count for a specific severity level.
+
+    Args:
+        severity (int): The severity level to query (use UVM severity constants).
+
+    Returns:
+        int: The current count for the specified severity.
+    """
+
+def set_id_count(id: str, count: int) -> None:
+    """Sets the count for a specific message ID.
+
+    Args:
+        id (str): The message ID to set.
+        count (int): The count value to set.
+    """
+
+def get_id_count(id: str) -> int:
+    """Gets the count for a specific message ID.
+
+    Args:
+        id (str): The message ID to query.
+
+    Returns:
+        int: The current count for the specified message ID.
+    """
+
+def print_report_server() -> None:
+    """Prints the current report server information in human-readable format.
+    
+    This function outputs detailed information about the current state of the
+    UVM report server, including severity levels, ID counts, and other metrics.
+    """
+
+def report_summarize() -> None:
+    """Generates a summary of all reports.
+    
+    This function produces a concise summary of all reports generated during
+    simulation, including total counts for each severity level and any other
+    relevant metrics.
+    """
+
 def read_reg(name: str) -> int:
     """Reads and returns the integer value of a register by name.
 
