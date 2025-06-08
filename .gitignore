@@ -9,6 +9,10 @@ wheels/
 # venv
 .venv
 
+*.o *.a *.so
+*.log
+results.xml
+
 inc/export_dpi.h
 inc/vpi_attr.h
 inc/svuvm_export_dpi.svh
