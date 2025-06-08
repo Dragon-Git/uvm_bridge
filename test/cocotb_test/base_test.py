@@ -1,15 +1,7 @@
 import cocotb
 from cocotb.triggers import Timer
-# cocotb 2.1.0 moved run_regression out of cocotb._init into
-# the cocotb.regression submodule as '_run_regression'. The
-# submodule is not auto-imported by 'import cocotb' in 2.1.0
-# (cocotb.top-level has no 'regression' attribute), so it
-# must be explicitly imported in both branches of the hasattr
-# check below. Without this import the 2.1.0 else branch
-# would AttributeError on 'cocotb.regression'.
-import cocotb.regression
 
-from svuvm import _svuvm as svuvm
+from svuvm import svuvm
 def cb_test(data):
     print("hello cb")
     return 1
@@ -77,10 +69,10 @@ def main():
     svuvm.wait_unit(6)
     svuvm.set_config_int("", "", "int_value", 1)
     int_value = svuvm.get_config_int("", "", "int_value")
-    svuvm.vpi.vpi_printf(f"int_value: {int_value}\n")
+    svuvm.vpi.vpi_printf("int_value: {}\n", int_value)
     svuvm.set_config_string("", "", "string_value", "hello world")
     string_value = svuvm.get_config_string("", "", "string_value")
-    svuvm.vpi.vpi_printf(f"string_value: {string_value}\n")
+    svuvm.vpi.vpi_printf("string_value: {}\n", string_value)
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST reg opretor \n")
@@ -108,10 +100,10 @@ def main():
     obj = svuvm.vpi.vpi_handle_by_name("top")
     obj = svuvm.vpi.vpi_handle_by_name("test_wire", obj)
     error = svuvm.vpi.VpiErrorInfo()
-    svuvm.vpi.vpi_printf(f"vpiVpiErrorInfo: {error.level}\n")
+    svuvm.vpi.vpi_printf("vpiVpiErrorInfo: {}\n", error.level)
     print(obj)
     info = svuvm.vpi.VpiVlogInfo()
-    svuvm.vpi.vpi_printf(f"argc: {info.argc}, argv: {info.argv}, product: {info.product}, version: {info.version}\n")
+    print(info.argc, info.argv, info.product, info.version)
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST handle \n")
@@ -132,11 +124,11 @@ def main():
     svuvm.vpi.vpi_printf("*        TEST dpi time \n")
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     time_obj = svuvm.get_sim_time("Vtop")
-    svuvm.vpi.vpi_printf(f"time: {time_obj}\n")
-    time_obj = svuvm.get_time_unit("Vtop")
-    svuvm.vpi.vpi_printf(f"timeunit: {time_obj}\n")
-    time_obj = svuvm.get_time_precision("Vtop")
-    svuvm.vpi.vpi_printf(f"precision: {time_obj}\n")
+    svuvm.vpi.vpi_printf("time: {}\n", time_obj)
+    time_obj = svuvm.get_timeunit("Vtop")
+    svuvm.vpi.vpi_printf("timeunit: {}\n", time_obj)
+    time_obj = svuvm.get_precision("Vtop")
+    svuvm.vpi.vpi_printf("precision: {}\n", time_obj)
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST vpi callback \n")
@@ -158,20 +150,7 @@ def main():
     # cocotb._regression_manager = cocotb.regression.RegressionManager()
     # cocotb._scheduler_inst = cocotb._scheduler.Scheduler()
     svuvm.set_finish_on_completion(False)
-    # cocotb 2.0.x exposes run_regression as a module-level
-    # function on cocotb._init; cocotb 2.1.0 moved it to the
-    # cocotb.regression submodule as '_run_regression'. The
-    # 'import cocotb.regression' at the top of this file is
-    # needed because cocotb 2.1.0 no longer auto-attaches the
-    # regression submodule to the top-level cocotb namespace
-    # (no 'cocotb.regression' attribute), so without that
-    # import the else branch below would AttributeError.
-    # Sniff the 2.0.1 attribute first; fall back to the 2.1.0
-    # name.
-    if hasattr(cocotb._init, "run_regression"):
-        cocotb._init.run_regression(None)
-    else:
-        cocotb.regression._run_regression()
+    cocotb._init.run_regression(None)
     cocotb.top.dpi_vec_test.value = 0xBABABABA
     cocotb.log.info(hex(cocotb.top.dpi_vec_test.value.to_unsigned()))
 
