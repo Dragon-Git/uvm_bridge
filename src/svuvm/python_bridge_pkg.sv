@@ -3,6 +3,54 @@ package python_bridge_pkg;
     import uvm_pkg::*;
     `include "uvm_macros.svh"
 
+    class base_driver extends uvm_driver;
+        `uvm_component_utils(base_driver)
+        `uvm_new_func
+    endclass
+
+    class base_monitor extends uvm_monitor;
+        `uvm_component_utils(base_monitor)
+        `uvm_new_func
+    endclass
+
+    class base_sequencer extends uvm_sequencer;
+        `uvm_component_utils(base_sequencer)
+        `uvm_new_func
+    endclass
+
+    class base_agent extends uvm_agent;
+        `uvm_component_utils(base_agent)
+        `uvm_new_func
+    endclass
+
+    class base_env extends uvm_env;
+        `uvm_component_utils(base_env)
+        `uvm_new_func
+    endclass
+
+    class base_test extends uvm_test;
+        `uvm_component_utils(base_test)
+        `uvm_new_func
+
+        virtual function void build_phase(uvm_phase phase);
+            super.build_phase(phase);
+            py_func(get_type_name(), phase.get_name(), dirname(`__FILE__));
+        endfunction
+
+        virtual function void connect_phase(uvm_phase phase);
+            super.connect_phase(phase);
+            py_func(get_type_name(), phase.get_name(), dirname(`__FILE__));
+        endfunction
+
+        virtual task main_phase(uvm_phase phase);
+            string py_fun_name = phase.get_name();
+            void'($value$plusargs("UVM_PY_FUNC=%0s", py_fun_name));
+            phase.raise_objection(this);
+            py_func(get_type_name(), py_fun_name, dirname(`__FILE__));
+            phase.drop_objection(this);
+        endtask
+    endclass
+
     function automatic uvm_component get_contxt (string contxt);
 
         uvm_root top = uvm_root::get();
