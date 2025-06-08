@@ -19,6 +19,7 @@ dev = ['svuvm[lint, doc, test]']
 requires = [
     "setuptools>=42",
     "pybind11>=2.10.0",
+    "pyslang>=8.0.0",
 ]
 build-backend = "setuptools.build_meta"
 
