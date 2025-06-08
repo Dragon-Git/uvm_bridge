@@ -6,7 +6,7 @@ COCOTB_LIB_DIR  = $(shell cocotb-config --lib-dir)
 ROOT            = $(shell git rev-parse --show-toplevel)
 BUILD_DIR       = build
 UVM_HOME        = $(ROOT)/uvm-verilator/src
-TEST_DIR        = $(ROOT)/test
+TEST_DIR        = $(ROOT)/test/base_test
 INCLUDE_DIRS    = +incdir+$(UVM_HOME)
 UVM_PKG         = $(UVM_HOME)/uvm_pkg.sv
 UVM_DPI         = $(UVM_HOME)/dpi/uvm_dpi.cc
@@ -36,7 +36,7 @@ build: $(BUILD_DIR)
 
 run: build
 	DYLD_LIBRARY_PATH=$(shell pip show pip | grep Location | awk '{print $$2}')/svuvm \
-	PYTHONPATH=$(ROOT)/test \
+	PYTHONPATH=$(TEST_DIR) \
 	./$(BUILD_DIR)/Vtop $(RUN_FLAGS)
 
 clean:
