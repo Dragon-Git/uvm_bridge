@@ -204,9 +204,8 @@ def main():
     type = svuvm.vpi.vpi_get(svuvm.vpi.vpiType, obj)
     size = svuvm.vpi.vpi_get(svuvm.vpi.vpiSize, obj)
     value = svuvm.vpi.VpiValue(svuvm.vpi.vpiIntVal, 0) # value can not read
-    v = svuvm.vpi.vpi_get_value(obj, svuvm.vpi.vpiIntVal)
-    print(name, type, size, v)
-    print(hex(v))
+    # v = svuvm.vpi.vpi_get_value(obj, svuvm.vpi.vpiIntVal)
+    print(name, type, size)
     # obj1 = svuvm.vpi.vpi_handle_by_name("top.clk")
     # result = svuvm.vpi.vpi_compare_objects(obj, obj)
     # print(result)
@@ -249,6 +248,22 @@ def main():
 
 #     # svuvm.vpi.vpi_control(svuvm.vpi.vpiReset)
 #     # svuvm.vpi.vpi_control(svuvm.vpi.vpiFinish)
+
+    svuvm.process_pool_run("base_test.hello")
+    svuvm.process_pool_run("base_test.hello1")
+    svuvm.process_pool_run("base_test.hello2")
+    svuvm.process_pool_run("base_test.hello2")
+    svuvm.process_pool_clear()
+    svuvm.process_pool_run("base_test.hello2")
+def hello():
+    print("hello world")
+
+def hello1():
+    print("hello world1")
+
+def hello2():
+    print("hello world2")
+
 # @cocotb.test()
 # async def test_main(dut):
 #     cocotb.log.info("hello cocotb")
