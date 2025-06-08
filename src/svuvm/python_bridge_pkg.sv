@@ -3,30 +3,21 @@ package python_bridge_pkg;
     import uvm_pkg::*;
     `include "uvm_macros.svh"
 
-    class base_driver extends uvm_driver;
-        `uvm_component_utils(base_driver)
-        `uvm_new_func
-    endclass
+    //-------------------------------------------------------------------------------------
+    // Base classes
+    //-------------------------------------------------------------------------------------
+    `define UVM_BASE_CLASS(class_name, base_class) \
+        class class_name extends base_class; \
+            `uvm_component_utils(class_name) \
+            `uvm_new_func \
+        endclass
 
-    class base_monitor extends uvm_monitor;
-        `uvm_component_utils(base_monitor)
-        `uvm_new_func
-    endclass
-
-    class base_sequencer extends uvm_sequencer;
-        `uvm_component_utils(base_sequencer)
-        `uvm_new_func
-    endclass
-
-    class base_agent extends uvm_agent;
-        `uvm_component_utils(base_agent)
-        `uvm_new_func
-    endclass
-
-    class base_env extends uvm_env;
-        `uvm_component_utils(base_env)
-        `uvm_new_func
-    endclass
+    `UVM_BASE_CLASS(base_component, uvm_component)
+    `UVM_BASE_CLASS(base_driver, uvm_driver)
+    `UVM_BASE_CLASS(base_monitor, uvm_monitor)
+    `UVM_BASE_CLASS(base_sequencer, uvm_sequencer)
+    `UVM_BASE_CLASS(base_agent, uvm_agent)
+    `UVM_BASE_CLASS(base_env, uvm_env)
 
     class base_test extends uvm_test;
         `uvm_component_utils(base_test)
@@ -50,6 +41,100 @@ package python_bridge_pkg;
             phase.drop_objection(this);
         endtask
     endclass
+
+    //-------------------------------------------------------------------------------------
+    // Group: Process Pool
+    // Provides a simple process pool implementation to manage concurrent tasks.
+    //-------------------------------------------------------------------------------------
+
+    class process_pool;
+        process processes[string];
+        static process_pool inst = get_process_pool;
+
+        static function process_pool get_process_pool();
+            if (inst == null) begin
+                inst = new();
+            end
+            return inst;
+        endfunction
+
+        task run(string name);
+            string args[$];
+            automatic process p;
+            uvm_split_string(name, ".", args);
+            if (args.size() < 2) begin
+                `uvm_error("python_bridge_pkg", $sformatf("Invalid process name '%s'. Expected format: 'module.function'", name))
+            end
+            fork
+                begin
+                    p = process::self();
+                    processes[name] = p;
+                    py_func(args[0], args[1], dirname(`__FILE__));
+                end
+            join_none
+        endtask
+
+        function string get_process_status(string name);
+            if (processes.exists(name)) begin
+                return $sformatf("%d", processes[name].status());
+            end else begin
+                return "ERROR";
+            end
+        endfunction
+
+        function void kill(string name);
+            if (processes.exists(name)) begin
+                processes[name].kill();
+            end
+        endfunction
+
+        task await(string name);
+            if (processes.exists(name)) begin
+                wait(processes[name].status() == process::FINISHED);
+            end
+        endtask
+
+        function void suspend(string name);
+            if (processes.exists(name)) begin
+                processes[name].suspend();
+            end
+        endfunction
+
+        function void resume(string name);
+            if (processes.exists(name)) begin
+                processes[name].resume();
+            end
+        endfunction
+
+        function int get_process_count();
+            return processes.size();
+        endfunction  
+
+        function void kill_all();
+            foreach (processes[name]) begin
+                processes[name].kill();
+            end
+        endfunction
+
+        function void clear();
+            processes.delete();
+        endfunction
+
+    endclass
+
+    task automatic process_pool_run(string name);
+        process_pool::inst.run(name);
+    endtask:process_pool_run
+
+    task automatic process_pool_clear();
+        process_pool::inst.clear();
+    endtask:process_pool_clear
+
+    //-------------------------------------------------------------------------------------
+    // Group: UVM_ROOT
+    //
+    // The UVM_ROOT is the top-level component in the UVM hierarchy.
+    //--------------------------------------------------------------------------------------
 
     function automatic uvm_component get_contxt (string contxt);
 
@@ -188,9 +273,10 @@ package python_bridge_pkg;
             `uvm_error("UVM_OBJECTION", {"Unknown operation ",op})
     endfunction
 
-    //------------
-    // uvm debug
-    //------------
+    //-------------------------------------------------------------------------
+    // Group: Debugging
+    // uvm debug methods
+    //-------------------------------------------------------------------------
     class dbg_uvm_object#(type T=uvm_object, string name="") extends T;
         `uvm_object_registry(dbg_uvm_object#(T, name), name)
 
@@ -201,7 +287,7 @@ package python_bridge_pkg;
 
     endclass
 
-    function void dbg_print(string name);
+    function automatic void dbg_print(string name);
         string info;
         uvm_config_db #(string)::get(null, "", name, info);
         $display(info);
@@ -236,33 +322,50 @@ package python_bridge_pkg;
         src_port.connect(dst_port);
     endfunction
 
-    //------------
-    // uvm event
-    //------------
+    //---------------------------------------------------------------------
+    // Group: UVM_EVENT
+    // Provides ability to wait on, trigger, and manage UVM events.
+    //---------------------------------------------------------------------
 
     // Wrapper for wait_on
     task automatic wait_on(string ev_name, bit delta = 0);
         uvm_event ev;
         ev = uvm_event_pool::get_global(ev_name);
+        `ifndef VERILATOR
         ev.wait_on(delta);
+        `else
+        $display("erilator do not support %s now", ev_name);
+        `endif //VERILATOR
     endtask
 
     // Wrapper for wait_off
     task automatic wait_off(string ev_name, bit delta = 0);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
+        `ifndef VERILATOR
         ev.wait_off(delta);
+        `else
+        $display("erilator do not support %s now", ev_name);
+        `endif //VERILATOR
     endtask
 
     // Wrapper for wait_trigger
     task automatic wait_trigger(string ev_name);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
+        `ifndef VERILATOR
         ev.wait_trigger();
+        `else
+        $display("erilator do not support %s now", ev_name);
+        `endif //VERILATOR
     endtask
 
     // Wrapper for wait_ptrigger
     task automatic wait_ptrigger(string ev_name);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
+        `ifndef VERILATOR
         ev.wait_ptrigger();
+        `else
+        $display("erilator do not support %s now", ev_name);
+        `endif //VERILATOR
     endtask
 
     // Wrapper for wait_trigger_data
@@ -339,16 +442,16 @@ package python_bridge_pkg;
     
 
     `define SET_CONFIG_FUNC(datatype) \
-        function automatic void set_config_``datatype``(string contxt, string inst_name, string field_name, datatype value); \
-            uvm_component comp = get_contxt(contxt); \
-            uvm_config_db#(datatype)::set(comp, inst_name, field_name, value); \
-        endfunction
+    function automatic void set_config_``datatype``(string contxt, string inst_name, string field_name, datatype value); \
+        uvm_component comp = get_contxt(contxt); \
+        uvm_config_db#(datatype)::set(comp, inst_name, field_name, value); \
+    endfunction
     
     `define GET_CONFIG_FUNC(datatype) \
-        function automatic datatype get_config_``datatype``(string contxt, string inst_name, string field_name); \
-            uvm_component comp = get_contxt(contxt); \
-            uvm_config_db#(datatype)::get(comp, inst_name, field_name, get_config_``datatype``); \
-        endfunction
+    function automatic datatype get_config_``datatype``(string contxt, string inst_name, string field_name); \
+        uvm_component comp = get_contxt(contxt); \
+        uvm_config_db#(datatype)::get(comp, inst_name, field_name, get_config_``datatype``); \
+    endfunction
     
     typedef longint unsigned uint64_t;
     typedef int int_array_t[];
@@ -362,6 +465,11 @@ package python_bridge_pkg;
     `GET_CONFIG_FUNC(int_array_t)
     `SET_CONFIG_FUNC(byte_array_t)
     `GET_CONFIG_FUNC(byte_array_t)
+
+    //-------------------------------------------------------------------------------------
+    // Group: REPORTING
+    // Provides ability to set and get report verbosity levels, actions, and overrides.
+    //-------------------------------------------------------------------------------------
 
     function automatic int get_report_verbosity_level(string contxt, int severity, string id);
         uvm_component comp = get_contxt(contxt);
@@ -419,7 +527,10 @@ package python_bridge_pkg;
         comp.set_report_severity_id_override(uvm_severity'(cur_severity), id, uvm_severity'(new_severity));
     endfunction
 
-    // report server
+    //--------------------------------------------------------------------------------------
+    // Group: REPORT SERVER
+    // These functions are used to access the global report server.
+    //--------------------------------------------------------------------------------------
     function automatic void set_max_quit_count(int count, bit overridable=1);
         uvm_report_server server = uvm_report_server::get_server();
         server.set_max_quit_count(count, overridable);
@@ -470,14 +581,16 @@ package python_bridge_pkg;
         server.report_summarize();
     endfunction
 
-    function automatic string base16_encode(input byte data_in []);
+    // Base16 encoding and decoding functions
+
+    function automatic string base16_encode(byte data_in []);
         base16_encode = "";
         foreach (data_in[i]) begin
             base16_encode = {base16_encode, $sformatf("%02h", data_in[i])};
         end
     endfunction
 
-    function automatic byte_array_t base16_decode(input string hex_str);
+    function automatic byte_array_t base16_decode(string hex_str);
         int str_len;
         static int i;
         str_len = hex_str.len();
@@ -491,6 +604,11 @@ package python_bridge_pkg;
         end
         return base16_decode;
     endfunction
+
+    //--------------------------------------------------------------------------------------
+    // Group: SEQUENCER  Control
+    // Provides ability to start a sequence on a sequencer.
+    //--------------------------------------------------------------------------------------
 
     task automatic start_seq(string seq_name, string sqr_name, bit rand_en=0, bit background=0);
         uvm_root top;
@@ -542,6 +660,11 @@ package python_bridge_pkg;
         end
     `endif //VERILATOR
     endtask:start_seq
+
+    //---------------------------------------------------------------------------------------------
+    // Group: REGISTERS
+    // Provides ability to read, write, and check registers in a UVM register block.
+    //---------------------------------------------------------------------------------------------
 
     class reg_operator extends uvm_object;
 
@@ -595,19 +718,19 @@ package python_bridge_pkg;
             end
         endfunction:get_reg
 
-        virtual task write_reg(input string name, input int data);
+        virtual task write_reg(string name, int data);
             uvm_reg rg;
             rg = get_reg(name);
             rg.write(status, data);
         endtask:write_reg
 
-        virtual task read_reg(input string name, output int data);
+        virtual task read_reg(string name, output int data);
             uvm_reg rg;
             rg = get_reg(name);
             rg.read(status, data);
         endtask:read_reg
 
-        virtual task check_reg(input string name, input int data=0, input bit predict=1'b0);
+        virtual task check_reg(string name, int data=0, bit predict=1'b0);
             uvm_reg rg;
             rg = get_reg(name);
             if (predict)  begin
@@ -618,19 +741,19 @@ package python_bridge_pkg;
 
     endclass:reg_operator
 
-    task automatic write_reg(input string name, input int data);
+    task automatic write_reg(string name, int data);
        `ifndef VERILATOR
         reg_operator::inst.write_reg(name, data);
         `endif //VERILATOR
     endtask:write_reg
 
-    task automatic read_reg(input string name, output int data);
+    task automatic read_reg(string name, output int data);
         `ifndef VERILATOR
         reg_operator::inst.read_reg(name, data);
         `endif //VERILATOR
     endtask:read_reg
 
-    task automatic check_reg(input string name, input int data=0, input bit predict=1'b0);
+    task automatic check_reg(string name, int data=0, bit predict=0);
         `ifndef VERILATOR
         reg_operator::inst.check_reg(name, data, predict);
         `endif //VERILATOR
@@ -650,97 +773,15 @@ package python_bridge_pkg;
     `endif //VERILATOR
     endtask:run_test_wrap
 
-    // export
-    // uvm_factory
-    export "DPI-C" function print_factory;
-    export "DPI-C" function set_factory_inst_override;
-    export "DPI-C" function set_factory_type_override;
-    export "DPI-C" function create_object_by_name;
-    export "DPI-C" function create_component_by_name;
-    export "DPI-C" function debug_factory_create;
-    export "DPI-C" function find_factory_override; // not tested
-
-    // uvm_root
-    export "DPI-C" function set_timeout;
-    export "DPI-C" function set_finish_on_completion;
-    export "DPI-C" function print_topology;
-    export "DPI-C" function uvm_objection_op;
-    export "DPI-C" function dbg_print;
-    export "DPI-C" function tlm_connect;
-
-    // uvm_event
-    `ifndef VERILATOR
-    export "DPI-C" task wait_on;
-    export "DPI-C" task wait_off;
-    export "DPI-C" task wait_trigger;
-    export "DPI-C" task wait_ptrigger;
-    //export "DPI-C" task wait_trigger_data;
-    //export "DPI-C" task wait_ptrigger_data;
-    `endif //VERILATOR
-
-    export "DPI-C" function get_trigger_time;
-    export "DPI-C" function is_on;
-    export "DPI-C" function is_off;
-    export "DPI-C" function reset;
-    export "DPI-C" function cancel;
-    export "DPI-C" function get_num_waiters;
-    export "DPI-C" function trigger;
-    //export "DPI-C" function get_trigger_data;
-    //export "DPI-C" function get_default_data;
-    //export "DPI-C" function set_default_data;
-
-    // config db
-    export "DPI-C" function set_config_uint64_t;
-    export "DPI-C" function get_config_uint64_t;
-    export "DPI-C" function set_config_string;
-    export "DPI-C" function get_config_string;
-    // export "DPI-C" function set_config_int_array_t;
-    // export "DPI-C" function get_config_int_array_t;
-    // export "DPI-C" function set_config_byte_array_t;
-    // export "DPI-C" function get_config_byte_array_t;
-
-    // report
-    export "DPI-C" function get_report_verbosity_level;
-    export "DPI-C" function get_report_max_verbosity_level;
-    export "DPI-C" function set_report_verbosity_level;
-    export "DPI-C" function set_report_id_verbosity;
-    export "DPI-C" function set_report_severity_id_verbosity;
-    export "DPI-C" function get_report_action;
-    export "DPI-C" function set_report_severity_action;
-    export "DPI-C" function set_report_id_action;
-    export "DPI-C" function set_report_severity_id_action;
-    export "DPI-C" function set_report_severity_override;
-    export "DPI-C" function set_report_severity_id_override;
-    // report server
-    export "DPI-C" function set_max_quit_count;
-    export "DPI-C" function get_max_quit_count;
-    export "DPI-C" function set_quit_count;
-    export "DPI-C" function get_quit_count;
-    export "DPI-C" function set_severity_count;
-    export "DPI-C" function get_severity_count;
-    export "DPI-C" function set_id_count;
-    export "DPI-C" function get_id_count;
-    export "DPI-C" function print_report_server;
-    export "DPI-C" function report_summarize;
-
-    // register access
-    export "DPI-C" task write_reg;
-    export "DPI-C" task read_reg;
-    export "DPI-C" task check_reg;
-    // sequence
-    export "DPI-C" task start_seq;
-
-    // utils
-    export "DPI-C" task run_test_wrap;
-    export "DPI-C" task wait_unit;
-
     import "DPI-C" pure function string dirname(string file_path);
     `ifndef VERILATOR
-    import "DPI-C" function string getenv(input string name);
+    import "DPI-C" function string getenv(string name);
     `endif //VERILATOR
-    import "DPI-C" context task py_func(input string mod_name, string func_name = "main", string mod_paths = "");
-    task call_py_func(input string mod_name, string func_name = "main", string mod_paths = "");
+    import "DPI-C" context task py_func(string mod_name, string func_name = "main", string mod_paths = "");
+    task call_py_func(string mod_name, string func_name = "main", string mod_paths = "");
         py_func(mod_name, func_name, mod_paths);
     endtask:call_py_func
+
+    `include "svuvm_export_dpi.svh"
 
 endpackage

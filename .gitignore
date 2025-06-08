@@ -8,3 +8,7 @@ wheels/
 
 # venv
 .venv
+
+inc/export_dpi.h
+inc/vpi_attr.h
+inc/svuvm_export_dpi.svh

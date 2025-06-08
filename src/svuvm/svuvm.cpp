@@ -33,91 +33,7 @@ template <typename Func> auto dpi_func_wrap(Func func) {
 
 extern "C" {
 #include "uvm_dpi.h"
-
-void print_factory(int all_types = 1);
-void set_factory_inst_override(const char *original_type_name,
-                               const char *override_type_name,
-                               const char *full_inst_path);
-void set_factory_type_override(const char *original_type_name,
-                               const char *override_type_name,
-                               bool replace = 1);
-void create_object_by_name(const char *requested_type, const char *context = "",
-                           const char *name = "");
-void create_component_by_name(const char *requested_type,
-                              const char *context = "", const char *name = "");
-void debug_factory_create(const char *requested_type, const char *context = "");
-void find_factory_override(const char *requested_type, const char *context,
-                           const char *override_type_name);
-void print_topology(const char *context = "");
-void set_timeout(long long timeout, bool overridable = 1);
-void set_finish_on_completion(bool f = 1);
-void uvm_objection_op(const char *op, const char *name, const char *contxt,
-                      const char *description, unsigned int count);
-void dbg_print(const char *name = "");
-void tlm_connect(const char *src, const char *dst);
-
-#if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
-void wait_on(const char *ev_name, int delta);
-void wait_off(const char *ev_name, int delta);
-void wait_trigger(const char *ev_name);
-void wait_ptrigger(const char *ev_name);
-// void wait_trigger_data(uvm_object *data, const char* ev_name);
-// void wait_ptrigger_data(uvm_object *data, const char* ev_name);
-#endif
-uint64_t get_trigger_time(const char *ev_name);
-int is_on(const char *ev_name);
-int is_off(const char *ev_name);
-void reset(const char *ev_name, int wakeup);
-void cancel(const char *ev_name);
-int get_num_waiters(const char *ev_name);
-void trigger(const char *ev_name);
-// uvm_object *get_trigger_data();
-// uvm_object *get_default_data();
-// void set_default_data(uvm_object *data);
-
-void set_config_uint64_t(const char *contxt, const char *inst_name,
-                         const char *field_name, uint64_t value);
-uint64_t get_config_uint64_t(const char *contxt, const char *inst_name,
-                             const char *field_name);
-void set_config_string(const char *contxt, const char *inst_name,
-                       const char *field_name, const char *value);
-const char *get_config_string(const char *contxt, const char *inst_name,
-                              const char *field_name);
-/* UVM报告配置DPI接口 */
-// 详细度相关
-int get_report_verbosity_level(const char *contxt, int severity,
-                               const char *id);
-int get_report_max_verbosity_level(const char *contxt);
-void set_report_verbosity_level(const char *contxt, int verbosity_level);
-void set_report_id_verbosity(const char *contxt, const char *id, int verbosity);
-void set_report_severity_id_verbosity(const char *contxt, int severity,
-                                      const char *id, int verbosity);
-
-// 报告动作相关
-int get_report_action(const char *contxt, int severity, const char *id);
-void set_report_severity_action(const char *contxt, int severity, int action);
-void set_report_id_action(const char *contxt, const char *id, int action);
-void set_report_severity_id_action(const char *contxt, int severity,
-                                   const char *id, int action);
-
-// 严重级别覆盖
-void set_report_severity_override(const char *contxt, int cur_severity,
-                                  int new_severity);
-void set_report_severity_id_override(const char *contxt, int cur_severity,
-                                     const char *id, int new_severity);
-
-// 报告服务相关
-void set_max_quit_count(int count, bool overridable);
-int get_max_quit_count(void);
-void set_quit_count(int quit_count);
-int get_quit_count(void);
-void set_severity_count(int severity, int count);
-int get_severity_count(int severity);
-void set_id_count(const char *id, int count);
-int get_id_count(const char *id);
-void print_report_server(void);
-void report_summarize(void);
-
+#include "export_dpi.h"
 // 使用pybind11创建的包装器函数
 void wrap_walk_level(int lvl, std::vector<std::string> args, int cmd) {
   // Convert Python string list to C-style char**
@@ -148,14 +64,6 @@ void wrap_uvm_report(char *message, int verbosity, int severity) {
     std::cout << "currentframe is not available!" << std::endl;
   }
 }
-
-void start_seq(const char *seq_name, const char *sqr_name, svBit rand_en,
-               svBit background);
-void write_reg(const char *name, int data);
-void read_reg(const char *name, int *data);
-void check_reg(const char *name, int data = 0, unsigned char predict = 0);
-void run_test_wrap(const char *test_name = "");
-void wait_unit(int n);
 
 int wrap_read_reg(const char *name) {
   int data;
@@ -757,6 +665,10 @@ PYBIND11_MODULE(svuvm, m) {
   m.def("run_test", dpi_func_wrap(run_test_wrap), "uvm run test",
         py::arg("test_name"));
   m.def("wait_unit", dpi_func_wrap(wait_unit), "wait unit time");
+  m.def("process_pool_run", dpi_func_wrap(process_pool_run), "process pool run",
+        py::arg("name"));
+  m.def("process_pool_clear", dpi_func_wrap(process_pool_clear),
+        "process pool clear");
   m.def(
       "reset", []() { return vpi_control(vpiReset); }, "Reset the simulation");
   m.def(

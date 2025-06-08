@@ -7,7 +7,7 @@ ROOT            = $(shell git rev-parse --show-toplevel)
 BUILD_DIR       = build
 UVM_HOME        = $(ROOT)/uvm-verilator/src
 TEST_DIR        = $(ROOT)/test
-INCLUDE_DIRS    = +incdir+$(UVM_HOME)
+INCLUDE_DIRS    = +incdir+$(UVM_HOME) +incdir+$(ROOT)/inc
 UVM_PKG         = $(UVM_HOME)/uvm_pkg.sv
 UVM_DPI         = $(UVM_HOME)/dpi/uvm_dpi.cc
 SV_SOURCE       = $(TEST_DIR)/top.sv
@@ -17,8 +17,8 @@ NPROC           = $(shell nproc 2>/dev/null || echo 10)
 VERILATOR_FLAGS = -j $(NPROC) --vpi --binary \
                   -top top -Mdir $(BUILD_DIR) \
                   --output-groups $(NPROC) \
-				  -Wno-lint -Wno-style -Wno-SYMRSVDWORD -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND\
-				  -Wno-IGNOREDRETURN -Wno-CONSTRAINTIGN -Wno-ZERODLY -Wno-CASTCONST\
+				  -Wno-lint -Wno-style -Wno-SYMRSVDWORD -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND \
+				  -Wno-IGNOREDRETURN -Wno-CONSTRAINTIGN -Wno-ZERODLY -Wno-CASTCONST \
 
 CXXFLAGS        = -CFLAGS "-I$(UVM_HOME)/dpi -I$(ROOT)/inc  -DVERILATOR"
 
