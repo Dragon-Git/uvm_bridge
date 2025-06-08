@@ -56,7 +56,7 @@ jobs:
       uses: chartboost/ruff-action@v1
 
     - name: Test
-      run: source compile.sh
+      run: make -f test/Makefile run
 
   build:
     needs:

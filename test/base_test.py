@@ -1,7 +1,6 @@
 import itertools
+
 from svuvm import svuvm
-
-
 def cb_test(data):
     print("hello cb")
     return 1
@@ -24,7 +23,6 @@ def connect():
         for j in range(3):
             # svuvm.tlm_connect(f"uvm_test_top.m_env_{i}.m_agent_{j}.m_driver.seq_item_port", f"uvm_test_top.m_env_{i}.m_agent_{j}.m_sequencer.seq_item_export")
             pass
-
 def main():
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST print_topology \n")
@@ -76,7 +74,8 @@ def main():
         svuvm.UVM_COUNT,
         svuvm.UVM_CALL_HOOK,
         svuvm.UVM_RM_RECORD,
-        svuvm.UVM_EXIT,
+        # svuvm.UVM_STOP,
+        # svuvm.UVM_EXIT,
     ]
     for action in action_list:
         svuvm.set_report_id_action("", "uvm_report_test", action)
@@ -200,13 +199,14 @@ def main():
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST handle \n")
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
-    obj = svuvm.vpi.vpi_handle_by_name("top.test_wire")
+    obj = svuvm.vpi.vpi_handle_by_name("top.dpi_vec_test")
     name = svuvm.vpi.vpi_get_str(svuvm.vpi.vpiName, obj)
     type = svuvm.vpi.vpi_get(svuvm.vpi.vpiType, obj)
     size = svuvm.vpi.vpi_get(svuvm.vpi.vpiSize, obj)
     value = svuvm.vpi.VpiValue(svuvm.vpi.vpiIntVal, 0) # value can not read
-    svuvm.vpi.vpi_get_value(obj, value)
-    print(name, type, size, value.format)
+    v = svuvm.vpi.vpi_get_value(obj, svuvm.vpi.vpiIntVal)
+    print(name, type, size, v)
+    print(hex(v))
     # obj1 = svuvm.vpi.vpi_handle_by_name("top.clk")
     # result = svuvm.vpi.vpi_compare_objects(obj, obj)
     # print(result)
@@ -232,5 +232,29 @@ def main():
     print(a)
     svuvm.vpi.vpi_register_cb(a)
 
-    # svuvm.vpi.vpi_control(svuvm.vpi.vpiReset)
-    # svuvm.vpi.vpi_control(svuvm.vpi.vpiFinish)
+    svuvm.vpi.vpi_printf("*" * 120 + "\n")
+    svuvm.vpi.vpi_printf("*        TEST cocotb \n")
+    svuvm.vpi.vpi_printf("*" * 120 + "\n")
+    # breakpoint()
+#     print(cocotb.simulator.get_sim_time())
+#     cocotb.log.info("hello cocotb")
+#     cocotb.top.dpi_vec_test.value = 0xDEADBEEF
+#     cocotb.log.info(hex(cocotb.top.dpi_vec_test.value.to_unsigned()))
+#     # cocotb._regression_manager = cocotb.regression.RegressionManager()
+#     # cocotb._scheduler_inst = cocotb._scheduler.Scheduler()
+#     svuvm.set_finish_on_completion(False)
+#     cocotb._init.run_regression(None)
+#     cocotb.top.dpi_vec_test.value = 0xBABABABA
+#     cocotb.log.info(hex(cocotb.top.dpi_vec_test.value.to_unsigned()))
+
+#     # svuvm.vpi.vpi_control(svuvm.vpi.vpiReset)
+#     # svuvm.vpi.vpi_control(svuvm.vpi.vpiFinish)
+# @cocotb.test()
+# async def test_main(dut):
+#     cocotb.log.info("hello cocotb")
+#     await Timer(100, unit='ns')
+#     cocotb.log.info("hello cocotb")
+#     svuvm.print_report_server()
+#     cnt = svuvm.get_severity_count(svuvm.UVM_ERROR)
+#     svuvm.report_summarize()
+#     assert cnt == 20, f"UVM_ERROR count is {cnt}, expected 0"
