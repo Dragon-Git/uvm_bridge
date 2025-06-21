@@ -32,8 +32,8 @@ template <typename Func> auto dpi_func_wrap(Func func) {
 }
 
 extern "C" {
-#include "uvm_dpi.h"
 #include "export_dpi.h"
+#include "uvm_dpi.h"
 // 使用pybind11创建的包装器函数
 void wrap_walk_level(int lvl, std::vector<std::string> args, int cmd) {
   // Convert Python string list to C-style char**
@@ -566,7 +566,6 @@ PYBIND11_MODULE(svuvm, m) {
   m.def("tlm_connect", dpi_func_wrap(tlm_connect), "Connects two TLM ports.",
         py::arg("src"), py::arg("dst"));
 
-#if defined(VCS) || defined(VCSMX) || defined(XCELIUM) || defined(NCSC)
   // uvm event
   m.def("wait_on", dpi_func_wrap(wait_on), "Wait until the signal is on",
         py::arg("ev_name"), py::arg("delta") = 0);
@@ -576,7 +575,6 @@ PYBIND11_MODULE(svuvm, m) {
         "Wait for the trigger event", py::arg("ev_name"));
   m.def("wait_ptrigger", dpi_func_wrap(wait_ptrigger),
         "Wait for the positive trigger event", py::arg("ev_name"));
-#endif
   m.def("get_trigger_time", dpi_func_wrap(get_trigger_time),
         "Get the time of the last trigger event", py::arg("ev_name"));
   m.def("is_on", dpi_func_wrap(is_on), "Check if the signal is on",
@@ -600,6 +598,10 @@ PYBIND11_MODULE(svuvm, m) {
         "Set string configuration in the UVM environment");
   m.def("get_config_string", dpi_func_wrap(get_config_string),
         "Get string configuration from the UVM environment");
+  m.def("config_db_trace_on", dpi_func_wrap(config_db_trace_on),
+        "Enable configuration database tracing");
+  m.def("config_db_trace_off", dpi_func_wrap(config_db_trace_off),
+        "Disable configuration database tracing");
   // 报告相关函数绑定
   m.def("get_report_verbosity_level", dpi_func_wrap(get_report_verbosity_level),
         "Get the verbosity level for a given severity and id");

@@ -463,6 +463,18 @@ def get_config_string(contxt: str, inst_name: str, field_name: str) -> str:
         str: The string value of the configuration field.
     """
 
+def config_db_trace_on() -> None:
+    """Enables tracing for the UVM configuration database.
+
+    This function activates tracing, allowing for detailed logging of configuration database operations.
+    """
+    
+def config_db_trace_off() -> None:
+    """Disables tracing for the UVM configuration database.
+
+    This function deactivates tracing, stopping detailed logging of configuration database operations.
+    """
+
 def write_reg(name: str, data: int) -> None:
     """Writes an integer value to a register by name.
 
