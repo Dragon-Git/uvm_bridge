@@ -61,7 +61,11 @@ package python_bridge_pkg;
         task run(string name);
             string args[$];
             automatic process p;
+            `ifdef UVM_VERSION_POST_2017_1_1
+            uvm_string_split(name, ".", args);
+            `else
             uvm_split_string(name, ".", args);
+            `endif // UVM_VERSION_POST_2017_1_1
             if (args.size() < 2) begin
                 `uvm_error("python_bridge_pkg", $sformatf("Invalid process name '%s'. Expected format: 'module.function'", name))
             end
@@ -453,6 +457,10 @@ package python_bridge_pkg;
         uvm_config_db#(datatype)::get(comp, inst_name, field_name, get_config_``datatype``); \
     endfunction
     
+    //---------------------------------------------------------------------
+    // Group: UVM_CONGFIG_DB
+    // Provides ability to set and get configuration values in the UVM configuration database.
+    //---------------------------------------------------------------------
     typedef longint unsigned uint64_t;
     typedef int int_array_t[];
     typedef byte byte_array_t[];
@@ -465,6 +473,14 @@ package python_bridge_pkg;
     `GET_CONFIG_FUNC(int_array_t)
     `SET_CONFIG_FUNC(byte_array_t)
     `GET_CONFIG_FUNC(byte_array_t)
+
+    function automatic void config_db_trace_on();
+        uvm_config_db_options::turn_on_tracing();
+    endfunction
+
+    function automatic void config_db_trace_off();
+        uvm_config_db_options::turn_off_tracing();
+    endfunction
 
     //-------------------------------------------------------------------------------------
     // Group: REPORTING
@@ -815,6 +831,8 @@ package python_bridge_pkg;
     export "DPI-C" function  get_config_uint64_t;
     export "DPI-C" function  set_config_string;
     export "DPI-C" function  get_config_string;
+    export "DPI-C" function  config_db_trace_on;
+    export "DPI-C" function  config_db_trace_off;
     export "DPI-C" function  get_report_verbosity_level;
     export "DPI-C" function  get_report_max_verbosity_level;
     export "DPI-C" function  set_report_verbosity_level;
