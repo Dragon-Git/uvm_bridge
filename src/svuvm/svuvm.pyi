@@ -441,6 +441,28 @@ def get_config_int(contxt: str, inst_name: str, field_name: str) -> int:
         int: The integer value of the configuration field.
     """
 
+def set_config_real(contxt: str, inst_name: str, field_name: str, value: float) -> None:
+    """Sets an integer configuration field in the UVM configuration database.
+
+    Args:
+        contxt (str): The context in which to set the configuration.
+        inst_name (str): The instance name.
+        field_name (str): The name of the configuration field.
+        value (float): The real(double) value to set.
+    """
+
+def get_config_real(contxt: str, inst_name: str, field_name: str) -> float:
+    """Retrieves an integer configuration field from the UVM configuration database.
+
+    Args:
+        contxt (str): The context from which to retrieve the configuration.
+        inst_name (str): The instance name.
+        field_name (str): The name of the configuration field.
+
+    Returns:
+        float: The real(double) value of the configuration field.
+    """
+
 def set_config_string(contxt: str, inst_name: str, field_name: str, value: str) -> None:
     """Sets a string configuration field in the UVM configuration database.
 

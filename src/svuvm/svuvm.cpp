@@ -594,6 +594,10 @@ PYBIND11_MODULE(svuvm, m) {
         "Set integer configuration in the UVM environment");
   m.def("get_config_int", dpi_func_wrap(get_config_uint64_t),
         "Get integer configuration from the UVM environment");
+  m.def("set_config_real", dpi_func_wrap(set_config_double),
+        "Set real(double) configuration in the UVM environment");
+  m.def("get_config_real", dpi_func_wrap(get_config_double),
+        "Get real(double) configuration from the UVM environment");
   m.def("set_config_string", dpi_func_wrap(set_config_string),
         "Set string configuration in the UVM environment");
   m.def("get_config_string", dpi_func_wrap(get_config_string),
