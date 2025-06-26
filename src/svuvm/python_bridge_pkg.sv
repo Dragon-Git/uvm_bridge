@@ -462,11 +462,14 @@ package python_bridge_pkg;
     // Provides ability to set and get configuration values in the UVM configuration database.
     //---------------------------------------------------------------------
     typedef longint unsigned uint64_t;
+    typedef real double;
     typedef int int_array_t[];
     typedef byte byte_array_t[];
     
     `SET_CONFIG_FUNC(uint64_t)
     `GET_CONFIG_FUNC(uint64_t)
+    `SET_CONFIG_FUNC(double)
+    `GET_CONFIG_FUNC(double)
     `SET_CONFIG_FUNC(string)
     `GET_CONFIG_FUNC(string)
     `SET_CONFIG_FUNC(int_array_t)
@@ -829,6 +832,8 @@ package python_bridge_pkg;
     export "DPI-C" function  trigger;
     export "DPI-C" function  set_config_uint64_t;
     export "DPI-C" function  get_config_uint64_t;
+    export "DPI-C" function  set_config_double;
+    export "DPI-C" function  get_config_double;
     export "DPI-C" function  set_config_string;
     export "DPI-C" function  get_config_string;
     export "DPI-C" function  config_db_trace_on;
