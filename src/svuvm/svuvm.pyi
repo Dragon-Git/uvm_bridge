@@ -288,7 +288,7 @@ def print_topology(contxt: str = "") -> None:
     """
 
 def set_timeout(timeout: int, overridable: bool = 1) -> None:
-    """Sets a global timeout value for simulations.
+    """Sets a global timeout value for run_phase.
 
     Args:
         timeout (int): The timeout value.
