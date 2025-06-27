@@ -61,11 +61,11 @@ package python_bridge_pkg;
         task run(string name);
             string args[$];
             automatic process p;
-            `ifdef UVM_VERSION_POST_2017_1_1
+            `ifdef UVM_VERSION_POST_2017
             uvm_string_split(name, ".", args);
             `else
             uvm_split_string(name, ".", args);
-            `endif // UVM_VERSION_POST_2017_1_1
+            `endif // UVM_VERSION_POST_2017
             if (args.size() < 2) begin
                 `uvm_error("python_bridge_pkg", $sformatf("Invalid process name '%s'. Expected format: 'module.function'", name))
             end
