@@ -7,6 +7,7 @@ import pyslang
 from pathlib import Path
 
 exclude_func_list = [
+    "py_func",
     "call_py_func",
     "get_contxt",
     "base16_encode",
