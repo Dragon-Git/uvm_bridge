@@ -795,4 +795,9 @@ void py_func(const char *mod_name, const char *func_name,
   py::module_ py_seq_mod = py::module_::import(mod_name);
   py_seq_mod.attr(func_name)();
 }
+
+void py_task(const char *mod_name, const char *func_name,
+             const char *mod_paths) {
+  py_func(mod_name, func_name, mod_paths);
+}
 }

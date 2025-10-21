@@ -37,7 +37,7 @@ package python_bridge_pkg;
             string py_fun_name = phase.get_name();
             void'($value$plusargs("UVM_PY_FUNC=%0s", py_fun_name));
             phase.raise_objection(this);
-            py_func(get_type_name(), py_fun_name, dirname(`__FILE__));
+            py_task(get_type_name(), py_fun_name, dirname(`__FILE__));
             phase.drop_objection(this);
         endtask
     endclass
@@ -338,7 +338,7 @@ package python_bridge_pkg;
         `ifndef VERILATOR
         ev.wait_on(delta);
         `else
-        $display("erilator do not support %s now", ev_name);
+        $display("Verilator do not support %s now", ev_name);
         `endif //VERILATOR
     endtask
 
@@ -348,7 +348,7 @@ package python_bridge_pkg;
         `ifndef VERILATOR
         ev.wait_off(delta);
         `else
-        $display("erilator do not support %s now", ev_name);
+        $display("Verilator do not support %s now", ev_name);
         `endif //VERILATOR
     endtask
 
@@ -358,7 +358,7 @@ package python_bridge_pkg;
         `ifndef VERILATOR
         ev.wait_trigger();
         `else
-        $display("erilator do not support %s now", ev_name);
+        $display("Verilator do not support %s now", ev_name);
         `endif //VERILATOR
     endtask
 
@@ -368,7 +368,7 @@ package python_bridge_pkg;
         `ifndef VERILATOR
         ev.wait_ptrigger();
         `else
-        $display("erilator do not support %s now", ev_name);
+        $display("Verilator do not support %s now", ev_name);
         `endif //VERILATOR
     endtask
 
@@ -796,7 +796,8 @@ package python_bridge_pkg;
     `ifndef VERILATOR
     import "DPI-C" function string getenv(string name);
     `endif //VERILATOR
-    import "DPI-C" context task py_func(string mod_name, string func_name = "main", string mod_paths = "");
+    import "DPI-C" context function py_func(string mod_name, string func_name = "main", string mod_paths = "");
+    import "DPI-C" context task py_task(string mod_name, string func_name = "main", string mod_paths = "");
     task call_py_func(string mod_name, string func_name = "main", string mod_paths = "");
         py_func(mod_name, func_name, mod_paths);
     endtask:call_py_func
