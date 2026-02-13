@@ -23,7 +23,7 @@ jobs:
       pull-requests: write
     steps:
       - name: 检出代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: 判断是否提及claude
         id: check_mention
         run: |
