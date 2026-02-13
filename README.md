@@ -17,7 +17,7 @@ Compared to mainstream Python-based hardware verification frameworks like cocotb
 ## Installation
 
 ### Dependencies:
-- Python 3.8.0+
+- Python 3.9.0+
 - pybind11, pyslang (not required at runtime)
 ### Commands:
 - verilator
