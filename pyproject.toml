@@ -1,7 +1,7 @@
 [project]
 name = "svuvm"
 version = "0.1.0"
-description = "Add your description here"
+description = "Hardware verification framework enabling Python to call SystemVerilog UVM APIs for writing test cases and dynamically configuring verification environments"
 authors = [
     { name = "Dragon-Git", email = "1762578117@qq.com" }
 ]
