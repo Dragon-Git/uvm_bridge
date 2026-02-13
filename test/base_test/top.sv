@@ -3,8 +3,8 @@ module top ();
     `include "uvm_macros.svh"
     import python_bridge_pkg::*;
 
-    reg test_wire/*verilator public_flat*/;
-    int dpi_vec_test/*verilator public_flat*/ = 32'hBABABABA;
+    reg test_wire/*verilator public_flat*/  /*verilator forceable*/;
+    int dpi_vec_test/*verilator public_flat*/  /*verilator forceable*/ = 32'hBABABABA;
 
     class env_cfg extends uvm_object;
         `uvm_object_utils(env_cfg)
