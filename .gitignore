@@ -9,7 +9,9 @@ wheels/
 # venv
 .venv
 
-*.o *.a *.so
+*.o
+*.a
+*.so
 *.log
 results.xml
 

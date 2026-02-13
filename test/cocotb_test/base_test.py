@@ -125,9 +125,9 @@ def main():
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     time_obj = svuvm.get_sim_time("Vtop")
     svuvm.vpi.vpi_printf("time: {}\n", time_obj)
-    time_obj = svuvm.get_timeunit("Vtop")
+    time_obj = svuvm.get_time_unit("Vtop")
     svuvm.vpi.vpi_printf("timeunit: {}\n", time_obj)
-    time_obj = svuvm.get_precision("Vtop")
+    time_obj = svuvm.get_time_precision("Vtop")
     svuvm.vpi.vpi_printf("precision: {}\n", time_obj)
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")

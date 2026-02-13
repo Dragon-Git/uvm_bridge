@@ -161,7 +161,7 @@ def main():
     svuvm.set_config_int("", "", "int_value", 1)
     int_value = svuvm.get_config_int("", "", "int_value")
     svuvm.vpi.vpi_printf("int_value: {}\n", int_value)
-    svuvm.set_config_real("", "", "PI", 3.41592653589793)
+    svuvm.set_config_real("", "", "PI", 3.141592653589793)
     pi = svuvm.get_config_real("", "", "PI")
     svuvm.vpi.vpi_printf("PI: {}\n", pi)
     svuvm.set_config_string("", "", "string_value", "hello world")
@@ -169,7 +169,7 @@ def main():
     svuvm.vpi.vpi_printf("string_value: {}\n", string_value)
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
-    svuvm.vpi.vpi_printf("*        TEST reg opretor \n")
+    svuvm.vpi.vpi_printf("*        TEST reg operator \n")
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     data = 0xDEADBEEF
     for i in range(3):
@@ -219,9 +219,9 @@ def main():
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     time_obj = svuvm.get_sim_time("Vtop")
     svuvm.vpi.vpi_printf("time: {}\n", time_obj)
-    time_obj = svuvm.get_timeunit("Vtop")
+    time_obj = svuvm.get_time_unit("Vtop")
     svuvm.vpi.vpi_printf("timeunit: {}\n", time_obj)
-    time_obj = svuvm.get_precision("Vtop")
+    time_obj = svuvm.get_time_precision("Vtop")
     svuvm.vpi.vpi_printf("precision: {}\n", time_obj)
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")

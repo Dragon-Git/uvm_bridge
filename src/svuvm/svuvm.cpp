@@ -49,19 +49,29 @@ void wrap_walk_level(int lvl, std::vector<std::string> args, int cmd) {
 }
 
 void wrap_uvm_report(char *message, int verbosity, int severity) {
-  py::object inspect = py::module::import("inspect");
-  py::object current_frame = inspect.attr("currentframe")();
+  try {
+    py::object inspect = py::module::import("inspect");
+    py::object current_frame = inspect.attr("currentframe")();
 
-  if (!current_frame.is_none()) {
-    std::string funcname =
-        current_frame.attr("f_code").attr("co_name").cast<std::string>();
-    std::string filename =
-        current_frame.attr("f_code").attr("co_filename").cast<std::string>();
-    int lineno = current_frame.attr("f_lineno").cast<int>();
-    m_uvm_report_dpi(severity, const_cast<char *>(funcname.c_str()), message,
-                     verbosity, const_cast<char *>(filename.c_str()), lineno);
-  } else {
-    std::cout << "currentframe is not available!" << std::endl;
+    if (!current_frame.is_none()) {
+      std::string funcname =
+          current_frame.attr("f_code").attr("co_name").cast<std::string>();
+      std::string filename =
+          current_frame.attr("f_code").attr("co_filename").cast<std::string>();
+      int lineno = current_frame.attr("f_lineno").cast<int>();
+      
+      // Explicitly clear the frame reference to break reference cycles
+      current_frame = py::none();
+      
+      m_uvm_report_dpi(severity, const_cast<char *>(funcname.c_str()), message,
+                       verbosity, const_cast<char *>(filename.c_str()), lineno);
+    } else {
+      std::cout << "currentframe is not available!" << std::endl;
+    }
+  } catch (const std::exception& e) {
+    std::cerr << "Error in wrap_uvm_report: " << e.what() << std::endl;
+    // Fallback to basic reporting without frame info
+    m_uvm_report_dpi(severity, "unknown_function", message, verbosity, "unknown_file", 0);
   }
 }
 
@@ -71,7 +81,7 @@ int wrap_read_reg(const char *name) {
   return data;
 }
 
-// execute a tcl comamnd in simulator
+// execute a tcl command in simulator
 char *exec_tcl_cmd(char *cmd) {
 #if defined(VCS) || defined(VCSMX)
   return mhpi_ucliTclExec(cmd);
@@ -83,7 +93,7 @@ char *exec_tcl_cmd(char *cmd) {
   return const_cast<char *>("");
 #else
   // not supported
-  printf("tcl intregation is not support in this simulator\n");
+  printf("tcl integation is not support in this simulator\n");
   return const_cast<char *>("");
 #endif
 };
@@ -699,7 +709,7 @@ PYBIND11_MODULE(svuvm, m) {
       },
       "Get the current simulation time, scaled to the time unit of the scope.");
   m.def(
-      "get_timeunit",
+      "get_time_unit",
       [](const char *name) {
         int32_t time_unit;
 #if defined(VCS) || defined(VCSMX)
@@ -712,7 +722,7 @@ PYBIND11_MODULE(svuvm, m) {
       },
       "Get the time unit for scope");
   m.def(
-      "get_precision",
+      "get_time_precision",
       [](const char *name) {
         int32_t precision;
 #if defined(VCS) || defined(VCSMX)
@@ -756,17 +766,26 @@ void py_func(const char *mod_name, const char *func_name,
   snprintf(self_addr_str, sizeof(self_addr_str), "%p", (void *)py_func);
 
   char line[256];
+  bool found = false;
   while (fgets(line, sizeof(line), maps)) {
     if (strstr(line, ext_suffix.c_str())) {
       char *sopath = strchr(line, '/');
       if (sopath) {
         sopath = strtok(sopath, "\n");
-        fclose(maps);
         dir_path = dirname(sopath);
         path.attr("append")(dir_path);
+        found = true;
         break;
       }
     }
+  }
+  
+  // Always close the file handle to prevent resource leak
+  fclose(maps);
+  
+  // Handle case when no matching extension is found
+  if (!found) {
+    std::cerr << "Warning: Could not find extension path in /proc/self/maps" << std::endl;
   }
 #elif defined(__APPLE__)
   //   char *dir_path;

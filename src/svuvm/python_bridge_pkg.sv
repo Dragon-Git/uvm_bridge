@@ -218,8 +218,10 @@ package python_bridge_pkg;
             comps.push_back(top);
         else begin
             top.find_all(contxt,comps);
-            `uvm_error("PRINT_TOPOLOGY", {"No components found at context ", contxt})
-            return;
+            if (comps.size() == 0) begin
+                `uvm_error("PRINT_TOPOLOGY", {"No components found at context: ", contxt})
+                return;
+            end
         end
 
         foreach (comps[i]) begin
@@ -458,7 +460,7 @@ package python_bridge_pkg;
     endfunction
     
     //---------------------------------------------------------------------
-    // Group: UVM_CONGFIG_DB
+    // Group: UVM_CONFIG_DB
     // Provides ability to set and get configuration values in the UVM configuration database.
     //---------------------------------------------------------------------
     typedef longint unsigned uint64_t;
@@ -611,14 +613,13 @@ package python_bridge_pkg;
 
     function automatic byte_array_t base16_decode(string hex_str);
         int str_len;
-        static int i;
         str_len = hex_str.len();
         if (str_len % 2!= 0) begin
             $display("Invalid hexadecimal string length for conversion.");
             return base16_decode;
         end
         base16_decode = new[str_len>>1];
-        for (i = 0; i < str_len; i += 2) begin
+        for (int i = 0; i < str_len; i += 2) begin
             base16_decode[i>>1] = hex_str.substr(i, i+1).atohex();
         end
         return base16_decode;

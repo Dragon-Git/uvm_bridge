@@ -14,14 +14,14 @@ class VpiVecVal:
         bval (int): The second part of the vector value.
     """
 
-def uvm_report(severity: str, id: str, message: str, verbosity: str, file: str, linenum: int) -> None:
+def uvm_report(severity: int, id: str, message: str, verbosity: int, file: str, linenum: int) -> None:
     """Reports a message in the UVM framework according to the specified severity, ID, and verbosity level.
 
     Args:
-        severity (str): The severity level of the report.
+        severity (int): The severity level of the report.
         id (str): The ID of the report.
         message (str): The message to be reported.
-        verbosity (str): The verbosity level of the report.
+        verbosity (int): The verbosity level of the report.
         file (str): The file name where the report is generated.
         linenum (int): The line number in the file where the report is generated.
     """
@@ -287,7 +287,7 @@ def print_topology(contxt: str = "") -> None:
         contxt (str): The context from which to start printing the topology. Defaults to "".
     """
 
-def set_timeout(timeout: int, overridable: bool = 1) -> None:
+def set_timeout(timeout: int, overridable: bool = True) -> None:
     """Sets a global timeout value for run_phase.
 
     Args:
