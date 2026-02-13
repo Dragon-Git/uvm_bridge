@@ -17,7 +17,7 @@ svuvm 是一款硬件验证框架, 通过该框架，用户可以在 Python 中�
 ## 安装
 
 ### 安装依赖:
-- Python 3.8.0+
+- Python 3.9.0+
 - pybind11, pyslang (运行时不需要)
 ### 命令：
 - verilator
