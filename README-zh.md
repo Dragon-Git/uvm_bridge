@@ -312,12 +312,12 @@ $PWD/uvm-verilator/src/dpi/uvm_dpi.cc \
   - 参数：
     - `name` (str): 作用域名称。
 
-- **`get_timeunit(name)`**
+- **`get_time_unit(name)`**
   - 获取时间单位。
   - 参数：
     - `name` (str): 作用域名称。
 
-- **`get_precision(name)`**
+- **`get_time_precision(name)`**
   - 获取时间精度。
   - 参数：
     - `name` (str): 作用域名称。
