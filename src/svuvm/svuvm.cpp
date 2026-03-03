@@ -450,14 +450,6 @@ PYBIND11_MODULE(svuvm, m) {
   m.def("int_str_max", &int_str_max,
         "Find the maximum of integers represented as strings.");
 
-  m.def("uvm_re_match", &uvm_re_match,
-        "Match a regular expression against a string.", py::arg("re"),
-        py::arg("str"));
-
-  m.def("uvm_glob_to_re", &uvm_glob_to_re,
-        "Convert a glob pattern into a regular expression.",
-        py::return_value_policy::reference);
-
   m.def("uvm_hdl_check_path", &uvm_hdl_check_path,
         "Check if a path exists in the HDL model.", py::arg("path"));
 
@@ -497,16 +489,6 @@ PYBIND11_MODULE(svuvm, m) {
   m.def("uvm_dpi_get_tool_version_c", &uvm_dpi_get_tool_version_c,
         "Get the version of the current tool.",
         py::return_value_policy::reference);
-
-  m.def("uvm_dpi_regcomp", &uvm_dpi_regcomp, "Compile a regular expression.",
-        py::arg("pattern"), py::return_value_policy::take_ownership);
-
-  m.def("uvm_dpi_regexec", &uvm_dpi_regexec,
-        "Execute a compiled regular expression against a string.",
-        py::arg("re"), py::arg("str"));
-
-  m.def("uvm_dpi_regfree", &uvm_dpi_regfree,
-        "Free a compiled regular expression.", py::arg("re"));
 
   m.def("exec_tcl_cmd", &exec_tcl_cmd, "Execute a tcl command.",
         py::arg("cmd"));

@@ -68,9 +68,6 @@ void m_uvm_report_dpi(int severity,
 
 int int_str_max( int );
 
-int uvm_re_match(const char * re, const char *str);
-const char * uvm_glob_to_re(const char *glob);
-
 int uvm_hdl_check_path(char *path);
 int uvm_hdl_read(char *path, p_vpi_vecval value);
 int uvm_hdl_deposit(char *path, p_vpi_vecval value);

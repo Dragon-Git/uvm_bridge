@@ -1,4 +1,4 @@
-from typing import List, Any
+from typing import List
 from . import vpi  # noqa: F401
 
 class VpiVecVal:
@@ -34,27 +34,6 @@ def int_str_max(*args: str) -> int:
 
     Returns:
         int: The maximum integer value.
-    """
-
-def uvm_re_match(re: str, s: str) -> bool:
-    """Determines if the provided string `s` matches the regular expression `re`.
-
-    Args:
-        re (str): The regular expression pattern.
-        s (str): The string to be matched.
-
-    Returns:
-        bool: True if the string matches the pattern, False otherwise.
-    """
-
-def uvm_glob_to_re(pattern: str) -> str:
-    """Converts a glob pattern into a regular expression string.
-
-    Args:
-        pattern (str): The glob pattern.
-
-    Returns:
-        str: The equivalent regular expression string.
     """
 
 def uvm_hdl_check_path(path: str) -> bool:
@@ -146,34 +125,6 @@ def uvm_dpi_get_tool_version_c() -> str:
 
     Returns:
         str: The version of the simulation tool.
-    """
-
-def uvm_dpi_regcomp(pattern: str) -> Any:
-    """Compiles a regular expression pattern for use in DPI calls.
-
-    Args:
-        pattern (str): The regular expression pattern.
-
-    Returns:
-        Any: The compiled regular expression object.
-    """
-
-def uvm_dpi_regexec(re: Any, s: str) -> bool:
-    """Executes a compiled regular expression against a string.
-
-    Args:
-        re (Any): The compiled regular expression object.
-        s (str): The string to match against.
-
-    Returns:
-        bool: True if the string matches the pattern, False otherwise.
-    """
-
-def uvm_dpi_regfree(re: Any) -> None:
-    """Frees resources associated with a compiled regular expression.
-
-    Args:
-        re (Any): The compiled regular expression object.
     """
 
 def exec_tcl_cmd(cmd: str) -> None:
