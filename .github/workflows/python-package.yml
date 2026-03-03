@@ -14,12 +14,12 @@ on:
 jobs:
   test:
 
-    runs-on: ubuntu-latest
+    runs-on: ${{matrix.os}}
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
-
+        os: [ubuntu-latest, macos-26]
     steps:
     - uses: actions/checkout@v6
 
@@ -31,10 +31,18 @@ jobs:
         path: /home/runner/work/verilator
         key: verilator-v5${{ env.cache-name }}
 
-    - name: Install verilator
+    - name: Install dependencies on Ubuntu
+      if: matrix.os == 'ubuntu-latest'
       run: |
+        sudo apt-get update
         sudo apt-get install -y --no-install-recommends help2man make g++ perl python3 autoconf flex bison libfl2 libfl-dev zlib1g zlib1g-dev
         sudo bash ./script/install_verilator.sh
+
+    - name: Install dependencies on macOS (arm64)
+      if: matrix.os == 'macos-26'
+      run: |
+        brew update
+        brew install verilator  # 🔥 直接用 brew 安装install_verilator.sh
 
     - name: Install verilator-uvm
       run: |
@@ -65,38 +73,39 @@ jobs:
     needs:
       - test
     name: Build distributions
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-26]
+    runs-on: ${{matrix.os}}
+
     steps:
       - uses: actions/checkout@v6
         with:
           submodules: true
 
-      - uses: actions/setup-python@v6
-        name: Install Python
-        with:
-          python-version: "3.13"
+      - name: Set up Python
+        uses: actions/setup-python@v6
 
-      - name: Install dependencies
-        run: |
-          python -m pip install -U build
+      - name: Install cibuildwheel
+        run: python -m pip install cibuildwheel==3.1.1
 
-      - name: Build
-        run: python -m build
+      - name: Build wheels
+        run: python -m cibuildwheel --output-dir wheelhouse
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          path: |
-            dist/*.tar.gz
-            dist/*.whl
+          name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
+          path: ./wheelhouse/*.whl
+
 
       - name: Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            dist/*.tar.gz
-            dist/*.whl
+            ./wheelhouse/*.whl
           generate_release_notes: true
 
   # deploy:
