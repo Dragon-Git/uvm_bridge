@@ -1,5 +1,4 @@
 import re
-from sysconfig import get_config_var as getvar
 from glob import glob
 from setuptools import setup
 from pybind11.setup_helpers import Pybind11Extension, build_ext
@@ -131,7 +130,7 @@ class custom_build_ext(build_ext):  # noqa: N801
         if "-bundle" in self.compiler.linker_so_cxx:
             self.compiler.linker_so_cxx.remove("-bundle")
             self.compiler.linker_so_cxx.append("-dynamiclib")
-        self.compiler.library_dirs.append(getvar("LIBDIR"))
+        # self.compiler.library_dirs.append(getvar("LIBDIR"))
         super().build_extensions()
 
     def run(self):
@@ -156,7 +155,7 @@ ext_modules = [
         include_dirs=["inc"],
         extra_link_args=[
             "-fPIC",
-            f"-lpython{getvar('VERSION')}",
+            # f"-lpython{getvar('VERSION')}",
         ],
     ),
 ]

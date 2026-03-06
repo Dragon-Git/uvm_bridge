@@ -59,19 +59,20 @@ void wrap_uvm_report(char *message, int verbosity, int severity) {
       std::string filename =
           current_frame.attr("f_code").attr("co_filename").cast<std::string>();
       int lineno = current_frame.attr("f_lineno").cast<int>();
-      
+
       // Explicitly clear the frame reference to break reference cycles
       current_frame = py::none();
-      
+
       m_uvm_report_dpi(severity, const_cast<char *>(funcname.c_str()), message,
                        verbosity, const_cast<char *>(filename.c_str()), lineno);
     } else {
       std::cout << "currentframe is not available!" << std::endl;
     }
-  } catch (const std::exception& e) {
+  } catch (const std::exception &e) {
     std::cerr << "Error in wrap_uvm_report: " << e.what() << std::endl;
     // Fallback to basic reporting without frame info
-    m_uvm_report_dpi(severity, "unknown_function", message, verbosity, "unknown_file", 0);
+    m_uvm_report_dpi(severity, const_cast<char *>("unknown_function"), message,
+                     verbosity, const_cast<char *>("unknown_file"), 0);
   }
 }
 
@@ -761,13 +762,14 @@ void py_func(const char *mod_name, const char *func_name,
       }
     }
   }
-  
+
   // Always close the file handle to prevent resource leak
   fclose(maps);
-  
+
   // Handle case when no matching extension is found
   if (!found) {
-    std::cerr << "Warning: Could not find extension path in /proc/self/maps" << std::endl;
+    std::cerr << "Warning: Could not find extension path in /proc/self/maps"
+              << std::endl;
   }
 #elif defined(__APPLE__)
   //   char *dir_path;
