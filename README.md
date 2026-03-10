@@ -20,21 +20,8 @@ Compared to mainstream Python-based hardware verification frameworks like cocotb
 - Python 3.9.0+
 - pybind11, pyslang (not required at runtime)
 ### Commands:
-- verilator
 ```sh
 pip install .
-```
-- vcs  
-```sh
-CFLAGS="-DVCS -I $VCS_HOME/include" pip install .
-```
-- xcelium
-```sh
-CFLAGS="-DXCELIUM -I $XRUN_HOME/include" pip install .                                                                            
-```
-- questa
-```sh
-CFLAGS="-DMENTOR -I $MENTOR_HOME/include" pip install .                                                             
 ```
 
 ## Compilation

@@ -1,4 +1,6 @@
 #include "svdpi.h"
+#include <cstdlib>
+#include <cstring>
 #include <dlfcn.h>
 #include <iostream>
 #include <libgen.h>
@@ -6,18 +8,88 @@
 #include <pybind11/functional.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#if defined(VCS) || defined(VCSMX)
-#include <mhpi_user.h>
-#elif defined(XCELIUM) || defined(NCSC)
-#include <cfclib.h>
-#elif defined(MENTOR)
-#include <mti.h>
-#endif
 
 namespace py = pybind11;
 #ifndef NO_VPI
 #include "vpi_user_wrap.h"
 #endif
+
+// 运行时仿真器检测
+namespace simulator {
+enum class Simulator { UNKNOWN, VCS, VCSMX, XCELIUM, NCSC, MENTOR, VERILATOR };
+
+// 检测仿真器类型的函数
+inline Simulator detect() {
+  // 首先尝试通过 VPI 获取仿真器信息
+#ifndef NO_VPI
+  s_vpi_vlog_info info;
+  if (vpi_get_vlog_info(&info)) {
+    std::string product = info.product ? info.product : "";
+    std::string version = info.version ? info.version : "";
+
+    // 根据产品字符串判断仿真器类型
+    if (product.find("VCS") != std::string::npos) {
+      return Simulator::VCS;
+    } else if (product.find("Xcelium") != std::string::npos ||
+               product.find("IES") != std::string::npos) {
+      return Simulator::XCELIUM;
+    } else if (product.find("Questa") != std::string::npos ||
+               product.find("ModelSim") != std::string::npos) {
+      return Simulator::MENTOR;
+    } else if (product.find("Verilator") != std::string::npos) {
+      return Simulator::VERILATOR;
+    }
+  }
+#endif
+
+  // 如果 VPI 方法失败，尝试环境变量
+  const char *sim_env = std::getenv("SIMULATOR");
+  if (sim_env) {
+    std::string sim_name(sim_env);
+    if (sim_name == "vcs")
+      return Simulator::VCS;
+    if (sim_name == "vcsmx")
+      return Simulator::VCSMX;
+    if (sim_name == "xcelium")
+      return Simulator::XCELIUM;
+    if (sim_name == "ncsc")
+      return Simulator::NCSC;
+    if (sim_name == "mentor" || sim_name == "questa")
+      return Simulator::MENTOR;
+    if (sim_name == "verilator")
+      return Simulator::VERILATOR;
+  }
+
+  // 检查特定的环境变量
+  if (std::getenv("VCS_HOME"))
+    return Simulator::VCS;
+  if (std::getenv("XCELIUM_HOME"))
+    return Simulator::XCELIUM;
+  if (std::getenv("QUESTA_HOME") || std::getenv("MGC_HOME"))
+    return Simulator::MENTOR;
+  if (std::getenv("VERILATOR_ROOT"))
+    return Simulator::VERILATOR;
+
+  return Simulator::UNKNOWN;
+}
+
+// 辅助函数
+inline bool is_vcs() {
+  Simulator t = detect();
+  return t == Simulator::VCS || t == Simulator::VCSMX;
+}
+
+inline bool is_xcelium() {
+  Simulator t = detect();
+  return t == Simulator::XCELIUM || t == Simulator::NCSC;
+}
+
+inline bool is_mentor() { return detect() == Simulator::MENTOR; }
+
+inline bool is_verilator() { return detect() == Simulator::VERILATOR; }
+} // namespace simulator
+
+// 条件编译时仍然包含必要的头文件，但会在运行时选择使用
 
 #include <type_traits> // 添加头文件
 
@@ -84,20 +156,37 @@ int wrap_read_reg(const char *name) {
 
 // execute a tcl command in simulator
 char *exec_tcl_cmd(char *cmd) {
-#if defined(VCS) || defined(VCSMX)
-  return mhpi_ucliTclExec(cmd);
-#elif defined(XCELIUM) || defined(NCSC)
-  cfcExecuteCommand(cmd);
-  return cfcGetOutput();
-#elif defined(MENTOR)
-  mti_Cmd(cmd);
-  return const_cast<char *>("");
-#else
-  // not supported
-  printf("tcl integation is not support in this simulator\n");
-  return const_cast<char *>("");
-#endif
-};
+  static simulator::Simulator sim = simulator::detect();
+
+  switch (sim) {
+  case simulator::Simulator::VCSMX:
+  case simulator::Simulator::VCS: {
+    static auto func =
+        (char *(*)(char *))dlsym(RTLD_DEFAULT, "mhpi_ucliTclExec");
+    return func ? func(cmd) : const_cast<char *>("");
+  }
+  case simulator::Simulator::XCELIUM:
+  case simulator::Simulator::NCSC: {
+    static auto exec =
+        (void (*)(char *))dlsym(RTLD_DEFAULT, "cfcExecuteCommand");
+    static auto get_out = (char *(*)(void))dlsym(RTLD_DEFAULT, "cfcGetOutput");
+    if (exec)
+      exec(cmd);
+    return get_out ? get_out() : const_cast<char *>("");
+  }
+  case simulator::Simulator::MENTOR: {
+    static auto func = (void (*)(char *))dlsym(RTLD_DEFAULT, "mti_Cmd");
+    if (func)
+      func(cmd);
+    return const_cast<char *>("");
+  }
+  default:
+    fprintf(stderr,
+            "TCL integration not supported in this simulator (type: %d)\n",
+            static_cast<int>(sim));
+    return const_cast<char *>("");
+  }
+}
 
 PYBIND11_MODULE(svuvm, m) {
   m.doc() = "svuvm api module";
@@ -393,14 +482,34 @@ PYBIND11_MODULE(svuvm, m) {
   vpi.def("vpi_release_handle", vpi_func_wrap(vpi_release_handle),
           py::arg("object"), "Release a handle.");
 
-#if !defined(VCS) && !defined(VCSMX)
-  vpi.def("vpi_get_data", &vpi_get_data, py::arg("id"), py::arg("dataLoc"),
-          py::arg("numOfBytes"), "Get data.");
+  // 运行时检测：VCS/VCSMX 不支持这些函数
+  if (auto *vpi_get_data_ptr = reinterpret_cast<decltype(&vpi_get_data)>(
+          dlsym(RTLD_DEFAULT, "vpi_get_data"))) {
+    vpi.def("vpi_get_data", vpi_get_data_ptr, py::arg("id"), py::arg("dataLoc"),
+            py::arg("numOfBytes"), "Get data.");
+  } else {
+    vpi.def(
+        "vpi_get_data",
+        [](PLI_INT32 /*id*/, PLI_BYTE8 * /*dataLoc*/,
+           PLI_INT32 /*numOfBytes*/) {
+          throw std::runtime_error("vpi_get_data not supported");
+        },
+        py::arg("id"), py::arg("dataLoc"), py::arg("numOfBytes"), "Get data.");
+  }
+  if (auto *vpi_put_data_ptr = reinterpret_cast<decltype(&vpi_put_data)>(
+          dlsym(RTLD_DEFAULT, "vpi_put_data"))) {
+    vpi.def("vpi_put_data", vpi_put_data_ptr, py::arg("id"), py::arg("dataLoc"),
+            py::arg("numOfBytes"), "Put data.");
+  } else {
+    vpi.def(
+        "vpi_put_data",
+        [](PLI_INT32 /*id*/, PLI_BYTE8 * /*dataLoc*/,
+           PLI_INT32 /*numOfBytes*/) {
+          throw std::runtime_error("vpi_put_data not supported");
+        },
 
-  vpi.def("vpi_put_data", &vpi_put_data, py::arg("id"), py::arg("dataLoc"),
-          py::arg("numOfBytes"), "Put data.");
-#endif
-
+        py::arg("id"), py::arg("dataLoc"), py::arg("numOfBytes"), "Put data.");
+  }
   vpi.def("vpi_get_userdata", &vpi_get_userdata_wrap, py::arg("obj"),
           "Get user data.");
 
@@ -679,15 +788,20 @@ PYBIND11_MODULE(svuvm, m) {
       "get_sim_time",
       [](const char *name) {
         uint64_t time;
-#if defined(VCS) || defined(VCSMX)
-        time = (uint64_t)tf_gettime();
-#else
-        s_vpi_time vpi_time_s;
-        vpi_time_s.type = vpiSimTime;
-        const svScope scope = svGetScopeFromName(name);
-        svGetTime(scope, &vpi_time_s);
-        time = (uint64_t)vpi_time_s.high << 32 | vpi_time_s.low;
-#endif
+        // 运行时检测仿真器类型
+        if (simulator::is_vcs()) {
+          if (auto* tf_gettime_ptr = reinterpret_cast<decltype(&tf_gettime)>(dlsym(RTLD_DEFAULT, "tf_gettime"))) {
+            time = (uint64_t)(*tf_gettime_ptr)();
+          } else {
+            throw std::runtime_error("tf_gettime not available in VCS");
+          }
+        } else {
+          s_vpi_time vpi_time_s;
+          vpi_time_s.type = vpiSimTime;
+          const svScope scope = svGetScopeFromName(name);
+          svGetTime(scope, &vpi_time_s);
+          time = (uint64_t)vpi_time_s.high << 32 | vpi_time_s.low;
+        }
         return time;
       },
       "Get the current simulation time, scaled to the time unit of the scope.");
@@ -695,12 +809,17 @@ PYBIND11_MODULE(svuvm, m) {
       "get_time_unit",
       [](const char *name) {
         int32_t time_unit;
-#if defined(VCS) || defined(VCSMX)
-        time_unit = tf_gettimeunit();
-#else
-        const svScope scope = svGetScopeFromName(name);
-        svGetTimeUnit(scope, &time_unit);
-#endif
+        // 运行时检测仿真器类型
+        if (simulator::is_vcs()) {
+          if (auto* tf_gettimeunit_ptr = reinterpret_cast<decltype(&tf_gettimeunit)>(dlsym(RTLD_DEFAULT, "tf_gettimeunit"))) {
+            time_unit = (*tf_gettimeunit_ptr)();
+          } else {
+            throw std::runtime_error("tf_gettimeunit not available in VCS");
+          }
+        } else {
+          const svScope scope = svGetScopeFromName(name);
+          svGetTimeUnit(scope, &time_unit);
+        }
         return time_unit;
       },
       "Get the time unit for scope");
@@ -708,12 +827,17 @@ PYBIND11_MODULE(svuvm, m) {
       "get_time_precision",
       [](const char *name) {
         int32_t precision;
-#if defined(VCS) || defined(VCSMX)
-        precision = tf_gettimeprecision();
-#else
-        const svScope scope = svGetScopeFromName(name);
-        svGetTimePrecision(scope, &precision);
-#endif
+        // 运行时检测仿真器类型
+        if (simulator::is_vcs()) {
+          if (auto* tf_gettimeprecision_ptr = reinterpret_cast<decltype(&tf_gettimeprecision)>(dlsym(RTLD_DEFAULT, "tf_gettimeprecision"))) {
+            precision = (*tf_gettimeprecision_ptr)();
+          } else {
+            throw std::runtime_error("tf_gettimeprecision not available in VCS");
+          }
+        } else {
+          const svScope scope = svGetScopeFromName(name);
+          svGetTimePrecision(scope, &precision);
+        }
         return precision;
       },
       "Get time precision for scope");
