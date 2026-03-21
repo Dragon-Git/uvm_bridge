@@ -38,7 +38,7 @@ jobs:
       version: ${{ steps.version_parser.outputs.version }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -102,13 +102,13 @@ jobs:
     runs-on: ${{matrix.os}}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v6
         with:
           submodules: true
           ref: ${{ needs.validate-and-tag.outputs.tag_name }}
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v6
 
       - name: Install cibuildwheel
         run: |
@@ -134,13 +134,13 @@ jobs:
     if: github.event.inputs.dry_run != 'true'
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v6
         with:
           submodules: true
           ref: ${{ needs.validate-and-tag.outputs.tag_name }}
           
       - name: Download all wheel artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           pattern: cibw-wheels-*
           path: dist
@@ -152,7 +152,7 @@ jobs:
           echo "Final version: ${{ needs.validate-and-tag.outputs.version }}"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.validate-and-tag.outputs.tag_name }}
           name: uvm_bridge_${{ needs.validate-and-tag.outputs.tag_name }}
@@ -173,7 +173,7 @@ jobs:
 
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           pattern: cibw-wheels-*
           path: dist
