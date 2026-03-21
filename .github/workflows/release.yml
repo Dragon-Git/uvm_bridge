@@ -1,0 +1,192 @@
+# Automated Release Workflow - Mobile Friendly
+# Allows creating releases from mobile devices without git tag commands
+
+name: Release and Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 0.2.0)'
+        required: true
+      release_type:
+        description: 'Release type'
+        required: true
+        default: 'patch'
+      dry_run:
+        description: 'Dry run (no actual push, just test build)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-tag:
+    name: Validate and Create Tag
+    runs-on: ubuntu-latest
+    # 👇 【致命修复】必须加 job 级别的 outputs，下游才能拿到值
+    outputs:
+      tag_name: ${{ steps.tag_step.outputs.tag_name || steps.tag_step_dry.outputs.tag_name }}
+      version: ${{ steps.version_parser.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Git
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+      - name: Parse and validate version
+        id: version_parser
+        run: |
+            VERSION="${{ github.event.inputs.version }}"
+            
+            # Validate version format (semver)
+            if [[ ! $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?$ ]]; then
+              echo "::error::Invalid version format: $VERSION. Expected semver format (e.g., 1.2.3)"
+              exit 1
+            fi
+            
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "✓ Version validated: $VERSION"
+
+      - name: Check if tag already exists
+        id: tag_check
+        run: |
+          TAG_NAME="v${{ steps.version_parser.outputs.version }}"
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG_NAME already exists!"
+            echo "exists=true" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          echo "exists=false" >> $GITHUB_OUTPUT
+          echo "✓ Tag $TAG_NAME is available"
+
+      - name: Create and push tag
+        id: tag_step
+        if: github.event.inputs.dry_run != 'true'
+        run: |
+            TAG_NAME="v${{ steps.version_parser.outputs.version }}"
+            git tag -a "$TAG_NAME" -m "Release $TAG_NAME (automated from mobile)"
+            git push origin "$TAG_NAME"
+            echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+            echo "✓ Created and pushed tag: $TAG_NAME"
+
+      - name: Dry run notice
+        id: tag_step_dry
+        if: github.event.inputs.dry_run == 'true'
+        run: |
+          TAG_NAME="v${{ steps.version_parser.outputs.version }}"
+          echo "::notice::DRY RUN: Would create tag $TAG_NAME"
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+
+  build-wheels:
+    needs: validate-and-tag
+    name: Build Wheel Distributions
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-26]
+    runs-on: ${{matrix.os}}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+          ref: ${{ needs.validate-and-tag.outputs.tag_name }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+
+      - name: Install cibuildwheel
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install cibuildwheel
+
+      - name: Build wheels
+        run: python -m cibuildwheel --output-dir wheelhouse
+        env:
+          CIBW_BUILD: cp39-* cp310-* cp311-* cp312-* cp313-* cp314-*
+          CIBW_SKIP: pp* *_s390x *-win_arm64 *-win_* *-musllinux_*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
+          path: ./wheelhouse/*.whl
+
+  publish-github-release:
+    needs: [validate-and-tag, build-wheels]
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    if: github.event.inputs.dry_run != 'true'
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+          ref: ${{ needs.validate-and-tag.outputs.tag_name }}
+          
+      - name: Download all wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cibw-wheels-*
+          path: dist
+          merge-multiple: true
+
+      - name: Debug tag name
+        run: |
+          echo "Final tag_name: ${{ needs.validate-and-tag.outputs.tag_name }}"
+          echo "Final version: ${{ needs.validate-and-tag.outputs.version }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.validate-and-tag.outputs.tag_name }}
+          name: uvm_bridge_${{ needs.validate-and-tag.outputs.tag_name }}
+          files: dist/*.whl
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+
+  publish-to-pypi:
+    needs: [validate-and-tag, build-wheels]
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: read
+    if: github.event.inputs.dry_run != 'true'
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: cibw-wheels-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify wheels
+        run: |
+          python -m pip install --upgrade pip twine
+          twine check dist/*.whl
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          verbose: true
+          skip-existing: true
