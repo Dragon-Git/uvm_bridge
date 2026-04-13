@@ -152,7 +152,7 @@ jobs:
           echo "Final version: ${{ needs.validate-and-tag.outputs.version }}"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.validate-and-tag.outputs.tag_name }}
           name: uvm_bridge_${{ needs.validate-and-tag.outputs.tag_name }}
