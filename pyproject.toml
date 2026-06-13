@@ -17,11 +17,16 @@ dev = ['svuvm[lint, doc, test]']
 
 [build-system]
 requires = [
-    "setuptools>=42",
-    "pybind11>=2.10.0",
-    "pyslang>=8.0.0",
+    "scikit-build-core>=0.9.0",
+    "nanobind>=2.4.0",
+    "pyslang>=11.0.0",
 ]
-build-backend = "setuptools.build_meta"
+build-backend = "scikit_build_core.build"
+
+[tool.scikit-build]
+cmake.minimum-version = "3.15"
+cmake.verbose = true
+logging.level = "INFO"
 
 [tool.ruff]
 line-length = 120

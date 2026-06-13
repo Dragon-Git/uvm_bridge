@@ -1,7 +1,7 @@
 import cocotb
 from cocotb.triggers import Timer
 
-from svuvm import svuvm
+from svuvm import _svuvm as svuvm
 def cb_test(data):
     print("hello cb")
     return 1
@@ -69,10 +69,10 @@ def main():
     svuvm.wait_unit(6)
     svuvm.set_config_int("", "", "int_value", 1)
     int_value = svuvm.get_config_int("", "", "int_value")
-    svuvm.vpi.vpi_printf("int_value: {}\n", int_value)
+    svuvm.vpi.vpi_printf(f"int_value: {int_value}\n")
     svuvm.set_config_string("", "", "string_value", "hello world")
     string_value = svuvm.get_config_string("", "", "string_value")
-    svuvm.vpi.vpi_printf("string_value: {}\n", string_value)
+    svuvm.vpi.vpi_printf(f"string_value: {string_value}\n")
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST reg opretor \n")
@@ -100,10 +100,10 @@ def main():
     obj = svuvm.vpi.vpi_handle_by_name("top")
     obj = svuvm.vpi.vpi_handle_by_name("test_wire", obj)
     error = svuvm.vpi.VpiErrorInfo()
-    svuvm.vpi.vpi_printf("vpiVpiErrorInfo: {}\n", error.level)
+    svuvm.vpi.vpi_printf(f"vpiVpiErrorInfo: {error.level}\n")
     print(obj)
     info = svuvm.vpi.VpiVlogInfo()
-    print(info.argc, info.argv, info.product, info.version)
+    svuvm.vpi.vpi_printf(f"argc: {info.argc}, argv: {info.argv}, product: {info.product}, version: {info.version}\n")
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST handle \n")
@@ -124,11 +124,11 @@ def main():
     svuvm.vpi.vpi_printf("*        TEST dpi time \n")
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     time_obj = svuvm.get_sim_time("Vtop")
-    svuvm.vpi.vpi_printf("time: {}\n", time_obj)
+    svuvm.vpi.vpi_printf(f"time: {time_obj}\n")
     time_obj = svuvm.get_time_unit("Vtop")
-    svuvm.vpi.vpi_printf("timeunit: {}\n", time_obj)
+    svuvm.vpi.vpi_printf(f"timeunit: {time_obj}\n")
     time_obj = svuvm.get_time_precision("Vtop")
-    svuvm.vpi.vpi_printf("precision: {}\n", time_obj)
+    svuvm.vpi.vpi_printf(f"precision: {time_obj}\n")
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST vpi callback \n")

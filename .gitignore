@@ -1,20 +1,61 @@
-# python generated files
+# Python
 __pycache__/
-*.py[oc]
+*.py[cod]
+*$py.class
+*.so
+.Python
 build/
+develop-eggs/
 dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
 wheels/
-*.egg-info
+*.egg-info/
+.installed.cfg
+*.egg
 
-# venv
-.venv
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
 
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 测试和覆盖率
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# 日志
+*.log
+
+# 临时文件
+*.bak
+*.tmp
+*.temp
+
+# UVM/DPI specific (preserved from original)
 *.o
 *.a
-*.so
-*.log
 results.xml
-
 inc/export_dpi.h
 inc/vpi_attr.h
 inc/svuvm_export_dpi.svh
