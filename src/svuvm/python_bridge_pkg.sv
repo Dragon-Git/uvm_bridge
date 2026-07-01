@@ -232,6 +232,12 @@ package python_bridge_pkg;
         else
             override_type = wrapper.get_type_name();
     endfunction
+    
+    function automatic int is_type_registered(string type_name);
+        uvm_factory factory = uvm_factory::get();
+        uvm_object_wrapper w = factory.find_wrapper_by_name(type_name);
+        return (w != null) ? 1 : 0;
+    endfunction
 
     //------------------------------------------------------------------------------
     // Group: Topology
@@ -416,13 +422,6 @@ package python_bridge_pkg;
     function automatic string uvm_top_sprint();
         uvm_root top = uvm_root::get();
         return top.sprint();
-    endfunction
-
-    // --- factory query ---
-    function automatic int is_type_registered(string type_name);
-        uvm_factory factory = uvm_factory::get();
-        uvm_object_wrapper w = factory.find_wrapper_by_name(type_name);
-        return (w != null) ? 1 : 0;
     endfunction
 
     //------------------------------------------------------------------------------
@@ -645,7 +644,11 @@ package python_bridge_pkg;
     // Provides ability to set and get configuration values in the UVM configuration database.
     //---------------------------------------------------------------------
     typedef longint unsigned uint64_t;
+    `ifdef VCS
+    typedef shortreal double;
+    `else
     typedef real double;
+    `endif // VCS
     typedef int int_array_t[];
     typedef byte byte_array_t[];
     
@@ -666,6 +669,24 @@ package python_bridge_pkg;
 
     function automatic void config_db_trace_off();
         uvm_config_db_options::turn_off_tracing();
+    endfunction
+
+    //------------------------------------------------------------------------------
+    // Group: CONFIG DB (extended)
+    //
+    // Exposes exists() and wait_modified() helpers for the UVM config DB.
+    //------------------------------------------------------------------------------
+    function automatic int config_db_exists(string contxt, string inst_name, string field_name);
+        uvm_component comp = get_contxt(contxt);
+        string full = (inst_name == "") ? field_name : {inst_name, ".", field_name};
+        if (comp == null) comp = uvm_root::get();
+        // Try int
+        if (uvm_config_db#(uvm_bitstream_t)::exists(comp, "", full)) return 1;
+        // Try string
+        if (uvm_config_db#(string)::exists(comp, "", full)) return 2;
+        // Try real
+        if (uvm_config_db#(real)::exists(comp, "", full)) return 3;
+        return 0;
     endfunction
 
     //-------------------------------------------------------------------------------------
@@ -804,185 +825,6 @@ package python_bridge_pkg;
             base16_decode[i>>1] = hex_str.substr(i, i+1).atohex();
         end
         return base16_decode;
-    endfunction
-
-    //------------------------------------------------------------------------------
-    // Group: REGISTERS (extended query APIs)
-    //
-    // Provides enumeration of registers/blocks/fields and non-blocking mirror queries.
-    //------------------------------------------------------------------------------
-    function automatic void set_top_reg_block_by_path(string block_path);
-        uvm_root top = uvm_root::get();
-        uvm_component comp;
-        uvm_reg_block blk;
-        comp = top.find(block_path);
-        if (comp == null) begin
-            `uvm_error("python_bridge_pkg", $sformatf("can not find component < %s > as top reg block", block_path))
-            return;
-        end
-        if (!$cast(blk, comp)) begin
-            `uvm_error("python_bridge_pkg", $sformatf("component < %s > is not a uvm_reg_block", block_path))
-            return;
-        end
-        reg_operator::inst.set_top_reg_block(blk);
-    endfunction
-
-    function automatic int get_reg_mirrored_value(string name);
-        uvm_reg rg = reg_operator::inst.get_reg(name);
-        return rg.get_mirrored_value();
-    endfunction
-
-    function automatic int get_reg_desired_value(string name);
-        uvm_reg rg = reg_operator::inst.get_reg(name);
-        return rg.get();
-    endfunction
-
-    function automatic longint get_reg_address(string name);
-        uvm_reg rg = reg_operator::inst.get_reg(name);
-        return rg.get_address();
-    endfunction
-
-    function automatic void reset_reg(string name, string kind="HARD");
-        uvm_reg rg = reg_operator::inst.get_reg(name);
-        rg.reset(kind);
-    endfunction
-
-    function automatic int predict_reg(string name, int data, string kind="DEFAULT");
-        uvm_reg rg = reg_operator::inst.get_reg(name);
-        uvm_predict_e pkind = UVM_PREDICT_READ;
-        if (kind == "WRITE") pkind = UVM_PREDICT_WRITE;
-        if (kind == "DIRECT") pkind = UVM_PREDICT_DIRECT;
-        return rg.predict(data, -1, pkind) ? 1 : 0;
-    endfunction
-
-    function automatic string get_reg_names(string block_path="");
-        uvm_reg_block blk;
-        uvm_reg regs[$];
-        string names = "";
-        if (block_path == "") begin
-            if (reg_operator::inst.top_reg_block == null) return "";
-            blk = reg_operator::inst.top_reg_block;
-        end else begin
-            uvm_reg_block current = reg_operator::inst.top_reg_block;
-            uvm_reg_block sub;
-            string parts[$];
-            int start_idx = 0;
-            int end_idx;
-            for (int i = 0; i < block_path.len(); i++) begin
-                if (block_path[i] == ".") begin
-                    end_idx = i;
-                    sub = current.get_block_by_name(block_path.substr(start_idx, end_idx - 1));
-                    if (sub == null) return "";
-                    current = sub;
-                    start_idx = i + 1;
-                end
-            end
-            if (start_idx < block_path.len()) begin
-                sub = current.get_block_by_name(block_path.substr(start_idx, block_path.len() - 1));
-                if (sub == null) return "";
-                current = sub;
-            end
-            blk = current;
-        end
-        blk.get_registers(regs, UVM_NO_HIER);
-        foreach (regs[i]) begin
-            if (names != "") names = {names, ","};
-            names = {names, regs[i].get_name()};
-        end
-        return names;
-    endfunction
-
-    function automatic string get_block_names(string block_path="");
-        uvm_reg_block blk;
-        uvm_reg_block blocks[$];
-        string names = "";
-        if (block_path == "") begin
-            if (reg_operator::inst.top_reg_block == null) return "";
-            blk = reg_operator::inst.top_reg_block;
-        end else begin
-            uvm_reg_block current = reg_operator::inst.top_reg_block;
-            uvm_reg_block sub;
-            int start_idx = 0;
-            int end_idx;
-            for (int i = 0; i < block_path.len(); i++) begin
-                if (block_path[i] == ".") begin
-                    end_idx = i;
-                    sub = current.get_block_by_name(block_path.substr(start_idx, end_idx - 1));
-                    if (sub == null) return "";
-                    current = sub;
-                    start_idx = i + 1;
-                end
-            end
-            if (start_idx < block_path.len()) begin
-                sub = current.get_block_by_name(block_path.substr(start_idx, block_path.len() - 1));
-                if (sub == null) return "";
-                current = sub;
-            end
-            blk = current;
-        end
-        blk.get_blocks(blocks, UVM_NO_HIER);
-        foreach (blocks[i]) begin
-            if (names != "") names = {names, ","};
-            names = {names, blocks[i].get_name()};
-        end
-        return names;
-    endfunction
-
-    function automatic string get_reg_field_names(string reg_name);
-        uvm_reg rg = reg_operator::inst.get_reg(reg_name);
-        uvm_reg_field fields[$];
-        string names = "";
-        rg.get_fields(fields);
-        foreach (fields[i]) begin
-            if (names != "") names = {names, ","};
-            names = {names, fields[i].get_name()};
-        end
-        return names;
-    endfunction
-
-    function automatic int read_field_by_name(string reg_name, string field_name);
-        uvm_reg rg = reg_operator::inst.get_reg(reg_name);
-        uvm_reg_field f = rg.get_field_by_name(field_name);
-        if (f == null) return 0;
-        return f.get_mirrored_value();
-    endfunction
-
-    function automatic void write_field_by_name(string reg_name, string field_name, int data);
-        uvm_reg rg = reg_operator::inst.get_reg(reg_name);
-        uvm_reg_field f = rg.get_field_by_name(field_name);
-        if (f == null) return;
-        f.predict(data, -1, UVM_PREDICT_DIRECT);
-    endfunction
-
-    function automatic string reg_block_sprint(string block_path="");
-        uvm_reg_block blk;
-        if (block_path == "") begin
-            if (reg_operator::inst.top_reg_block == null) return "";
-            blk = reg_operator::inst.top_reg_block;
-        end else begin
-            uvm_root top = uvm_root::get();
-            uvm_component comp = top.find(block_path);
-            if (comp == null || !$cast(blk, comp)) return "";
-        end
-        return blk.sprint();
-    endfunction
-
-    //------------------------------------------------------------------------------
-    // Group: CONFIG DB (extended)
-    //
-    // Exposes exists() and wait_modified() helpers for the UVM config DB.
-    //------------------------------------------------------------------------------
-    function automatic int config_db_exists(string contxt, string inst_name, string field_name);
-        uvm_component comp = get_contxt(contxt);
-        string full = (inst_name == "") ? field_name : {inst_name, ".", field_name};
-        if (comp == null) comp = uvm_root::get();
-        // Try int
-        if (uvm_config_db#(uvm_bitstream_t)::exists(comp, "", full)) return 1;
-        // Try string
-        if (uvm_config_db#(string)::exists(comp, "", full)) return 2;
-        // Try real
-        if (uvm_config_db#(real)::exists(comp, "", full)) return 3;
-        return 0;
     endfunction
 
     //------------------------------------------------------------------------------
@@ -1366,6 +1208,162 @@ package python_bridge_pkg;
         data = rg.get_mirrored_value();
     endtask
 
+    function automatic void set_top_reg_block_by_path(string block_path);
+        uvm_root top = uvm_root::get();
+        uvm_component comp;
+        uvm_reg_block blk;
+        comp = top.find(block_path);
+        if (comp == null) begin
+            `uvm_error("python_bridge_pkg", $sformatf("can not find component < %s > as top reg block", block_path))
+            return;
+        end
+        if (!$cast(blk, comp)) begin
+            `uvm_error("python_bridge_pkg", $sformatf("component < %s > is not a uvm_reg_block", block_path))
+            return;
+        end
+        reg_operator::inst.set_top_reg_block(blk);
+    endfunction
+
+    function automatic int get_reg_mirrored_value(string name);
+        uvm_reg rg = reg_operator::inst.get_reg(name);
+        return rg.get_mirrored_value();
+    endfunction
+
+    function automatic int get_reg_desired_value(string name);
+        uvm_reg rg = reg_operator::inst.get_reg(name);
+        return rg.get();
+    endfunction
+
+    function automatic longint get_reg_address(string name);
+        uvm_reg rg = reg_operator::inst.get_reg(name);
+        return rg.get_address();
+    endfunction
+
+    function automatic void reset_reg(string name, string kind="HARD");
+        uvm_reg rg = reg_operator::inst.get_reg(name);
+        rg.reset(kind);
+    endfunction
+
+    function automatic int predict_reg(string name, int data, string kind="DEFAULT");
+        uvm_reg rg = reg_operator::inst.get_reg(name);
+        uvm_predict_e pkind = UVM_PREDICT_READ;
+        if (kind == "WRITE") pkind = UVM_PREDICT_WRITE;
+        if (kind == "DIRECT") pkind = UVM_PREDICT_DIRECT;
+        return rg.predict(data, -1, pkind) ? 1 : 0;
+    endfunction
+
+    function automatic string get_reg_names(string block_path="");
+        uvm_reg_block blk;
+        uvm_reg regs[$];
+        string names = "";
+        if (block_path == "") begin
+            if (reg_operator::inst.top_reg_block == null) return "";
+            blk = reg_operator::inst.top_reg_block;
+        end else begin
+            uvm_reg_block current = reg_operator::inst.top_reg_block;
+            uvm_reg_block sub;
+            string parts[$];
+            int start_idx = 0;
+            int end_idx;
+            for (int i = 0; i < block_path.len(); i++) begin
+                if (block_path[i] == ".") begin
+                    end_idx = i;
+                    sub = current.get_block_by_name(block_path.substr(start_idx, end_idx - 1));
+                    if (sub == null) return "";
+                    current = sub;
+                    start_idx = i + 1;
+                end
+            end
+            if (start_idx < block_path.len()) begin
+                sub = current.get_block_by_name(block_path.substr(start_idx, block_path.len() - 1));
+                if (sub == null) return "";
+                current = sub;
+            end
+            blk = current;
+        end
+        blk.get_registers(regs, UVM_NO_HIER);
+        foreach (regs[i]) begin
+            if (names != "") names = {names, ","};
+            names = {names, regs[i].get_name()};
+        end
+        return names;
+    endfunction
+
+    function automatic string get_block_names(string block_path="");
+        uvm_reg_block blk;
+        uvm_reg_block blocks[$];
+        string names = "";
+        if (block_path == "") begin
+            if (reg_operator::inst.top_reg_block == null) return "";
+            blk = reg_operator::inst.top_reg_block;
+        end else begin
+            uvm_reg_block current = reg_operator::inst.top_reg_block;
+            uvm_reg_block sub;
+            int start_idx = 0;
+            int end_idx;
+            for (int i = 0; i < block_path.len(); i++) begin
+                if (block_path[i] == ".") begin
+                    end_idx = i;
+                    sub = current.get_block_by_name(block_path.substr(start_idx, end_idx - 1));
+                    if (sub == null) return "";
+                    current = sub;
+                    start_idx = i + 1;
+                end
+            end
+            if (start_idx < block_path.len()) begin
+                sub = current.get_block_by_name(block_path.substr(start_idx, block_path.len() - 1));
+                if (sub == null) return "";
+                current = sub;
+            end
+            blk = current;
+        end
+        blk.get_blocks(blocks, UVM_NO_HIER);
+        foreach (blocks[i]) begin
+            if (names != "") names = {names, ","};
+            names = {names, blocks[i].get_name()};
+        end
+        return names;
+    endfunction
+
+    function automatic string get_reg_field_names(string reg_name);
+        uvm_reg rg = reg_operator::inst.get_reg(reg_name);
+        uvm_reg_field fields[$];
+        string names = "";
+        rg.get_fields(fields);
+        foreach (fields[i]) begin
+            if (names != "") names = {names, ","};
+            names = {names, fields[i].get_name()};
+        end
+        return names;
+    endfunction
+
+    function automatic int read_field_by_name(string reg_name, string field_name);
+        uvm_reg rg = reg_operator::inst.get_reg(reg_name);
+        uvm_reg_field f = rg.get_field_by_name(field_name);
+        if (f == null) return 0;
+        return f.get_mirrored_value();
+    endfunction
+
+    function automatic void write_field_by_name(string reg_name, string field_name, int data);
+        uvm_reg rg = reg_operator::inst.get_reg(reg_name);
+        uvm_reg_field f = rg.get_field_by_name(field_name);
+        if (f == null) return;
+        f.predict(data, -1, UVM_PREDICT_DIRECT);
+    endfunction
+
+    function automatic string reg_block_sprint(string block_path="");
+        uvm_reg_block blk;
+        if (block_path == "") begin
+            if (reg_operator::inst.top_reg_block == null) return "";
+            blk = reg_operator::inst.top_reg_block;
+        end else begin
+            uvm_root top = uvm_root::get();
+            uvm_component comp = top.find(block_path);
+            if (comp == null || !$cast(blk, comp)) return "";
+        end
+        return blk.sprint();
+    endfunction
+
     // custom task
     task automatic wait_unit(int n);
     `ifndef VERILATOR
@@ -1402,6 +1400,7 @@ package python_bridge_pkg;
     export "DPI-C" function  create_component_by_name;
     export "DPI-C" function  debug_factory_create;
     export "DPI-C" function  find_factory_override;
+    export "DPI-C" function  is_type_registered;
     export "DPI-C" function  print_topology;
     export "DPI-C" function  set_timeout;
     export "DPI-C" function  set_finish_on_completion;
@@ -1420,7 +1419,6 @@ package python_bridge_pkg;
     export "DPI-C" function  component_get_type_name;
     export "DPI-C" function  component_sprint;
     export "DPI-C" function  uvm_top_sprint;
-    export "DPI-C" function  is_type_registered;
     export "DPI-C" function  uvm_objection_op;
     export "DPI-C" function  dbg_print;
     export "DPI-C" function  tlm_connect;
@@ -1443,6 +1441,7 @@ package python_bridge_pkg;
     export "DPI-C" function  get_config_string;
     export "DPI-C" function  config_db_trace_on;
     export "DPI-C" function  config_db_trace_off;
+    export "DPI-C" function  config_db_exists;
     export "DPI-C" function  get_report_verbosity_level;
     export "DPI-C" function  get_report_max_verbosity_level;
     export "DPI-C" function  set_report_verbosity_level;
@@ -1464,19 +1463,6 @@ package python_bridge_pkg;
     export "DPI-C" function  get_id_count;
     export "DPI-C" function  print_report_server;
     export "DPI-C" function  report_summarize;
-    export "DPI-C" function  set_top_reg_block_by_path;
-    export "DPI-C" function  get_reg_mirrored_value;
-    export "DPI-C" function  get_reg_desired_value;
-    export "DPI-C" function  get_reg_address;
-    export "DPI-C" function  reset_reg;
-    export "DPI-C" function  predict_reg;
-    export "DPI-C" function  get_reg_names;
-    export "DPI-C" function  get_block_names;
-    export "DPI-C" function  get_reg_field_names;
-    export "DPI-C" function  read_field_by_name;
-    export "DPI-C" function  write_field_by_name;
-    export "DPI-C" function  reg_block_sprint;
-    export "DPI-C" function  config_db_exists;
     export "DPI-C" task      start_seq;
     export "DPI-C" function  is_sequencer_busy;
     export "DPI-C" function  get_current_sequence_name;
@@ -1500,6 +1486,18 @@ package python_bridge_pkg;
     export "DPI-C" task      read_reg;
     export "DPI-C" task      check_reg;
     export "DPI-C" task      mirror_reg;
+    export "DPI-C" function  set_top_reg_block_by_path;
+    export "DPI-C" function  get_reg_mirrored_value;
+    export "DPI-C" function  get_reg_desired_value;
+    export "DPI-C" function  get_reg_address;
+    export "DPI-C" function  reset_reg;
+    export "DPI-C" function  predict_reg;
+    export "DPI-C" function  get_reg_names;
+    export "DPI-C" function  get_block_names;
+    export "DPI-C" function  get_reg_field_names;
+    export "DPI-C" function  read_field_by_name;
+    export "DPI-C" function  write_field_by_name;
+    export "DPI-C" function  reg_block_sprint;
     export "DPI-C" task      wait_unit;
     export "DPI-C" task      run_test_wrap;
     // EXPORT_DPIC_END
