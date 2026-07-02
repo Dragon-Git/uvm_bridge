@@ -1,14 +1,13 @@
 #include "svdpi.h"
-#include "svdpi.h"
 #include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
 #include <iostream>
 #include <libgen.h>
 #include <nanobind/nanobind.h>
+#include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
-#include <nanobind/stl/optional.h>
 
 namespace nb = nanobind;
 
@@ -127,8 +126,8 @@ void wrap_uvm_report(const char *message, int verbosity, int severity) {
     nb::object current_frame = inspect.attr("currentframe")();
 
     if (!current_frame.is_none()) {
-      std::string funcname = nb::cast<std::string>(
-          current_frame.attr("f_code").attr("co_name"));
+      std::string funcname =
+          nb::cast<std::string>(current_frame.attr("f_code").attr("co_name"));
       std::string filename = nb::cast<std::string>(
           current_frame.attr("f_code").attr("co_filename"));
       int lineno = nb::cast<int>(current_frame.attr("f_lineno"));
@@ -136,16 +135,18 @@ void wrap_uvm_report(const char *message, int verbosity, int severity) {
       // Explicitly clear the frame reference to break reference cycles
       current_frame = nb::none();
 
-      m_uvm_report_dpi(severity, const_cast<char *>(funcname.c_str()), const_cast<char *>(message),
-                       verbosity, const_cast<char *>(filename.c_str()), lineno);
+      m_uvm_report_dpi(severity, const_cast<char *>(funcname.c_str()),
+                       const_cast<char *>(message), verbosity,
+                       const_cast<char *>(filename.c_str()), lineno);
     } else {
       std::cout << "currentframe is not available!" << std::endl;
     }
   } catch (const std::exception &e) {
     std::cerr << "Error in wrap_uvm_report: " << e.what() << std::endl;
     // Fallback to basic reporting without frame info
-    m_uvm_report_dpi(severity, const_cast<char *>("unknown_function"), const_cast<char *>(message),
-                     verbosity, const_cast<char *>("unknown_file"), 0);
+    m_uvm_report_dpi(severity, const_cast<char *>("unknown_function"),
+                     const_cast<char *>(message), verbosity,
+                     const_cast<char *>("unknown_file"), 0);
   }
 }
 
@@ -208,7 +209,8 @@ NB_MODULE(_svuvm, m) {
   nb::class_<s_vpi_time>(vpi, "VpiTime")
       .def(nb::init<>())
       .def(nb::init<PLI_INT32, PLI_UINT32, PLI_UINT32, double>(),
-           nb::arg("type") = 0, nb::arg("high") = 0, nb::arg("low") = 0, nb::arg("real") = 0.0)
+           nb::arg("type") = 0, nb::arg("high") = 0, nb::arg("low") = 0,
+           nb::arg("real") = 0.0)
       .def_rw("type", &s_vpi_time::type)
       .def_rw("high", &s_vpi_time::high)
       .def_rw("low", &s_vpi_time::low)
@@ -228,198 +230,289 @@ NB_MODULE(_svuvm, m) {
 
   nb::class_<s_vpi_vecval>(vpi, "VpiVecVal")
       .def(nb::init<>())
-      .def(nb::init<PLI_UINT32, PLI_UINT32>(), nb::arg("aval") = 0, nb::arg("bval") = 0)
+      .def(nb::init<PLI_UINT32, PLI_UINT32>(), nb::arg("aval") = 0,
+           nb::arg("bval") = 0)
       .def_rw("aval", &s_vpi_vecval::aval)
       .def_rw("bval", &s_vpi_vecval::bval);
 
   nb::class_<s_vpi_strengthval>(vpi, "VpiStrengthVal")
       .def(nb::init<>())
-      .def(nb::init<PLI_INT32, PLI_INT32, PLI_INT32>(),
-           nb::arg("logic") = 0, nb::arg("s0") = 0, nb::arg("s1") = 0)
+      .def(nb::init<PLI_INT32, PLI_INT32, PLI_INT32>(), nb::arg("logic") = 0,
+           nb::arg("s0") = 0, nb::arg("s1") = 0)
       .def_rw("logic", &s_vpi_strengthval::logic)
       .def_rw("s0", &s_vpi_strengthval::s0)
       .def_rw("s1", &s_vpi_strengthval::s1);
 
   nb::class_<s_vpi_value>(vpi, "VpiValue")
       .def(nb::init<>())
-      .def("__init__", [](s_vpi_value* self, PLI_INT32 format) {
-        self->format = format;
-      }, nb::arg("format"))
-      .def("__init__", [](s_vpi_value* self, PLI_INT32 format, const std::string& str) {
-        self->format = format;
-        self->value.str = const_cast<char*>(str.c_str());
-      }, nb::arg("format"), nb::arg("value"))
-      .def("__init__", [](s_vpi_value* self, PLI_INT32 format, PLI_INT32 val) {
-        self->format = format;
-        self->value.integer = val;
-      }, nb::arg("format"), nb::arg("value"))
-      .def("__init__", [](s_vpi_value* self, PLI_INT32 format, double val) {
-        self->format = format;
-        self->value.real = val;
-      }, nb::arg("format"), nb::arg("value"))
-      .def("__init__", [](s_vpi_value* self, PLI_INT32 format, nb::object obj) {
-        self->format = format;
-        self->value.time = (p_vpi_time)nb::cast<nb::capsule>(obj).data();
-      }, nb::arg("format"), nb::arg("value"))
+      .def(
+          "__init__",
+          [](s_vpi_value *self, PLI_INT32 format) { self->format = format; },
+          nb::arg("format"))
+      .def(
+          "__init__",
+          [](s_vpi_value *self, PLI_INT32 format, const std::string &str) {
+            self->format = format;
+            self->value.str = const_cast<char *>(str.c_str());
+          },
+          nb::arg("format"), nb::arg("value"))
+      .def(
+          "__init__",
+          [](s_vpi_value *self, PLI_INT32 format, PLI_INT32 val) {
+            self->format = format;
+            self->value.integer = val;
+          },
+          nb::arg("format"), nb::arg("value"))
+      .def(
+          "__init__",
+          [](s_vpi_value *self, PLI_INT32 format, double val) {
+            self->format = format;
+            self->value.real = val;
+          },
+          nb::arg("format"), nb::arg("value"))
+      .def(
+          "__init__",
+          [](s_vpi_value *self, PLI_INT32 format, nb::object obj) {
+            self->format = format;
+            self->value.time = (p_vpi_time)nb::cast<nb::capsule>(obj).data();
+          },
+          nb::arg("format"), nb::arg("value"))
       .def_rw("format", &s_vpi_value::format)
-      .def_prop_rw("str",
-                   [](s_vpi_value &o) { return o.value.str ? std::string(o.value.str) : std::string(); },
-                   [](s_vpi_value &o, const std::string &s) { o.value.str = const_cast<char*>(s.c_str()); })
-      .def_prop_rw("scalar",
-                   [](s_vpi_value &o) { return o.value.scalar; },
-                   [](s_vpi_value &o, PLI_INT32 val) { o.value.scalar = val; })
-      .def_prop_rw("integer",
-                   [](s_vpi_value &o) { return o.value.integer; },
-                   [](s_vpi_value &o, PLI_INT32 val) { o.value.integer = val; })
-      .def_prop_rw("real",
-                   [](s_vpi_value &o) { return o.value.real; },
-                   [](s_vpi_value &o, double val) { o.value.real = val; })
-      .def_prop_rw("time",
-                   [](s_vpi_value &o) { return convert((vpiHandle)o.value.time); },
-                   [](s_vpi_value &o, nb::object obj) {
-                     o.value.time = (p_vpi_time)nb::cast<nb::capsule>(obj).data();
-                   })
-      .def_prop_rw("vector",
-                   [](s_vpi_value &o) { return convert((vpiHandle)o.value.vector); },
-                   [](s_vpi_value &o, nb::object obj) {
-                     o.value.vector = (p_vpi_vecval)nb::cast<nb::capsule>(obj).data();
-                   })
-      .def_prop_rw("strength",
-                   [](s_vpi_value &o) { return convert((vpiHandle)o.value.strength); },
-                   [](s_vpi_value &o, nb::object obj) {
-                     o.value.strength = (p_vpi_strengthval)nb::cast<nb::capsule>(obj).data();
-                   });
+      .def_prop_rw(
+          "str",
+          [](s_vpi_value &o) {
+            return o.value.str ? std::string(o.value.str) : std::string();
+          },
+          [](s_vpi_value &o, const std::string &s) {
+            o.value.str = const_cast<char *>(s.c_str());
+          })
+      .def_prop_rw(
+          "scalar", [](s_vpi_value &o) { return o.value.scalar; },
+          [](s_vpi_value &o, PLI_INT32 val) { o.value.scalar = val; })
+      .def_prop_rw(
+          "integer", [](s_vpi_value &o) { return o.value.integer; },
+          [](s_vpi_value &o, PLI_INT32 val) { o.value.integer = val; })
+      .def_prop_rw(
+          "real", [](s_vpi_value &o) { return o.value.real; },
+          [](s_vpi_value &o, double val) { o.value.real = val; })
+      .def_prop_rw(
+          "time",
+          [](s_vpi_value &o) { return convert((vpiHandle)o.value.time); },
+          [](s_vpi_value &o, nb::object obj) {
+            o.value.time = (p_vpi_time)nb::cast<nb::capsule>(obj).data();
+          })
+      .def_prop_rw(
+          "vector",
+          [](s_vpi_value &o) { return convert((vpiHandle)o.value.vector); },
+          [](s_vpi_value &o, nb::object obj) {
+            o.value.vector = (p_vpi_vecval)nb::cast<nb::capsule>(obj).data();
+          })
+      .def_prop_rw(
+          "strength",
+          [](s_vpi_value &o) { return convert((vpiHandle)o.value.strength); },
+          [](s_vpi_value &o, nb::object obj) {
+            o.value.strength =
+                (p_vpi_strengthval)nb::cast<nb::capsule>(obj).data();
+          });
 
   nb::class_<s_vpi_arrayvalue>(vpi, "VpiArrayValue")
       .def(nb::init<>())
       .def_rw("format", &s_vpi_arrayvalue::format)
       .def_rw("flags", &s_vpi_arrayvalue::flags)
-      .def("get_integers", [](s_vpi_arrayvalue &o) { return convert((vpiHandle)o.value.integers); })
-      .def("set_integers", [](s_vpi_arrayvalue &o, nb::object obj) {
-        o.value.integers = (PLI_INT32*)nb::cast<nb::capsule>(obj).data();
-      })
-      .def("get_times", [](s_vpi_arrayvalue &o) { return convert((vpiHandle)o.value.times); })
-      .def("set_times", [](s_vpi_arrayvalue &o, nb::object obj) {
-        o.value.times = (p_vpi_time)nb::cast<nb::capsule>(obj).data();
-      })
-      .def("get_reals", [](s_vpi_arrayvalue &o) { return convert((vpiHandle)o.value.reals); })
-      .def("set_reals", [](s_vpi_arrayvalue &o, nb::object obj) {
-        o.value.reals = (double*)nb::cast<nb::capsule>(obj).data();
-      })
-      .def("get_vectors", [](s_vpi_arrayvalue &o) { return convert((vpiHandle)o.value.vectors); })
-      .def("set_vectors", [](s_vpi_arrayvalue &o, nb::object obj) {
-        o.value.vectors = (p_vpi_vecval)nb::cast<nb::capsule>(obj).data();
-      })
-      .def("get_rawvals", [](s_vpi_arrayvalue &o) { return convert((vpiHandle)o.value.rawvals); })
+      .def("get_integers",
+           [](s_vpi_arrayvalue &o) {
+             return convert((vpiHandle)o.value.integers);
+           })
+      .def("set_integers",
+           [](s_vpi_arrayvalue &o, nb::object obj) {
+             o.value.integers = (PLI_INT32 *)nb::cast<nb::capsule>(obj).data();
+           })
+      .def(
+          "get_times",
+          [](s_vpi_arrayvalue &o) { return convert((vpiHandle)o.value.times); })
+      .def("set_times",
+           [](s_vpi_arrayvalue &o, nb::object obj) {
+             o.value.times = (p_vpi_time)nb::cast<nb::capsule>(obj).data();
+           })
+      .def(
+          "get_reals",
+          [](s_vpi_arrayvalue &o) { return convert((vpiHandle)o.value.reals); })
+      .def("set_reals",
+           [](s_vpi_arrayvalue &o, nb::object obj) {
+             o.value.reals = (double *)nb::cast<nb::capsule>(obj).data();
+           })
+      .def("get_vectors",
+           [](s_vpi_arrayvalue &o) {
+             return convert((vpiHandle)o.value.vectors);
+           })
+      .def("set_vectors",
+           [](s_vpi_arrayvalue &o, nb::object obj) {
+             o.value.vectors = (p_vpi_vecval)nb::cast<nb::capsule>(obj).data();
+           })
+      .def("get_rawvals",
+           [](s_vpi_arrayvalue &o) {
+             return convert((vpiHandle)o.value.rawvals);
+           })
       .def("set_rawvals", [](s_vpi_arrayvalue &o, nb::object obj) {
-        o.value.rawvals = (PLI_BYTE8*)nb::cast<nb::capsule>(obj).data();
+        o.value.rawvals = (PLI_BYTE8 *)nb::cast<nb::capsule>(obj).data();
       });
 
   nb::class_<s_vpi_systf_data>(vpi, "VpiSystfData")
       .def(nb::init<>())
-      .def("__init__", [](s_vpi_systf_data* self, PLI_INT32 type, PLI_INT32 sysfunctype,
-                          const std::string& tfname) {
-        self->type = type;
-        self->sysfunctype = sysfunctype;
-        self->tfname = const_cast<char*>(tfname.c_str());
-        self->calltf = nullptr;
-        self->compiletf = nullptr;
-        self->sizetf = nullptr;
-        self->user_data = nullptr;
-      }, nb::arg("type"), nb::arg("sysfunctype"), nb::arg("tfname"))
+      .def(
+          "__init__",
+          [](s_vpi_systf_data *self, PLI_INT32 type, PLI_INT32 sysfunctype,
+             const std::string &tfname) {
+            self->type = type;
+            self->sysfunctype = sysfunctype;
+            self->tfname = const_cast<char *>(tfname.c_str());
+            self->calltf = nullptr;
+            self->compiletf = nullptr;
+            self->sizetf = nullptr;
+            self->user_data = nullptr;
+          },
+          nb::arg("type"), nb::arg("sysfunctype"), nb::arg("tfname"))
       .def_rw("type", &s_vpi_systf_data::type)
       .def_rw("sysfunctype", &s_vpi_systf_data::sysfunctype)
-      .def_prop_rw("tfname",
-                   [](s_vpi_systf_data &o) { return o.tfname ? std::string(o.tfname) : std::string(); },
-                   [](s_vpi_systf_data &o, const std::string &s) { o.tfname = const_cast<char*>(s.c_str()); })
-      .def_prop_rw("user_data",
-                   [](s_vpi_systf_data &o) { return o.user_data ? std::string((char*)o.user_data) : std::string(); },
-                   [](s_vpi_systf_data &o, const std::string &s) { o.user_data = const_cast<PLI_BYTE8*>(s.c_str()); });
+      .def_prop_rw(
+          "tfname",
+          [](s_vpi_systf_data &o) {
+            return o.tfname ? std::string(o.tfname) : std::string();
+          },
+          [](s_vpi_systf_data &o, const std::string &s) {
+            o.tfname = const_cast<char *>(s.c_str());
+          })
+      .def_prop_rw(
+          "user_data",
+          [](s_vpi_systf_data &o) {
+            return o.user_data ? std::string((char *)o.user_data)
+                               : std::string();
+          },
+          [](s_vpi_systf_data &o, const std::string &s) {
+            o.user_data = const_cast<PLI_BYTE8 *>(s.c_str());
+          });
 
   nb::class_<s_vpi_vlog_info>(vpi, "VpiVlogInfo")
       .def(nb::init<>())
       .def_prop_ro("argc", [](s_vpi_vlog_info &o) { return o.argc; })
-      .def_prop_ro("argv", [](s_vpi_vlog_info &o) {
-        nb::list args;
-        for (int i = 0; i < o.argc; i++) {
-          if (o.argv[i])
-            args.append(std::string(o.argv[i]));
-        }
-        return args;
-      })
-      .def_prop_ro("product", [](s_vpi_vlog_info &o) { return o.product ? std::string(o.product) : std::string(); })
-      .def_prop_ro("version", [](s_vpi_vlog_info &o) { return o.version ? std::string(o.version) : std::string(); });
+      .def_prop_ro("argv",
+                   [](s_vpi_vlog_info &o) {
+                     nb::list args;
+                     for (int i = 0; i < o.argc; i++) {
+                       if (o.argv[i])
+                         args.append(std::string(o.argv[i]));
+                     }
+                     return args;
+                   })
+      .def_prop_ro("product",
+                   [](s_vpi_vlog_info &o) {
+                     return o.product ? std::string(o.product) : std::string();
+                   })
+      .def_prop_ro("version", [](s_vpi_vlog_info &o) {
+        return o.version ? std::string(o.version) : std::string();
+      });
 
   nb::class_<s_vpi_error_info>(vpi, "VpiErrorInfo")
       .def(nb::init<>())
       .def_rw("state", &s_vpi_error_info::state)
       .def_rw("level", &s_vpi_error_info::level)
       .def_rw("line", &s_vpi_error_info::line)
-      .def("get_message", [](s_vpi_error_info &o) { return o.message ? std::string(o.message) : std::string(); })
-      .def("set_message", [](s_vpi_error_info &o, const std::string &s) { o.message = const_cast<char*>(s.c_str()); })
-      .def("get_product", [](s_vpi_error_info &o) { return o.product ? std::string(o.product) : std::string(); })
-      .def("set_product", [](s_vpi_error_info &o, const std::string &s) { o.product = const_cast<char*>(s.c_str()); })
-      .def("get_code", [](s_vpi_error_info &o) { return o.code ? std::string(o.code) : std::string(); })
-      .def("set_code", [](s_vpi_error_info &o, const std::string &s) { o.code = const_cast<char*>(s.c_str()); })
-      .def("get_file", [](s_vpi_error_info &o) { return o.file ? std::string(o.file) : std::string(); })
-      .def("set_file", [](s_vpi_error_info &o, const std::string &s) { o.file = const_cast<char*>(s.c_str()); });
+      .def("get_message",
+           [](s_vpi_error_info &o) {
+             return o.message ? std::string(o.message) : std::string();
+           })
+      .def("set_message",
+           [](s_vpi_error_info &o, const std::string &s) {
+             o.message = const_cast<char *>(s.c_str());
+           })
+      .def("get_product",
+           [](s_vpi_error_info &o) {
+             return o.product ? std::string(o.product) : std::string();
+           })
+      .def("set_product",
+           [](s_vpi_error_info &o, const std::string &s) {
+             o.product = const_cast<char *>(s.c_str());
+           })
+      .def("get_code",
+           [](s_vpi_error_info &o) {
+             return o.code ? std::string(o.code) : std::string();
+           })
+      .def("set_code",
+           [](s_vpi_error_info &o, const std::string &s) {
+             o.code = const_cast<char *>(s.c_str());
+           })
+      .def("get_file",
+           [](s_vpi_error_info &o) {
+             return o.file ? std::string(o.file) : std::string();
+           })
+      .def("set_file", [](s_vpi_error_info &o, const std::string &s) {
+        o.file = const_cast<char *>(s.c_str());
+      });
 
   nb::class_<s_cb_data>(vpi, "CbData")
       .def(nb::init<>())
-      .def("__init__", [](s_cb_data* self, PLI_INT32 reason, nb::callable cb_rtn,
-                          nb::object object, nb::object time, nb::object value,
-                          PLI_INT32 index, const std::string& user_data) {
-        vpiHandle obj = convert(object);
-        p_vpi_time t = time.is_none() ? nullptr : &nb::cast<s_vpi_time&>(time);
-        p_vpi_value v = value.is_none() ? nullptr : &nb::cast<s_vpi_value&>(value);
-        self->reason = reason;
-        self->cb_rtn = vpi_callback_wrap;
-        self->obj = obj;
-        self->time = t;
-        self->value = v;
-        self->index = index;
-        self->user_data = nullptr;
-        auto callback_info = new CallbackInfo(cb_rtn, user_data);
-        self->user_data = reinterpret_cast<PLI_BYTE8*>(callback_info);
-      }, nb::arg("reason"), nb::arg("cb_rtn"), nb::arg("object"),
-         nb::arg("time"), nb::arg("value"), nb::arg("index"),
-         nb::arg("user_data"))
+      .def(
+          "__init__",
+          [](s_cb_data *self, PLI_INT32 reason, nb::callable cb_rtn,
+             nb::object object, nb::object time, nb::object value,
+             PLI_INT32 index, const std::string &user_data) {
+            vpiHandle obj = convert(object);
+            p_vpi_time t =
+                time.is_none() ? nullptr : &nb::cast<s_vpi_time &>(time);
+            p_vpi_value v =
+                value.is_none() ? nullptr : &nb::cast<s_vpi_value &>(value);
+            self->reason = reason;
+            self->cb_rtn = vpi_callback_wrap;
+            self->obj = obj;
+            self->time = t;
+            self->value = v;
+            self->index = index;
+            self->user_data = nullptr;
+            auto callback_info = new CallbackInfo(cb_rtn, user_data);
+            self->user_data = reinterpret_cast<PLI_BYTE8 *>(callback_info);
+          },
+          nb::arg("reason"), nb::arg("cb_rtn"), nb::arg("object"),
+          nb::arg("time"), nb::arg("value"), nb::arg("index"),
+          nb::arg("user_data"))
       .def_rw("reason", &s_cb_data::reason)
-      .def_prop_ro("cb_rtn",
-                   [](s_cb_data &o) { return o.cb_rtn != nullptr; })
-      .def_prop_rw("obj",
-                   [](s_cb_data &o) { return convert(o.obj); },
-                   [](s_cb_data &o, nb::object obj) { o.obj = convert(obj); })
-      .def_prop_rw("time",
-                   [](s_cb_data &o) -> nb::object {
-                     return o.time ? nb::cast(*o.time) : nb::none();
-                   },
-                   [](s_cb_data &o, nb::object obj) {
-                     o.time = obj.is_none() ? nullptr : &nb::cast<s_vpi_time&>(obj);
-                   })
-      .def_prop_rw("value",
-                   [](s_cb_data &o) -> nb::object {
-                     return o.value ? nb::cast(*o.value) : nb::none();
-                   },
-                   [](s_cb_data &o, nb::object obj) {
-                     o.value = obj.is_none() ? nullptr : &nb::cast<s_vpi_value&>(obj);
-                   })
+      .def_prop_ro("cb_rtn", [](s_cb_data &o) { return o.cb_rtn != nullptr; })
+      .def_prop_rw(
+          "obj", [](s_cb_data &o) { return convert(o.obj); },
+          [](s_cb_data &o, nb::object obj) { o.obj = convert(obj); })
+      .def_prop_rw(
+          "time",
+          [](s_cb_data &o) -> nb::object {
+            return o.time ? nb::cast(*o.time) : nb::none();
+          },
+          [](s_cb_data &o, nb::object obj) {
+            o.time = obj.is_none() ? nullptr : &nb::cast<s_vpi_time &>(obj);
+          })
+      .def_prop_rw(
+          "value",
+          [](s_cb_data &o) -> nb::object {
+            return o.value ? nb::cast(*o.value) : nb::none();
+          },
+          [](s_cb_data &o, nb::object obj) {
+            o.value = obj.is_none() ? nullptr : &nb::cast<s_vpi_value &>(obj);
+          })
       .def_rw("index", &s_cb_data::index)
-      .def_prop_rw("user_data",
-                   [](s_cb_data &o) -> std::string {
-                     if (o.user_data == nullptr) return std::string();
-                     auto* cb = reinterpret_cast<CallbackInfo*>(o.user_data);
-                     return cb->user_data;
-                   },
-                   [](s_cb_data &o, nb::object cb_rtn_obj, const std::string &s) {
-                     if (o.user_data != nullptr) {
-                       auto* old_cb = reinterpret_cast<CallbackInfo*>(o.user_data);
-                       delete old_cb;
-                       o.user_data = nullptr;
-                     }
-                     auto* new_cb = new CallbackInfo(cb_rtn_obj, s);
-                     o.user_data = reinterpret_cast<PLI_BYTE8*>(new_cb);
-                   });
+      .def_prop_rw(
+          "user_data",
+          [](s_cb_data &o) -> std::string {
+            if (o.user_data == nullptr)
+              return std::string();
+            auto *cb = reinterpret_cast<CallbackInfo *>(o.user_data);
+            return cb->user_data;
+          },
+          [](s_cb_data &o, nb::object cb_rtn_obj, const std::string &s) {
+            if (o.user_data != nullptr) {
+              auto *old_cb = reinterpret_cast<CallbackInfo *>(o.user_data);
+              delete old_cb;
+              o.user_data = nullptr;
+            }
+            auto *new_cb = new CallbackInfo(cb_rtn_obj, s);
+            o.user_data = reinterpret_cast<PLI_BYTE8 *>(new_cb);
+          });
   // functions
   vpi.def("vpi_register_cb", vpi_func_wrap(vpi_register_cb),
           nb::arg("cb_data_p"), "Register a callback.");
@@ -515,14 +608,12 @@ NB_MODULE(_svuvm, m) {
   // 运行时检测：VCS/VCSMX 不支持这些函数。使用 vpi_func_optional
   // 统一处理 "存在→包装 / 不存在→占位" 的两种分支，避免重复 if/else。
   vpi.def("vpi_get_data",
-          vpi_func_optional<decltype(&vpi_get_data)>(
-              "vpi_get_data", nullptr),
+          vpi_func_optional<decltype(&vpi_get_data)>("vpi_get_data", nullptr),
           nb::arg("id"), nb::arg("dataLoc"), nb::arg("numOfBytes"),
           "Get data.");
 
   vpi.def("vpi_put_data",
-          vpi_func_optional<decltype(&vpi_put_data)>(
-              "vpi_put_data", nullptr),
+          vpi_func_optional<decltype(&vpi_put_data)>("vpi_put_data", nullptr),
           nb::arg("id"), nb::arg("dataLoc"), nb::arg("numOfBytes"),
           "Put data.");
   vpi.def("vpi_get_userdata", &vpi_get_userdata_wrap, nb::arg("obj"),
@@ -568,50 +659,73 @@ NB_MODULE(_svuvm, m) {
 
   // Binding functions
 
-  m.def("uvm_report", [](int severity, const char* id, const char* message,
-        int verbosity, const char* file, int linenum) {
-    m_uvm_report_dpi(severity, const_cast<char*>(id), const_cast<char*>(message),
-        verbosity, const_cast<char*>(file), linenum);
-  }, "report function", nb::arg("severity"),
-        nb::arg("id"), nb::arg("message"), nb::arg("verbosity"),
-        nb::arg("file"), nb::arg("linenum"));
+  m.def(
+      "uvm_report",
+      [](int severity, const char *id, const char *message, int verbosity,
+         const char *file, int linenum) {
+        m_uvm_report_dpi(severity, const_cast<char *>(id),
+                         const_cast<char *>(message), verbosity,
+                         const_cast<char *>(file), linenum);
+      },
+      "report function", nb::arg("severity"), nb::arg("id"), nb::arg("message"),
+      nb::arg("verbosity"), nb::arg("file"), nb::arg("linenum"));
 
   m.def("int_str_max", &int_str_max,
         "Find the maximum of integers represented as strings.");
 
-  m.def("uvm_hdl_check_path", [](const char* path) {
-    return uvm_hdl_check_path(const_cast<char*>(path));
-  }, "Check if a path exists in the HDL model.", nb::arg("path"));
+  m.def(
+      "uvm_hdl_check_path",
+      [](const char *path) {
+        return uvm_hdl_check_path(const_cast<char *>(path));
+      },
+      "Check if a path exists in the HDL model.", nb::arg("path"));
 
-  m.def("uvm_hdl_read", [](const char* path, p_vpi_vecval value) {
-    return uvm_hdl_read(const_cast<char*>(path), value);
-  }, "Read data from a path in the HDL model.", nb::arg("path"),
-        nb::arg("value"));
+  m.def(
+      "uvm_hdl_read",
+      [](const char *path, p_vpi_vecval value) {
+        return uvm_hdl_read(const_cast<char *>(path), value);
+      },
+      "Read data from a path in the HDL model.", nb::arg("path"),
+      nb::arg("value"));
 
-  m.def("uvm_hdl_deposit", [](const char* path, p_vpi_vecval value) {
-    return uvm_hdl_deposit(const_cast<char*>(path), value);
-  }, "Deposit data at a path in the HDL model.", nb::arg("path"),
-        nb::arg("value"));
+  m.def(
+      "uvm_hdl_deposit",
+      [](const char *path, p_vpi_vecval value) {
+        return uvm_hdl_deposit(const_cast<char *>(path), value);
+      },
+      "Deposit data at a path in the HDL model.", nb::arg("path"),
+      nb::arg("value"));
 
-  m.def("uvm_hdl_force", [](const char* path, p_vpi_vecval value) {
-    return uvm_hdl_force(const_cast<char*>(path), value);
-  }, "Force a value at a path in the HDL model.", nb::arg("path"),
-        nb::arg("value"));
+  m.def(
+      "uvm_hdl_force",
+      [](const char *path, p_vpi_vecval value) {
+        return uvm_hdl_force(const_cast<char *>(path), value);
+      },
+      "Force a value at a path in the HDL model.", nb::arg("path"),
+      nb::arg("value"));
 
-  m.def("uvm_hdl_release_and_read", [](const char* path, p_vpi_vecval value) {
-    return uvm_hdl_release_and_read(const_cast<char*>(path), value);
-  }, "Release and read data from a path in the HDL model.", nb::arg("path"),
-        nb::arg("value"));
+  m.def(
+      "uvm_hdl_release_and_read",
+      [](const char *path, p_vpi_vecval value) {
+        return uvm_hdl_release_and_read(const_cast<char *>(path), value);
+      },
+      "Release and read data from a path in the HDL model.", nb::arg("path"),
+      nb::arg("value"));
 
-  m.def("uvm_hdl_release", [](const char* path) {
-    return uvm_hdl_release(const_cast<char*>(path));
-  }, "Release a path in the HDL model.",
-        nb::arg("path"));
+  m.def(
+      "uvm_hdl_release",
+      [](const char *path) {
+        return uvm_hdl_release(const_cast<char *>(path));
+      },
+      "Release a path in the HDL model.", nb::arg("path"));
 
-  m.def("push_data", [](int lvl, const char* entry, int cmd) {
-    push_data(lvl, const_cast<char*>(entry), cmd);
-  }, "Push data to a specified level.",
-        nb::arg("lvl"), nb::arg("entry"), nb::arg("cmd"));
+  m.def(
+      "push_data",
+      [](int lvl, const char *entry, int cmd) {
+        push_data(lvl, const_cast<char *>(entry), cmd);
+      },
+      "Push data to a specified level.", nb::arg("lvl"), nb::arg("entry"),
+      nb::arg("cmd"));
 
   m.def("walk_level", &wrap_walk_level,
         "Walk through a hierarchy at a given level.", nb::arg("lvl"),
@@ -621,12 +735,10 @@ NB_MODULE(_svuvm, m) {
         "Get the next argument from the command line.", nb::arg("init"));
 
   m.def("uvm_dpi_get_tool_name_c", &uvm_dpi_get_tool_name_c,
-        "Get the name of the current tool.",
-        nb::rv_policy::reference);
+        "Get the name of the current tool.", nb::rv_policy::reference);
 
   m.def("uvm_dpi_get_tool_version_c", &uvm_dpi_get_tool_version_c,
-        "Get the version of the current tool.",
-        nb::rv_policy::reference);
+        "Get the version of the current tool.", nb::rv_policy::reference);
 
   m.def("exec_tcl_cmd", &exec_tcl_cmd, "Execute a tcl command.",
         nb::arg("cmd"));
@@ -692,8 +804,7 @@ NB_MODULE(_svuvm, m) {
 
   // --- objection / phase / topology (high priority) ---
   m.def("set_drain_time", dpi_func_wrap(set_drain_time),
-        "Set the drain time (in ns) for a phase.",
-        nb::arg("drain_ns"));
+        "Set the drain time (in ns) for a phase.", nb::arg("drain_ns"));
 
   m.def("get_drain_time", dpi_func_wrap(get_drain_time),
         "Get the drain time (in ns) for a phase.");
@@ -727,24 +838,20 @@ NB_MODULE(_svuvm, m) {
 
   // --- component / topology ---
   m.def("component_get_num_children", dpi_func_wrap(component_get_num_children),
-        "Get the number of children of a component.",
-        nb::arg("contxt") = "");
+        "Get the number of children of a component.", nb::arg("contxt") = "");
 
   m.def("component_get_child_name", dpi_func_wrap(component_get_child_name),
-        "Get the name of the idx-th child of a component.",
-        nb::arg("contxt"), nb::arg("idx"));
+        "Get the name of the idx-th child of a component.", nb::arg("contxt"),
+        nb::arg("idx"));
 
   m.def("component_get_parent", dpi_func_wrap(component_get_parent),
-        "Get the full path of a component's parent.",
-        nb::arg("contxt"));
+        "Get the full path of a component's parent.", nb::arg("contxt"));
 
   m.def("component_get_type_name", dpi_func_wrap(component_get_type_name),
-        "Get the UVM type name of a component.",
-        nb::arg("contxt"));
+        "Get the UVM type name of a component.", nb::arg("contxt"));
 
   m.def("component_sprint", dpi_func_wrap(component_sprint),
-        "Return the sprint() string of a component.",
-        nb::arg("contxt") = "");
+        "Return the sprint() string of a component.", nb::arg("contxt") = "");
 
   m.def("uvm_top_sprint", dpi_func_wrap(uvm_top_sprint),
         "Return the sprint() string of the entire uvm_root.");
@@ -866,16 +973,13 @@ NB_MODULE(_svuvm, m) {
         nb::arg("block_path"));
 
   m.def("get_reg_mirrored_value", dpi_func_wrap(get_reg_mirrored_value),
-        "Get the mirrored (last-read) value of a register.",
-        nb::arg("name"));
+        "Get the mirrored (last-read) value of a register.", nb::arg("name"));
 
   m.def("get_reg_desired_value", dpi_func_wrap(get_reg_desired_value),
-        "Get the desired (next-write) value of a register.",
-        nb::arg("name"));
+        "Get the desired (next-write) value of a register.", nb::arg("name"));
 
   m.def("get_reg_address", dpi_func_wrap(get_reg_address),
-        "Get the bus address of a register.",
-        nb::arg("name"));
+        "Get the bus address of a register.", nb::arg("name"));
 
   m.def("reset_reg", dpi_func_wrap(reset_reg),
         "Reset a register model to its reset value (kind: HARD|SOFT).",
@@ -885,9 +989,10 @@ NB_MODULE(_svuvm, m) {
         "Directly predict a register's mirrored value without bus access.",
         nb::arg("name"), nb::arg("data"), nb::arg("kind") = "DEFAULT");
 
-  m.def("mirror_reg", dpi_func_wrap(wrap_mirror_reg),
-        "Read and update the mirrored value; optionally check against expected.",
-        nb::arg("name"), nb::arg("check") = 0);
+  m.def(
+      "mirror_reg", dpi_func_wrap(wrap_mirror_reg),
+      "Read and update the mirrored value; optionally check against expected.",
+      nb::arg("name"), nb::arg("check") = 0);
 
   m.def("get_reg_names", dpi_func_wrap(get_reg_names),
         "Return a comma-separated list of register names in a block.",
@@ -936,12 +1041,11 @@ NB_MODULE(_svuvm, m) {
 
   // --- uvm_barrier ---
   m.def("barrier_set_threshold", dpi_func_wrap(barrier_set_threshold),
-        "Set the waiters threshold for a named barrier.",
-        nb::arg("name"), nb::arg("threshold"));
+        "Set the waiters threshold for a named barrier.", nb::arg("name"),
+        nb::arg("threshold"));
 
   m.def("barrier_get_threshold", dpi_func_wrap(barrier_get_threshold),
-        "Get the waiters threshold of a named barrier.",
-        nb::arg("name"));
+        "Get the waiters threshold of a named barrier.", nb::arg("name"));
 
   m.def("barrier_wait", dpi_func_wrap(barrier_wait),
         "Wait at a named barrier (blocks until threshold is reached).",
@@ -957,12 +1061,12 @@ NB_MODULE(_svuvm, m) {
 
   // --- uvm_pool ---
   m.def("pool_exists", dpi_func_wrap(pool_exists),
-        "Check if a key exists in a named pool (pool_name='event' for uvm_event_pool).",
+        "Check if a key exists in a named pool (pool_name='event' for "
+        "uvm_event_pool).",
         nb::arg("pool_name"), nb::arg("key"));
 
   m.def("pool_num", dpi_func_wrap(pool_num),
-        "Return the number of entries in a named pool.",
-        nb::arg("pool_name"));
+        "Return the number of entries in a named pool.", nb::arg("pool_name"));
 
   m.def("pool_keys", dpi_func_wrap(pool_keys),
         "Return a comma-separated list of keys in a named pool.",
@@ -995,8 +1099,8 @@ NB_MODULE(_svuvm, m) {
         nb::arg("knob_name"));
 
   m.def("component_compare", dpi_func_wrap(component_compare),
-        "Compare two components using the default comparer.",
-        nb::arg("path_a"), nb::arg("path_b"));
+        "Compare two components using the default comparer.", nb::arg("path_a"),
+        nb::arg("path_b"));
   m.def("run_test", dpi_func_wrap(run_test_wrap), "uvm run test",
         nb::arg("test_name"));
   m.def("wait_unit", dpi_func_wrap(wait_unit), "wait unit time");
@@ -1015,55 +1119,88 @@ NB_MODULE(_svuvm, m) {
       "get_sim_time",
       [](const char *name) {
         uint64_t time;
-        // 运行时检测仿真器类型
         if (simulator::is_vcs()) {
-          if (auto* tf_gettime_ptr = reinterpret_cast<decltype(&tf_gettime)>(dlsym(RTLD_DEFAULT, "tf_gettime"))) {
-            time = (uint64_t)(*tf_gettime_ptr)();
-          } else {
+          // VCS: 动态加载 tf_gettime
+          using tf_gettime_t =
+              decltype(&tf_gettime); // 若头文件可用；否则用 uint64_t(*)()
+          auto tf_gettime_ptr =
+              reinterpret_cast<tf_gettime_t>(dlsym(RTLD_DEFAULT, "tf_gettime"));
+          if (!tf_gettime_ptr)
             throw std::runtime_error("tf_gettime not available in VCS");
-          }
+          time = tf_gettime_ptr();
         } else {
+          // 其他仿真器: svGetScopeFromName 静态可用，svGetTime 动态加载
+          using svGetTime_t = void (*)(svScope, s_vpi_time *);
+          static auto svGetTime_ptr =
+              reinterpret_cast<svGetTime_t>(dlsym(RTLD_DEFAULT, "svGetTime"));
+
+          if (!svGetTime_ptr)
+            throw std::runtime_error("svGetTime not available");
+
           s_vpi_time vpi_time_s;
           vpi_time_s.type = vpiSimTime;
-          const svScope scope = svGetScopeFromName(name);
-          svGetTime(scope, &vpi_time_s);
+          const svScope scope = svGetScopeFromName(name); // 直接调用
+          svGetTime_ptr(scope, &vpi_time_s);
           time = (uint64_t)vpi_time_s.high << 32 | vpi_time_s.low;
         }
         return time;
       },
       "Get the current simulation time, scaled to the time unit of the scope.");
+
   m.def(
       "get_time_unit",
       [](const char *name) {
         int32_t time_unit;
-        // 运行时检测仿真器类型
         if (simulator::is_vcs()) {
-          if (auto* tf_gettimeunit_ptr = reinterpret_cast<decltype(&tf_gettimeunit)>(dlsym(RTLD_DEFAULT, "tf_gettimeunit"))) {
-            time_unit = (*tf_gettimeunit_ptr)();
-          } else {
+          // VCS: 动态加载 tf_gettimeunit
+          using tf_gettimeunit_t = decltype(&tf_gettimeunit);
+          auto tf_gettimeunit_ptr = reinterpret_cast<tf_gettimeunit_t>(
+              dlsym(RTLD_DEFAULT, "tf_gettimeunit"));
+          if (!tf_gettimeunit_ptr)
             throw std::runtime_error("tf_gettimeunit not available in VCS");
-          }
+          time_unit = tf_gettimeunit_ptr();
         } else {
+          // 其他仿真器: svGetScopeFromName 静态，svGetTimeUnit 动态
+          using svGetTimeUnit_t = void (*)(svScope, int32_t *);
+          static auto svGetTimeUnit_ptr = reinterpret_cast<svGetTimeUnit_t>(
+              dlsym(RTLD_DEFAULT, "svGetTimeUnit"));
+
+          if (!svGetTimeUnit_ptr)
+            throw std::runtime_error("svGetTimeUnit not available");
+
           const svScope scope = svGetScopeFromName(name);
-          svGetTimeUnit(scope, &time_unit);
+          svGetTimeUnit_ptr(scope, &time_unit);
         }
         return time_unit;
       },
       "Get the time unit for scope");
+
   m.def(
       "get_time_precision",
       [](const char *name) {
         int32_t precision;
-        // 运行时检测仿真器类型
         if (simulator::is_vcs()) {
-          if (auto* tf_gettimeprecision_ptr = reinterpret_cast<decltype(&tf_gettimeprecision)>(dlsym(RTLD_DEFAULT, "tf_gettimeprecision"))) {
-            precision = (*tf_gettimeprecision_ptr)();
-          } else {
-            throw std::runtime_error("tf_gettimeprecision not available in VCS");
-          }
+          // VCS: 动态加载 tf_gettimeprecision
+          using tf_gettimeprecision_t = decltype(&tf_gettimeprecision);
+          auto tf_gettimeprecision_ptr =
+              reinterpret_cast<tf_gettimeprecision_t>(
+                  dlsym(RTLD_DEFAULT, "tf_gettimeprecision"));
+          if (!tf_gettimeprecision_ptr)
+            throw std::runtime_error(
+                "tf_gettimeprecision not available in VCS");
+          precision = tf_gettimeprecision_ptr();
         } else {
+          // 其他仿真器: svGetScopeFromName 静态，svGetTimePrecision 动态
+          using svGetTimePrecision_t = void (*)(svScope, int32_t *);
+          static auto svGetTimePrecision_ptr =
+              reinterpret_cast<svGetTimePrecision_t>(
+                  dlsym(RTLD_DEFAULT, "svGetTimePrecision"));
+
+          if (!svGetTimePrecision_ptr)
+            throw std::runtime_error("svGetTimePrecision not available");
+
           const svScope scope = svGetScopeFromName(name);
-          svGetTimePrecision(scope, &precision);
+          svGetTimePrecision_ptr(scope, &precision);
         }
         return precision;
       },
@@ -1072,9 +1209,8 @@ NB_MODULE(_svuvm, m) {
 
 extern "C" {
 
-__attribute__((visibility("default")))
-void py_func(const char *mod_name, const char *func_name,
-             const char *mod_paths) {
+__attribute__((visibility("default"))) void
+py_func(const char *mod_name, const char *func_name, const char *mod_paths) {
 
   if (!Py_IsInitialized()) {
     Py_Initialize();
@@ -1150,9 +1286,8 @@ void py_func(const char *mod_name, const char *func_name,
   py_seq_mod.attr(func_name)();
 }
 
-__attribute__((visibility("default")))
-void py_task(const char *mod_name, const char *func_name,
-             const char *mod_paths) {
+__attribute__((visibility("default"))) void
+py_task(const char *mod_name, const char *func_name, const char *mod_paths) {
   py_func(mod_name, func_name, mod_paths);
 }
 
