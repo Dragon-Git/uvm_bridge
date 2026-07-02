@@ -4,6 +4,34 @@ package python_bridge_pkg;
     `include "uvm_macros.svh"
 
     //-------------------------------------------------------------------------------------
+    // Group: uvm_phase_hopper accessor
+    //
+    // uvm_phase_hopper::get_objection() is declared as protected, so external
+    // code cannot call it directly.  We define a subclass that exposes it via a
+    // public method and register a factory override, so that the singleton
+    // returned by uvm_phase_hopper::get_global_hopper() is of our subclass type.
+    //-------------------------------------------------------------------------------------
+    class _pb_phase_hopper extends uvm_phase_hopper;
+        `uvm_object_utils(_pb_phase_hopper)
+        function new(string name="_pb_phase_hopper");
+            super.new(name);
+        endfunction
+        function uvm_objection get_objection_public();
+            return super.get_objection();
+        endfunction
+    endclass
+
+    // function automatic void _pb_register_hopper_override();
+    //     static bit _pb_override_registered = 0;
+    //     uvm_factory factory;
+    //     if (!_pb_override_registered) begin
+    //         factory = uvm_factory::get();
+    //         factory.set_type_override_by_name("uvm_phase_hopper", "_pb_phase_hopper");
+    //         _pb_override_registered = 1;
+    //     end
+    // endfunction
+
+    //-------------------------------------------------------------------------------------
     // Base classes
     //-------------------------------------------------------------------------------------
     `define UVM_BASE_CLASS(class_name, base_class) \
@@ -242,6 +270,159 @@ package python_bridge_pkg;
     function automatic void set_finish_on_completion(bit f=1);
         uvm_root top = uvm_root::get();
         top.set_finish_on_completion(f);
+    endfunction
+
+    // --- drain_time & objection query ---
+    function automatic void set_drain_time(longint drain_ns);
+        uvm_phase_hopper hopper;
+        _pb_phase_hopper pb_hopper;
+        // _pb_register_hopper_override();
+        // hopper = uvm_phase_hopper::get_global_hopper();
+        // if ($cast(pb_hopper, hopper)) begin
+        //     uvm_objection _objection = pb_hopper.get_objection_public();
+        //     _objection.set_drain_time(null, drain_ns * 1ns);
+        // end
+    endfunction
+
+    function automatic longint get_drain_time();
+        uvm_phase_hopper hopper;
+        _pb_phase_hopper pb_hopper;
+        // _pb_register_hopper_override();
+        // hopper = uvm_phase_hopper::get_global_hopper();
+        // if ($cast(pb_hopper, hopper)) begin
+        //     uvm_objection _objection = pb_hopper.get_objection_public();
+        //     return _objection.get_drain_time(null) / 1ns;
+        // end
+        return 0;
+    endfunction
+
+    function automatic int get_objection_count(string phase_name, string contxt="");
+        uvm_domain dom = uvm_domain::get_common_domain();
+        uvm_phase ph = dom.find_by_name(phase_name, 0);
+        uvm_component comp = get_contxt(contxt);
+        if (ph == null) return 0;
+        return ph.get_objection().get_objection_count(comp);
+    endfunction
+
+    function automatic int get_objection_total(string phase_name, string contxt="");
+        uvm_domain dom = uvm_domain::get_common_domain();
+        uvm_phase ph = dom.find_by_name(phase_name, 0);
+        uvm_component comp = get_contxt(contxt);
+        if (ph == null) return 0;
+        return ph.get_objection().get_objection_total(comp);
+    endfunction
+
+    function automatic void display_objections(string phase_name="run", string contxt="");
+        uvm_domain dom = uvm_domain::get_common_domain();
+        uvm_phase ph = dom.find_by_name(phase_name, 0);
+        uvm_component comp = (contxt == "") ? null : get_contxt(contxt);
+        if (ph == null) begin
+            `uvm_error("python_bridge_pkg", $sformatf("unknown phase < %s >", phase_name))
+            return;
+        end
+        ph.get_objection().display_objections(comp, 1);
+    endfunction
+
+    // --- phase query ---
+    function automatic string get_current_phase_name();
+        uvm_domain dom = uvm_domain::get_common_domain();
+        uvm_phase phs[$];
+        dom.m_get_transitive_children(phs);
+        foreach (phs[i]) begin
+            if (phs[i].get_state() == UVM_PHASE_EXECUTING) begin
+                return phs[i].get_name();
+            end
+        end
+        return "";
+    endfunction
+
+    function automatic int get_phase_state(string phase_name);
+        uvm_domain dom = uvm_domain::get_common_domain();
+        uvm_phase ph = dom.find_by_name(phase_name, 0);
+        if (ph == null) return -1;
+        return ph.get_state();
+    endfunction
+
+    function automatic string get_phase_state_name(string phase_name);
+        uvm_domain dom = uvm_domain::get_common_domain();
+        uvm_phase ph = dom.find_by_name(phase_name, 0);
+        if (ph == null) return "UNKNOWN";
+        case (ph.get_state())
+            UVM_PHASE_UNINITIALIZED : return "UNINITIALIZED";
+            UVM_PHASE_DORMANT       : return "DORMANT";
+            UVM_PHASE_SCHEDULED     : return "SCHEDULED";
+            UVM_PHASE_SYNCING       : return "SYNCING";
+            UVM_PHASE_STARTED       : return "STARTED";
+            UVM_PHASE_EXECUTING     : return "EXECUTING";
+            UVM_PHASE_READY_TO_END  : return "READY_TO_END";
+            UVM_PHASE_ENDED         : return "ENDED";
+            UVM_PHASE_CLEANUP       : return "CLEANUP";
+            UVM_PHASE_DONE          : return "DONE";
+            UVM_PHASE_JUMPING       : return "JUMPING";
+            default: return "UNKNOWN";
+        endcase
+    endfunction
+
+    function automatic void phase_jump(string phase_name);
+        uvm_domain dom = uvm_domain::get_common_domain();
+        uvm_phase ph = dom.find_by_name(phase_name, 0);
+        uvm_phase cur = dom.find_by_name(get_current_phase_name(), 0);
+        if (ph == null) begin
+            `uvm_error("python_bridge_pkg", $sformatf("unknown phase < %s >", phase_name))
+            return;
+        end
+        if (cur == null) return;
+        cur.jump(ph);
+    endfunction
+
+    // --- component / topology ---
+    function automatic int component_get_num_children(string contxt="");
+        uvm_component comp = get_contxt(contxt);
+        if (comp == null) return 0;
+        return comp.get_num_children();
+    endfunction
+
+    function automatic string component_get_child_name(string contxt, int idx);
+        uvm_component comp = get_contxt(contxt);
+        uvm_component children[$];
+        if (comp == null) return "";
+        if (idx < 0 || idx >= comp.get_num_children()) return "";
+        comp.get_children(children);
+        if (children[idx] == null) return "";
+        return children[idx].get_name();
+    endfunction
+
+    function automatic string component_get_parent(string contxt);
+        uvm_component comp = get_contxt(contxt);
+        uvm_component parent;
+        if (comp == null) return "";
+        parent = comp.get_parent();
+        if (parent == null) return "";
+        return parent.get_full_name();
+    endfunction
+
+    function automatic string component_get_type_name(string contxt);
+        uvm_component comp = get_contxt(contxt);
+        if (comp == null) return "";
+        return comp.get_type_name();
+    endfunction
+
+    function automatic string component_sprint(string contxt="");
+        uvm_component comp = get_contxt(contxt);
+        if (comp == null) return "";
+        return comp.sprint();
+    endfunction
+
+    function automatic string uvm_top_sprint();
+        uvm_root top = uvm_root::get();
+        return top.sprint();
+    endfunction
+
+    // --- factory query ---
+    function automatic int is_type_registered(string type_name);
+        uvm_factory factory = uvm_factory::get();
+        uvm_object_wrapper w = factory.find_wrapper_by_name(type_name);
+        return (w != null) ? 1 : 0;
     endfunction
 
     //------------------------------------------------------------------------------
@@ -625,9 +806,189 @@ package python_bridge_pkg;
         return base16_decode;
     endfunction
 
-    //--------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------
+    // Group: REGISTERS (extended query APIs)
+    //
+    // Provides enumeration of registers/blocks/fields and non-blocking mirror queries.
+    //------------------------------------------------------------------------------
+    function automatic void set_top_reg_block_by_path(string block_path);
+        uvm_root top = uvm_root::get();
+        uvm_component comp;
+        uvm_reg_block blk;
+        comp = top.find(block_path);
+        if (comp == null) begin
+            `uvm_error("python_bridge_pkg", $sformatf("can not find component < %s > as top reg block", block_path))
+            return;
+        end
+        if (!$cast(blk, comp)) begin
+            `uvm_error("python_bridge_pkg", $sformatf("component < %s > is not a uvm_reg_block", block_path))
+            return;
+        end
+        reg_operator::inst.set_top_reg_block(blk);
+    endfunction
+
+    function automatic int get_reg_mirrored_value(string name);
+        uvm_reg rg = reg_operator::inst.get_reg(name);
+        return rg.get_mirrored_value();
+    endfunction
+
+    function automatic int get_reg_desired_value(string name);
+        uvm_reg rg = reg_operator::inst.get_reg(name);
+        return rg.get();
+    endfunction
+
+    function automatic longint get_reg_address(string name);
+        uvm_reg rg = reg_operator::inst.get_reg(name);
+        return rg.get_address();
+    endfunction
+
+    function automatic void reset_reg(string name, string kind="HARD");
+        uvm_reg rg = reg_operator::inst.get_reg(name);
+        rg.reset(kind);
+    endfunction
+
+    function automatic int predict_reg(string name, int data, string kind="DEFAULT");
+        uvm_reg rg = reg_operator::inst.get_reg(name);
+        uvm_predict_e pkind = UVM_PREDICT_READ;
+        if (kind == "WRITE") pkind = UVM_PREDICT_WRITE;
+        if (kind == "DIRECT") pkind = UVM_PREDICT_DIRECT;
+        return rg.predict(data, -1, pkind) ? 1 : 0;
+    endfunction
+
+    function automatic string get_reg_names(string block_path="");
+        uvm_reg_block blk;
+        uvm_reg regs[$];
+        string names = "";
+        if (block_path == "") begin
+            if (reg_operator::inst.top_reg_block == null) return "";
+            blk = reg_operator::inst.top_reg_block;
+        end else begin
+            uvm_reg_block current = reg_operator::inst.top_reg_block;
+            uvm_reg_block sub;
+            string parts[$];
+            int start_idx = 0;
+            int end_idx;
+            for (int i = 0; i < block_path.len(); i++) begin
+                if (block_path[i] == ".") begin
+                    end_idx = i;
+                    sub = current.get_block_by_name(block_path.substr(start_idx, end_idx - 1));
+                    if (sub == null) return "";
+                    current = sub;
+                    start_idx = i + 1;
+                end
+            end
+            if (start_idx < block_path.len()) begin
+                sub = current.get_block_by_name(block_path.substr(start_idx, block_path.len() - 1));
+                if (sub == null) return "";
+                current = sub;
+            end
+            blk = current;
+        end
+        blk.get_registers(regs, UVM_NO_HIER);
+        foreach (regs[i]) begin
+            if (names != "") names = {names, ","};
+            names = {names, regs[i].get_name()};
+        end
+        return names;
+    endfunction
+
+    function automatic string get_block_names(string block_path="");
+        uvm_reg_block blk;
+        uvm_reg_block blocks[$];
+        string names = "";
+        if (block_path == "") begin
+            if (reg_operator::inst.top_reg_block == null) return "";
+            blk = reg_operator::inst.top_reg_block;
+        end else begin
+            uvm_reg_block current = reg_operator::inst.top_reg_block;
+            uvm_reg_block sub;
+            int start_idx = 0;
+            int end_idx;
+            for (int i = 0; i < block_path.len(); i++) begin
+                if (block_path[i] == ".") begin
+                    end_idx = i;
+                    sub = current.get_block_by_name(block_path.substr(start_idx, end_idx - 1));
+                    if (sub == null) return "";
+                    current = sub;
+                    start_idx = i + 1;
+                end
+            end
+            if (start_idx < block_path.len()) begin
+                sub = current.get_block_by_name(block_path.substr(start_idx, block_path.len() - 1));
+                if (sub == null) return "";
+                current = sub;
+            end
+            blk = current;
+        end
+        blk.get_blocks(blocks, UVM_NO_HIER);
+        foreach (blocks[i]) begin
+            if (names != "") names = {names, ","};
+            names = {names, blocks[i].get_name()};
+        end
+        return names;
+    endfunction
+
+    function automatic string get_reg_field_names(string reg_name);
+        uvm_reg rg = reg_operator::inst.get_reg(reg_name);
+        uvm_reg_field fields[$];
+        string names = "";
+        rg.get_fields(fields);
+        foreach (fields[i]) begin
+            if (names != "") names = {names, ","};
+            names = {names, fields[i].get_name()};
+        end
+        return names;
+    endfunction
+
+    function automatic int read_field_by_name(string reg_name, string field_name);
+        uvm_reg rg = reg_operator::inst.get_reg(reg_name);
+        uvm_reg_field f = rg.get_field_by_name(field_name);
+        if (f == null) return 0;
+        return f.get_mirrored_value();
+    endfunction
+
+    function automatic void write_field_by_name(string reg_name, string field_name, int data);
+        uvm_reg rg = reg_operator::inst.get_reg(reg_name);
+        uvm_reg_field f = rg.get_field_by_name(field_name);
+        if (f == null) return;
+        f.predict(data, -1, UVM_PREDICT_DIRECT);
+    endfunction
+
+    function automatic string reg_block_sprint(string block_path="");
+        uvm_reg_block blk;
+        if (block_path == "") begin
+            if (reg_operator::inst.top_reg_block == null) return "";
+            blk = reg_operator::inst.top_reg_block;
+        end else begin
+            uvm_root top = uvm_root::get();
+            uvm_component comp = top.find(block_path);
+            if (comp == null || !$cast(blk, comp)) return "";
+        end
+        return blk.sprint();
+    endfunction
+
+    //------------------------------------------------------------------------------
+    // Group: CONFIG DB (extended)
+    //
+    // Exposes exists() and wait_modified() helpers for the UVM config DB.
+    //------------------------------------------------------------------------------
+    function automatic int config_db_exists(string contxt, string inst_name, string field_name);
+        uvm_component comp = get_contxt(contxt);
+        string full = (inst_name == "") ? field_name : {inst_name, ".", field_name};
+        if (comp == null) comp = uvm_root::get();
+        // Try int
+        if (uvm_config_db#(uvm_bitstream_t)::exists(comp, "", full)) return 1;
+        // Try string
+        if (uvm_config_db#(string)::exists(comp, "", full)) return 2;
+        // Try real
+        if (uvm_config_db#(real)::exists(comp, "", full)) return 3;
+        return 0;
+    endfunction
+
+    //------------------------------------------------------------------------------
     // Group: SEQUENCER  Control
-    // Provides ability to start a sequence on a sequencer.
+    //
+    // Provides ability to start a sequence on a sequencer and stop all sequences on a sequencer..
     //--------------------------------------------------------------------------------------
 
     task automatic start_seq(string seq_name, string sqr_name, bit rand_en=0, bit background=0);
@@ -681,10 +1042,227 @@ package python_bridge_pkg;
     `endif //VERILATOR
     endtask:start_seq
 
-    //---------------------------------------------------------------------------------------------
+    function automatic int is_sequencer_busy(string sqr_name);
+        uvm_root top = uvm_root::get();
+        uvm_component comp = top.find(sqr_name);
+        uvm_sequencer_base sqr;
+        if (comp == null) return 0;
+        if (!$cast(sqr, comp)) return 0;
+        return sqr.has_do_available() ? 1 : 0;
+    endfunction
+
+    function automatic string get_current_sequence_name(string sqr_name);
+        uvm_root top = uvm_root::get();
+        uvm_component comp = top.find(sqr_name);
+        uvm_sequencer_base sqr;
+        uvm_sequence_base seq;
+        if (comp == null) return "";
+        if (!$cast(sqr, comp)) return "";
+        seq = sqr.current_grabber();
+        if (seq == null) return "";
+        return seq.get_name();
+    endfunction
+
+    function automatic void stop_sequences(string sqr_name);
+        uvm_root top;
+        uvm_component comp;
+        uvm_sequencer_base sqr;
+
+        top = uvm_root::get();
+        comp = top.find(sqr_name);
+        if (comp == null)  begin
+            top.print_topology();
+            `uvm_fatal("python_bridge_pkg", $sformatf("can not find %0s uvm_component", sqr_name))
+        end
+        if (!$cast(sqr, comp))  begin
+            `uvm_fatal("python_bridge_pkg", $sformatf("cast failed - %0s is not a uvm_sequencer", sqr_name))
+        end
+        sqr.stop_sequences();
+    endfunction:stop_sequences
+
+    //------------------------------------------------------------------------------
+    // Group: UVM BARRIER
+    //
+    // Provides a named barrier synchronization primitive.
+    //------------------------------------------------------------------------------
+    class barrier_pool;
+        static uvm_barrier pool[string];
+        static function uvm_barrier get(string name, int threshold=1);
+            if (!pool.exists(name)) begin
+                pool[name] = new(name, threshold);
+            end
+            return pool[name];
+        endfunction
+        static function void delete(string name);
+            if (pool.exists(name)) pool.delete(name);
+        endfunction
+    endclass
+
+    function automatic void barrier_set_threshold(string name, int threshold);
+        uvm_barrier b = barrier_pool::get(name, threshold);
+        b.set_threshold(threshold);
+    endfunction
+
+    function automatic int barrier_get_threshold(string name);
+        if (!barrier_pool::pool.exists(name)) return 0;
+        return barrier_pool::pool[name].get_threshold();
+    endfunction
+
+    task automatic barrier_wait(string name);
+        uvm_barrier b = barrier_pool::get(name, 1);
+       `ifndef VERILATOR
+        b.wait_for();
+        `endif //VERILATOR
+    endtask
+
+    function automatic void barrier_reset(string name, int wakeup=0);
+        if (!barrier_pool::pool.exists(name)) return;
+        barrier_pool::pool[name].reset(wakeup);
+    endfunction
+
+    function automatic int barrier_get_num_waiters(string name);
+        if (!barrier_pool::pool.exists(name)) return 0;
+        return barrier_pool::pool[name].get_num_waiters();
+    endfunction
+
+    //------------------------------------------------------------------------------
+    // Group: UVM POOL / EVENT POOL
+    //
+    // Exposes named pool enumeration APIs.
+    //------------------------------------------------------------------------------
+    function automatic int pool_exists(string pool_name, string key);
+        uvm_pool#(string, uvm_object) p;
+        if (pool_name == "event") begin
+            uvm_event_pool ep = uvm_event_pool::get_global_pool();
+            return ep.exists(key) ? 1 : 0;
+        end
+        return 0;
+    endfunction
+
+    function automatic int pool_num(string pool_name);
+        if (pool_name == "event") begin
+            uvm_event_pool ep = uvm_event_pool::get_global_pool();
+            return ep.num();
+        end
+        return 0;
+    endfunction
+
+    function automatic string pool_keys(string pool_name);
+        string keys = "";
+        if (pool_name == "event") begin
+            uvm_event_pool ep = uvm_event_pool::get_global_pool();
+            string key;
+            if (ep.first(key)) begin
+                do begin
+                    if (keys != "") keys = {keys, ","};
+                    keys = {keys, key};
+                end while (ep.next(key));
+            end
+        end
+        return keys;
+    endfunction
+
+    //------------------------------------------------------------------------------
+    // Group: UVM CALLBACK (query only)
+    //
+    // Returns the number of callbacks registered on a component.
+    //------------------------------------------------------------------------------
+    function automatic int get_callback_count(string comp_path, string cb_type_name);
+        uvm_component comp = get_contxt(comp_path);
+        uvm_callback_iter#(uvm_component, uvm_callback) iter;
+        int cnt = 0;
+        if (comp == null) return 0;
+        iter = new(comp);
+        for (uvm_callback cb = iter.first(); cb != null; cb = iter.next()) begin
+            if (cb_type_name == "" || cb.get_name() == cb_type_name ||
+                cb.get_type_name() == cb_type_name) begin
+                cnt++;
+            end
+        end
+        return cnt;
+    endfunction
+
+    function automatic string get_callback_type_names(string comp_path);
+        uvm_component comp = get_contxt(comp_path);
+        uvm_callback_iter#(uvm_component, uvm_callback) iter;
+        string names = "";
+        if (comp == null) return "";
+        iter = new(comp);
+        for (uvm_callback cb = iter.first(); cb != null; cb = iter.next()) begin
+            string tn;
+            if (names != "") names = {names, ","};
+            tn = cb.get_type_name();
+            if (tn == "") tn = cb.get_name();
+            names = {names, tn};
+        end
+        return names;
+    endfunction
+
+    //------------------------------------------------------------------------------
+    // Group: PRINTER / COMPARER knobs
+    //
+    // Configures global default printer/comparer knobs.
+    //------------------------------------------------------------------------------
+    function automatic void set_default_printer_knob(string knob_name, int value);
+        uvm_printer p = uvm_printer::get_default();
+        if (knob_name == "indent") p.knobs.indent = value;
+        else if (knob_name == "show_root") p.knobs.show_root = value[0];
+        else if (knob_name == "max_width") begin /* not supported in 1800.2 */ end
+        else if (knob_name == "min_width") begin /* not supported in 1800.2 */ end
+        else if (knob_name == "header") p.knobs.header = value[0];
+        else if (knob_name == "footer") p.knobs.footer = value[0];
+        else if (knob_name == "depth") p.knobs.depth = value;
+        else if (knob_name == "reference") p.knobs.reference = value[0];
+        else if (knob_name == "type_name") p.knobs.type_name = value[0];
+        else if (knob_name == "size") p.knobs.size = value[0];
+        else `uvm_warning("python_bridge_pkg", $sformatf("unknown printer knob: %s", knob_name))
+    endfunction
+
+    function automatic int get_default_printer_knob(string knob_name);
+        uvm_printer p = uvm_printer::get_default();
+        if (knob_name == "indent") return p.knobs.indent;
+        if (knob_name == "show_root") return p.knobs.show_root;
+        if (knob_name == "max_width") return 0; /* not supported in 1800.2 */
+        if (knob_name == "min_width") return 0; /* not supported in 1800.2 */
+        if (knob_name == "header") return p.knobs.header;
+        if (knob_name == "footer") return p.knobs.footer;
+        if (knob_name == "depth") return p.knobs.depth;
+        if (knob_name == "reference") return p.knobs.reference;
+        if (knob_name == "type_name") return p.knobs.type_name;
+        if (knob_name == "size") return p.knobs.size;
+        return -1;
+    endfunction
+
+    function automatic void set_default_comparer_knob(string knob_name, int value);
+        uvm_comparer c = uvm_comparer::get_default();
+        if (knob_name == "show_max") c.show_max = value;
+        else if (knob_name == "max_messages") c.show_max = value;
+        else if (knob_name == "severity") c.set_severity(uvm_severity'(value));
+        else if (knob_name == "verbosity") c.verbosity = value;
+        else `uvm_warning("python_bridge_pkg", $sformatf("unknown comparer knob: %s", knob_name))
+    endfunction
+
+    function automatic int get_default_comparer_knob(string knob_name);
+        uvm_comparer c = uvm_comparer::get_default();
+        if (knob_name == "show_max") return c.show_max;
+        if (knob_name == "max_messages") return c.show_max;
+        if (knob_name == "severity") return c.get_severity();
+        if (knob_name == "verbosity") return c.verbosity;
+        return -1;
+    endfunction
+
+    function automatic int component_compare(string path_a, string path_b);
+        uvm_component a = get_contxt(path_a);
+        uvm_component b = get_contxt(path_b);
+        if (a == null || b == null) return 0;
+        return a.compare(b) ? 1 : 0;
+    endfunction
+
+    //-----------------------------------------------------------------------------
     // Group: REGISTERS
+    //
     // Provides ability to read, write, and check registers in a UVM register block.
-    //---------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------
 
     class reg_operator extends uvm_object;
 
@@ -779,6 +1357,15 @@ package python_bridge_pkg;
         `endif //VERILATOR
     endtask:check_reg
 
+    task automatic mirror_reg(string name, int check, output int data);
+        uvm_reg rg = reg_operator::inst.get_reg(name);
+        uvm_status_e status;
+       `ifndef VERILATOR
+        rg.mirror(status, check ? UVM_CHECK : UVM_NO_CHECK);
+        `endif //VERILATOR
+        data = rg.get_mirrored_value();
+    endtask
+
     // custom task
     task automatic wait_unit(int n);
     `ifndef VERILATOR
@@ -818,6 +1405,22 @@ package python_bridge_pkg;
     export "DPI-C" function  print_topology;
     export "DPI-C" function  set_timeout;
     export "DPI-C" function  set_finish_on_completion;
+    export "DPI-C" function  set_drain_time;
+    export "DPI-C" function  get_drain_time;
+    export "DPI-C" function  get_objection_count;
+    export "DPI-C" function  get_objection_total;
+    export "DPI-C" function  display_objections;
+    export "DPI-C" function  get_current_phase_name;
+    export "DPI-C" function  get_phase_state;
+    export "DPI-C" function  get_phase_state_name;
+    export "DPI-C" function  phase_jump;
+    export "DPI-C" function  component_get_num_children;
+    export "DPI-C" function  component_get_child_name;
+    export "DPI-C" function  component_get_parent;
+    export "DPI-C" function  component_get_type_name;
+    export "DPI-C" function  component_sprint;
+    export "DPI-C" function  uvm_top_sprint;
+    export "DPI-C" function  is_type_registered;
     export "DPI-C" function  uvm_objection_op;
     export "DPI-C" function  dbg_print;
     export "DPI-C" function  tlm_connect;
@@ -861,10 +1464,42 @@ package python_bridge_pkg;
     export "DPI-C" function  get_id_count;
     export "DPI-C" function  print_report_server;
     export "DPI-C" function  report_summarize;
+    export "DPI-C" function  set_top_reg_block_by_path;
+    export "DPI-C" function  get_reg_mirrored_value;
+    export "DPI-C" function  get_reg_desired_value;
+    export "DPI-C" function  get_reg_address;
+    export "DPI-C" function  reset_reg;
+    export "DPI-C" function  predict_reg;
+    export "DPI-C" function  get_reg_names;
+    export "DPI-C" function  get_block_names;
+    export "DPI-C" function  get_reg_field_names;
+    export "DPI-C" function  read_field_by_name;
+    export "DPI-C" function  write_field_by_name;
+    export "DPI-C" function  reg_block_sprint;
+    export "DPI-C" function  config_db_exists;
     export "DPI-C" task      start_seq;
+    export "DPI-C" function  is_sequencer_busy;
+    export "DPI-C" function  get_current_sequence_name;
+    export "DPI-C" function  stop_sequences;
+    export "DPI-C" function  barrier_set_threshold;
+    export "DPI-C" function  barrier_get_threshold;
+    export "DPI-C" task      barrier_wait;
+    export "DPI-C" function  barrier_reset;
+    export "DPI-C" function  barrier_get_num_waiters;
+    export "DPI-C" function  pool_exists;
+    export "DPI-C" function  pool_num;
+    export "DPI-C" function  pool_keys;
+    export "DPI-C" function  get_callback_count;
+    export "DPI-C" function  get_callback_type_names;
+    export "DPI-C" function  set_default_printer_knob;
+    export "DPI-C" function  get_default_printer_knob;
+    export "DPI-C" function  set_default_comparer_knob;
+    export "DPI-C" function  get_default_comparer_knob;
+    export "DPI-C" function  component_compare;
     export "DPI-C" task      write_reg;
     export "DPI-C" task      read_reg;
     export "DPI-C" task      check_reg;
+    export "DPI-C" task      mirror_reg;
     export "DPI-C" task      wait_unit;
     export "DPI-C" task      run_test_wrap;
     // EXPORT_DPIC_END
