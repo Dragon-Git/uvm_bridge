@@ -155,6 +155,12 @@ int wrap_read_reg(const char *name) {
   return data;
 }
 
+int wrap_mirror_reg(const char *name, int check) {
+  int data;
+  mirror_reg(const_cast<char *>(name), check, &data);
+  return data;
+}
+
 // execute a tcl command in simulator
 const char *exec_tcl_cmd(const char *cmd) {
   static simulator::Simulator sim = simulator::detect();
@@ -684,6 +690,70 @@ NB_MODULE(_svuvm, m) {
         nb::arg("op"), nb::arg("name"), nb::arg("contxt"),
         nb::arg("description"), nb::arg("delta") = 0);
 
+  // --- objection / phase / topology (high priority) ---
+  m.def("set_drain_time", dpi_func_wrap(set_drain_time),
+        "Set the drain time (in ns) for a phase.",
+        nb::arg("drain_ns"));
+
+  m.def("get_drain_time", dpi_func_wrap(get_drain_time),
+        "Get the drain time (in ns) for a phase.");
+
+  m.def("get_objection_count", dpi_func_wrap(get_objection_count),
+        "Get the objection count raised by a specific component.",
+        nb::arg("phase_name"), nb::arg("contxt") = "");
+
+  m.def("get_objection_total", dpi_func_wrap(get_objection_total),
+        "Get the total objection count (including hierarchical propagation).",
+        nb::arg("phase_name"), nb::arg("contxt") = "");
+
+  m.def("display_objections", dpi_func_wrap(display_objections),
+        "Print all current objectors (useful when simulation hangs).",
+        nb::arg("phase_name") = "run", nb::arg("contxt") = "");
+
+  m.def("get_current_phase_name", dpi_func_wrap(get_current_phase_name),
+        "Return the name of the currently executing phase.");
+
+  m.def("get_phase_state", dpi_func_wrap(get_phase_state),
+        "Return the integer state of a phase (-1=unknown, see UVM_PHASE_*).",
+        nb::arg("phase_name"));
+
+  m.def("get_phase_state_name", dpi_func_wrap(get_phase_state_name),
+        "Return the human-readable state name of a phase.",
+        nb::arg("phase_name"));
+
+  m.def("phase_jump", dpi_func_wrap(phase_jump),
+        "Jump to a target phase from the currently executing phase.",
+        nb::arg("phase_name"));
+
+  // --- component / topology ---
+  m.def("component_get_num_children", dpi_func_wrap(component_get_num_children),
+        "Get the number of children of a component.",
+        nb::arg("contxt") = "");
+
+  m.def("component_get_child_name", dpi_func_wrap(component_get_child_name),
+        "Get the name of the idx-th child of a component.",
+        nb::arg("contxt"), nb::arg("idx"));
+
+  m.def("component_get_parent", dpi_func_wrap(component_get_parent),
+        "Get the full path of a component's parent.",
+        nb::arg("contxt"));
+
+  m.def("component_get_type_name", dpi_func_wrap(component_get_type_name),
+        "Get the UVM type name of a component.",
+        nb::arg("contxt"));
+
+  m.def("component_sprint", dpi_func_wrap(component_sprint),
+        "Return the sprint() string of a component.",
+        nb::arg("contxt") = "");
+
+  m.def("uvm_top_sprint", dpi_func_wrap(uvm_top_sprint),
+        "Return the sprint() string of the entire uvm_root.");
+
+  // --- factory query ---
+  m.def("is_type_registered", dpi_func_wrap(is_type_registered),
+        "Check if a type name is registered in the UVM factory.",
+        nb::arg("type_name"));
+
   m.def("dbg_print", dpi_func_wrap(dbg_print), "Prints the object.",
         nb::arg("name") = "");
 
@@ -789,9 +859,144 @@ NB_MODULE(_svuvm, m) {
         "read register"); // 注意：wrap_read_reg 已经是函数包装
   m.def("check_reg", dpi_func_wrap(check_reg), "check register",
         nb::arg("name"), nb::arg("data") = 0, nb::arg("predict") = 0);
+
+  // --- register model extended APIs ---
+  m.def("set_top_reg_block_by_path", dpi_func_wrap(set_top_reg_block_by_path),
+        "Set the top-level register block by its UVM component path.",
+        nb::arg("block_path"));
+
+  m.def("get_reg_mirrored_value", dpi_func_wrap(get_reg_mirrored_value),
+        "Get the mirrored (last-read) value of a register.",
+        nb::arg("name"));
+
+  m.def("get_reg_desired_value", dpi_func_wrap(get_reg_desired_value),
+        "Get the desired (next-write) value of a register.",
+        nb::arg("name"));
+
+  m.def("get_reg_address", dpi_func_wrap(get_reg_address),
+        "Get the bus address of a register.",
+        nb::arg("name"));
+
+  m.def("reset_reg", dpi_func_wrap(reset_reg),
+        "Reset a register model to its reset value (kind: HARD|SOFT).",
+        nb::arg("name"), nb::arg("kind") = "HARD");
+
+  m.def("predict_reg", dpi_func_wrap(predict_reg),
+        "Directly predict a register's mirrored value without bus access.",
+        nb::arg("name"), nb::arg("data"), nb::arg("kind") = "DEFAULT");
+
+  m.def("mirror_reg", dpi_func_wrap(wrap_mirror_reg),
+        "Read and update the mirrored value; optionally check against expected.",
+        nb::arg("name"), nb::arg("check") = 0);
+
+  m.def("get_reg_names", dpi_func_wrap(get_reg_names),
+        "Return a comma-separated list of register names in a block.",
+        nb::arg("block_path") = "");
+
+  m.def("get_block_names", dpi_func_wrap(get_block_names),
+        "Return a comma-separated list of sub-block names in a block.",
+        nb::arg("block_path") = "");
+
+  m.def("get_reg_field_names", dpi_func_wrap(get_reg_field_names),
+        "Return a comma-separated list of field names in a register.",
+        nb::arg("reg_name"));
+
+  m.def("read_field_by_name", dpi_func_wrap(read_field_by_name),
+        "Get the mirrored value of a named field in a register.",
+        nb::arg("reg_name"), nb::arg("field_name"));
+
+  m.def("write_field_by_name", dpi_func_wrap(write_field_by_name),
+        "Direct-predict a named field in a register (does NOT write to bus).",
+        nb::arg("reg_name"), nb::arg("field_name"), nb::arg("data"));
+
+  m.def("reg_block_sprint", dpi_func_wrap(reg_block_sprint),
+        "Return the sprint() string of a register block.",
+        nb::arg("block_path") = "");
+
+  // --- config db extended ---
+  m.def("config_db_exists", dpi_func_wrap(config_db_exists),
+        "Check if a config_db entry exists (0=no, 1=int, 2=string, 3=real).",
+        nb::arg("contxt"), nb::arg("inst_name"), nb::arg("field_name"));
+
+  // --- sequencer query ---
   m.def("start_seq", dpi_func_wrap(start_seq), "start seq on sqr",
         nb::arg("seq_name"), nb::arg("sqr_name"), nb::arg("rand_en") = 1,
         nb::arg("background") = 0);
+  m.def("stop_sequences", dpi_func_wrap(stop_sequences),
+        "Stop all sequences currently running on the given sequencer.",
+        nb::arg("sqr_name"));
+
+  m.def("is_sequencer_busy", dpi_func_wrap(is_sequencer_busy),
+        "Check if a sequencer is currently running a sequence/item.",
+        nb::arg("sqr_name"));
+
+  m.def("get_current_sequence_name", dpi_func_wrap(get_current_sequence_name),
+        "Return the name of the sequence currently running on the sequencer.",
+        nb::arg("sqr_name"));
+
+  // --- uvm_barrier ---
+  m.def("barrier_set_threshold", dpi_func_wrap(barrier_set_threshold),
+        "Set the waiters threshold for a named barrier.",
+        nb::arg("name"), nb::arg("threshold"));
+
+  m.def("barrier_get_threshold", dpi_func_wrap(barrier_get_threshold),
+        "Get the waiters threshold of a named barrier.",
+        nb::arg("name"));
+
+  m.def("barrier_wait", dpi_func_wrap(barrier_wait),
+        "Wait at a named barrier (blocks until threshold is reached).",
+        nb::arg("name"));
+
+  m.def("barrier_reset", dpi_func_wrap(barrier_reset),
+        "Reset a named barrier. wakeup=1 releases currently waiting callers.",
+        nb::arg("name"), nb::arg("wakeup") = 0);
+
+  m.def("barrier_get_num_waiters", dpi_func_wrap(barrier_get_num_waiters),
+        "Return the number of callers currently waiting at the named barrier.",
+        nb::arg("name"));
+
+  // --- uvm_pool ---
+  m.def("pool_exists", dpi_func_wrap(pool_exists),
+        "Check if a key exists in a named pool (pool_name='event' for uvm_event_pool).",
+        nb::arg("pool_name"), nb::arg("key"));
+
+  m.def("pool_num", dpi_func_wrap(pool_num),
+        "Return the number of entries in a named pool.",
+        nb::arg("pool_name"));
+
+  m.def("pool_keys", dpi_func_wrap(pool_keys),
+        "Return a comma-separated list of keys in a named pool.",
+        nb::arg("pool_name"));
+
+  // --- uvm_callback query ---
+  m.def("get_callback_count", dpi_func_wrap(get_callback_count),
+        "Return the number of callbacks registered on a component.",
+        nb::arg("comp_path"), nb::arg("cb_type_name") = "");
+
+  m.def("get_callback_type_names", dpi_func_wrap(get_callback_type_names),
+        "Return a comma-separated list of callback type names on a component.",
+        nb::arg("comp_path"));
+
+  // --- printer / comparer knobs ---
+  m.def("set_default_printer_knob", dpi_func_wrap(set_default_printer_knob),
+        "Set an integer knob on the global default uvm_printer.",
+        nb::arg("knob_name"), nb::arg("value"));
+
+  m.def("get_default_printer_knob", dpi_func_wrap(get_default_printer_knob),
+        "Get an integer knob from the global default uvm_printer.",
+        nb::arg("knob_name"));
+
+  m.def("set_default_comparer_knob", dpi_func_wrap(set_default_comparer_knob),
+        "Set an integer knob on the global default uvm_comparer.",
+        nb::arg("knob_name"), nb::arg("value"));
+
+  m.def("get_default_comparer_knob", dpi_func_wrap(get_default_comparer_knob),
+        "Get an integer knob from the global default uvm_comparer.",
+        nb::arg("knob_name"));
+
+  m.def("component_compare", dpi_func_wrap(component_compare),
+        "Compare two components using the default comparer.",
+        nb::arg("path_a"), nb::arg("path_b"));
   m.def("run_test", dpi_func_wrap(run_test_wrap), "uvm run test",
         nb::arg("test_name"));
   m.def("wait_unit", dpi_func_wrap(wait_unit), "wait unit time");

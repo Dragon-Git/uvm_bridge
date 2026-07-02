@@ -18,10 +18,10 @@ Compared to mainstream Python-based hardware verification frameworks like cocotb
 
 ### Dependencies:
 - Python 3.9.0+
-- pybind11, pyslang (not required at runtime)
+- nanobind, pyslang (not required at runtime)
 ### Commands:
 ```sh
-pip install .
+pip install svuvm
 ```
 
 ## Compilation

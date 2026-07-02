@@ -1,19 +1,37 @@
-/*
- * DPI Stub Library
- *
- * 提供 DPI / VPI / UVM DPI 以及项目自定义 export 函数的空实现，
- * 使得 svuvm 共享库可以在没有 Verilog 模拟器的情况下被 Python 加载，
- * 以便生成 stub 与 IDE 提示。生产环境中这些符号由 Verilog 模拟器提供。
- *
- * 类型定义统一来自项目 inc/ 目录下的标准头文件 (svdpi.h / vpi_user.h)，
- * 不在此文件中重复声明。函数签名严格匹配这些头文件中的原型。
- */
+// -*- C -*-
+//
+// dpi_stub.c
+//
+// Stub implementations for all DPI functions exported from python_bridge_pkg.sv.
+//
+// PURPOSE
+//   When the Python extension module (.so / .pyd) is loaded directly by the
+//   Python interpreter (not inside a running SystemVerilog simulation), the
+//   DPI-exported symbols must be resolvable at link/load time.  These stub
+//   implementations provide sensible no-op defaults:
+//     - void functions: do nothing
+//     - int return values: return 0
+//     - string return values: return ""
+//
+//   At simulation runtime the SV simulator overrides these symbols with the
+//   real implementations.  This file is only used in standalone / testing
+//   contexts.
+//
+//   If you want a crash/error when a DPI function is called outside of a
+//   simulation, define DPI_STUB_ERROR before including this file.
 
 #include <stdint.h>
 #include <stddef.h>
 #include "svdpi.h"
 #include "vpi_user.h"
 #include "uvm_dpi.h"
+
+#ifdef DPI_STUB_ERROR
+#define STUB_MSG(name) \
+    do { fprintf(stderr, "[%s:%d] DPI stub called: " #name "\n", __FILE__, __LINE__); } while (0)
+#else
+#define STUB_MSG(name) ((void)0)
+#endif
 
 /* ===== SV DPI stubs ===== */
 
@@ -144,6 +162,9 @@ char *uvm_dpi_get_tool_version_c(void) { return (char *)"0.0"; }
  * 然后执行 `scripts/generate_dpi_stub.py <project_root>` 即可。
  */
 
+// ---------------------------------------------------------------------------
+// Factory
+// ---------------------------------------------------------------------------
 void process_pool_run(const char *name) { (void)name; }
 void process_pool_clear(void) {}
 
@@ -164,17 +185,55 @@ void debug_factory_create(const char *req, const char *ctx) { (void)req; (void)c
 void find_factory_override(const char *req, const char *ctx, const char *over) {
     (void)req; (void)ctx; (void)over;
 }
+// ---------------------------------------------------------------------------
+// Topology / Timeout
+// ---------------------------------------------------------------------------
 void print_topology(const char *ctx) { (void)ctx; }
 void set_timeout(long long timeout, unsigned char overridable) { (void)timeout; (void)overridable; }
 void set_finish_on_completion(unsigned char f) { (void)f; }
 
+// ---------------------------------------------------------------------------
+// Objection / Phase
+// ---------------------------------------------------------------------------
+void set_drain_time(long long t) { (void)t; STUB_MSG(set_drain_time); }
+long long get_drain_time(void) { STUB_MSG(get_drain_time); return 0; }
+int get_objection_count(const char* p, const char* c) { (void)p;(void)c; STUB_MSG(get_objection_count); return 0; }
+int get_objection_total(const char* p, const char* c) { (void)p;(void)c; STUB_MSG(get_objection_total); return 0; }
+void display_objections(const char* p, const char* c) { (void)p;(void)c; STUB_MSG(display_objections); }
+const char* get_current_phase_name(void) { STUB_MSG(get_current_phase_name); return ""; }
+int get_phase_state(const char* p) { (void)p; STUB_MSG(get_phase_state); return -1; }
+const char* get_phase_state_name(const char* p) { (void)p; STUB_MSG(get_phase_state_name); return "UNKNOWN"; }
+void phase_jump(const char* p) { (void)p; STUB_MSG(phase_jump); }
 void uvm_objection_op(const char *op, const char *name, const char *ctx,
                       const char *desc, unsigned int count) {
     (void)op; (void)name; (void)ctx; (void)desc; (void)count;
 }
+
+// ---------------------------------------------------------------------------
+// Component introspection
+// ---------------------------------------------------------------------------
+int component_get_num_children(const char* c) { (void)c; STUB_MSG(component_get_num_children); return 0; }
+const char* component_get_child_name(const char* c, int i) { (void)c;(void)i; STUB_MSG(component_get_child_name); return ""; }
+const char* component_get_parent(const char* c) { (void)c; STUB_MSG(component_get_parent); return ""; }
+const char* component_get_type_name(const char* c) { (void)c; STUB_MSG(component_get_type_name); return ""; }
+const char* component_sprint(const char* c) { (void)c; STUB_MSG(component_sprint); return ""; }
+const char* uvm_top_sprint(void) { STUB_MSG(uvm_top_sprint); return ""; }
+
+// ---------------------------------------------------------------------------
+// Factory query
+// ---------------------------------------------------------------------------
+int is_type_registered(const char* t) { (void)t; STUB_MSG(is_type_registered); return 0; }
+
+// ---------------------------------------------------------------------------
+// Misc
+// ---------------------------------------------------------------------------
 void dbg_print(const char *name) { (void)name; }
 void tlm_connect(const char *src, const char *dst) { (void)src; (void)dst; }
 
+
+// ---------------------------------------------------------------------------
+// uvm_event
+// ---------------------------------------------------------------------------
 void wait_on(const char *ev_name, unsigned char delta) { (void)ev_name; (void)delta; }
 void wait_off(const char *ev_name, unsigned char delta) { (void)ev_name; (void)delta; }
 void wait_trigger(const char *ev_name) { (void)ev_name; }
@@ -187,6 +246,9 @@ void cancel(const char *ev_name) { (void)ev_name; }
 int get_num_waiters(const char *ev_name) { (void)ev_name; return 0; }
 void trigger(const char *ev_name) { (void)ev_name; }
 
+// ---------------------------------------------------------------------------
+// Config DB
+// ---------------------------------------------------------------------------
 void set_config_uint64_t(const char *ctx, const char *inst, const char *field, uint64_t value) {
     (void)ctx; (void)inst; (void)field; (void)value;
 }
@@ -207,7 +269,11 @@ const char *get_config_string(const char *ctx, const char *inst, const char *fie
 }
 void config_db_trace_on(void) {}
 void config_db_trace_off(void) {}
+int config_db_exists(const char* c, const char* i, const char* f) { (void)c;(void)i;(void)f; STUB_MSG(config_db_exists); return 0; }
 
+// ---------------------------------------------------------------------------
+// Report server
+// ---------------------------------------------------------------------------
 int get_report_verbosity_level(const char *ctx, int severity, const char *id) {
     (void)ctx; (void)severity; (void)id; return 0;
 }
@@ -248,11 +314,66 @@ int get_id_count(const char *id) { (void)id; return 0; }
 void print_report_server(void) {}
 void report_summarize(void) {}
 
-void start_seq(const char *seq, const char *sqr, unsigned char rand_en, unsigned char background) {
-    (void)seq; (void)sqr; (void)rand_en; (void)background;
-}
+// ---------------------------------------------------------------------------
+// Register model
+// ---------------------------------------------------------------------------
+void set_top_reg_block_by_path(const char* p) { (void)p; STUB_MSG(set_top_reg_block_by_path); }
 void write_reg(const char *name, int data) { (void)name; (void)data; }
 void read_reg(const char *name, int *data) { (void)name; (void)data; }
 void check_reg(const char *name, int data, unsigned char predict) { (void)name; (void)data; (void)predict; }
+int get_reg_mirrored_value(const char* n) { (void)n; STUB_MSG(get_reg_mirrored_value); return 0; }
+int get_reg_desired_value(const char* n) { (void)n; STUB_MSG(get_reg_desired_value); return 0; }
+long long get_reg_address(const char* n) { (void)n; STUB_MSG(get_reg_address); return 0; }
+void reset_reg(const char* n, const char* k) { (void)n;(void)k; STUB_MSG(reset_reg); }
+int predict_reg(const char* n, int d, const char* k) { (void)n;(void)d;(void)k; STUB_MSG(predict_reg); return 0; }
+int mirror_reg(const char* n, int c) { (void)n;(void)c; STUB_MSG(mirror_reg); return 0; }
+const char* get_reg_names(const char* b) { (void)b; STUB_MSG(get_reg_names); return ""; }
+const char* get_block_names(const char* b) { (void)b; STUB_MSG(get_block_names); return ""; }
+const char* get_reg_field_names(const char* r) { (void)r; STUB_MSG(get_reg_field_names); return ""; }
+int read_field_by_name(const char* r, const char* f) { (void)r;(void)f; STUB_MSG(read_field_by_name); return 0; }
+void write_field_by_name(const char* r, const char* f, int d) { (void)r;(void)f;(void)d; STUB_MSG(write_field_by_name); }
+const char* reg_block_sprint(const char* b) { (void)b; STUB_MSG(reg_block_sprint); return ""; }
+
+// ---------------------------------------------------------------------------
+// Sequence / Sequencer
+// ---------------------------------------------------------------------------
+void start_seq(const char *seq, const char *sqr, unsigned char rand_en, unsigned char background) {
+    (void)seq; (void)sqr; (void)rand_en; (void)background;
+}
+int is_sequencer_busy(const char* s) { (void)s; STUB_MSG(is_sequencer_busy); return 0; }
+const char* get_current_sequence_name(const char* s) { (void)s; STUB_MSG(get_current_sequence_name); return ""; }
+void stop_sequences(const char* s) { (void)s; STUB_MSG(stop_sequences); }
+
+// ---------------------------------------------------------------------------
+// uvm_barrier
+// ---------------------------------------------------------------------------
+void barrier_set_threshold(const char* n, int t) { (void)n;(void)t; STUB_MSG(barrier_set_threshold); }
+int barrier_get_threshold(const char* n) { (void)n; STUB_MSG(barrier_get_threshold); return 0; }
+void barrier_wait(const char* n) { (void)n; STUB_MSG(barrier_wait); }
+void barrier_reset(const char* n, int w) { (void)n;(void)w; STUB_MSG(barrier_reset); }
+int barrier_get_num_waiters(const char* n) { (void)n; STUB_MSG(barrier_get_num_waiters); return 0; }
+
+// ---------------------------------------------------------------------------
+// uvm_pool
+// ---------------------------------------------------------------------------
+int pool_exists(const char* p, const char* k) { (void)p;(void)k; STUB_MSG(pool_exists); return 0; }
+int pool_num(const char* p) { (void)p; STUB_MSG(pool_num); return 0; }
+const char* pool_keys(const char* p) { (void)p; STUB_MSG(pool_keys); return ""; }
+
+// ---------------------------------------------------------------------------
+// Callback query
+// ---------------------------------------------------------------------------
+int get_callback_count(const char* c, const char* t) { (void)c;(void)t; STUB_MSG(get_callback_count); return 0; }
+const char* get_callback_type_names(const char* c) { (void)c; STUB_MSG(get_callback_type_names); return ""; }
+
+// ---------------------------------------------------------------------------
+// Printer / Comparer knobs
+// ---------------------------------------------------------------------------
+void set_default_printer_knob(const char* k, int v) { (void)k;(void)v; STUB_MSG(set_default_printer_knob); }
+int get_default_printer_knob(const char* k) { (void)k; STUB_MSG(get_default_printer_knob); return 0; }
+void set_default_comparer_knob(const char* k, int v) { (void)k;(void)v; STUB_MSG(set_default_comparer_knob); }
+int get_default_comparer_knob(const char* k) { (void)k; STUB_MSG(get_default_comparer_knob); return 0; }
+int component_compare(const char* a, const char* b) { (void)a;(void)b; STUB_MSG(component_compare); return 0; }
+
 void wait_unit(int n) { (void)n; }
 void run_test_wrap(const char *test_name) { (void)test_name; }
