@@ -21,7 +21,7 @@
 //----------------------------------------------------------------------
 
 //
-// Top level header filke that wraps all requirements which
+// Top level header file that wraps all requirements which
 // are common to the various C/C++ files in UVM.
 //
 
@@ -32,13 +32,6 @@
 #include "vpi_user.h"
 #include "veriuser.h"
 #include "svdpi.h"
-#ifdef __linux__
-#include <malloc.h>
-#elif defined(__APPLE__)
-#include <sys/malloc.h>
-#else
-#error Platform not supported.
-#endif
 #include <string.h>
 #include <stdio.h>
 #include <regex.h>
