@@ -17,15 +17,15 @@ dev = ['svuvm[lint, doc, test]']
 
 [build-system]
 requires = [
-    "scikit-build-core>=0.9.0",
-    "nanobind>=2.4.0",
-    "pyslang>=11.0.0",
+    "scikit-build-core>=1.0.0, <2.0.0",
+    "nanobind>=2.4.0, <3.0.0",
+    "pyslang>=11.0.0, <12.0.0",
 ]
 build-backend = "scikit_build_core.build"
 
 [tool.scikit-build]
-cmake.minimum-version = "3.15"
-cmake.verbose = true
+cmake.version = ">=3.15"
+build.verbose = true
 logging.level = "INFO"
 
 [tool.ruff]
