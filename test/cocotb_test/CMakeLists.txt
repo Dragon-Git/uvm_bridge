@@ -23,7 +23,8 @@ if(WIN32)
     if(NOT DEFINED ENV{VERILATOR_ROOT})
         message(FATAL_ERROR "VERILATOR_ROOT environment variable is required on Windows")
     endif()
-    set(VERILATOR_SCRIPT "$ENV{VERILATOR_ROOT}/bin/verilator")
+    # Use forward slashes to avoid backslash-escaping issues in the Perl wrapper's sh_escape
+    file(TO_CMAKE_PATH "$ENV{VERILATOR_ROOT}/bin/verilator" VERILATOR_SCRIPT)
     if(NOT EXISTS ${VERILATOR_SCRIPT})
         message(FATAL_ERROR "Verilator Perl script not found at ${VERILATOR_SCRIPT}")
     endif()
@@ -128,7 +129,8 @@ if(WIN32)
     set(PYTHON_LIB ${PYTHON_LIB_DIR}/python${Python_VERSION_MAJOR}${Python_VERSION_MINOR}.lib)
     set(COCOTB_LIB ${COCOTB_LIB_DIR}/cocotbvpi_verilator.lib)
     set(LDFLAGS
-        -LDFLAGS "${SVUVM_LIB} ${PYTHON_LIB}"
+        -LDFLAGS ${SVUVM_LIB}
+        -LDFLAGS ${PYTHON_LIB}
         -LDFLAGS "/LIBPATH:${PYTHON_LIB_DIR}"
         -LDFLAGS "/LIBPATH:${COCOTB_LIB_DIR}"
         -LDFLAGS "cocotbvpi_verilator.lib"
