@@ -62,6 +62,9 @@ elseif(UNIX)
     "-Wl,-z,undefs"
   )
 elseif(WIN32)
+  # Disable dllimport for VPI/DPI functions so that /FORCE:UNRESOLVED
+  # can handle them as regular undefined symbols (not __imp_ prefixed).
+  target_compile_definitions(_svuvm PRIVATE PLI_DLLISPEC= DPI_DLLISPEC=)
   target_link_options(_svuvm PRIVATE
     "/FORCE:UNRESOLVED"
   )
