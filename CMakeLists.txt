@@ -35,6 +35,17 @@ add_custom_command(
 
 file(GLOB SVUVM_SOURCES "src/svuvm/*.cpp")
 
+# On Windows, compile dpi_stub.c directly into the _svuvm module
+# (as object files) so that the VPI/SV DPI stubs are statically
+# linked into _svuvm.pyd. This avoids the need to link a separate
+# dpi_stub library while still satisfying the linker. At runtime,
+# when loaded inside a SystemVerilog simulator, the simulator's
+# real VPI symbols take precedence over these stubs.
+if(WIN32)
+  enable_language(C)
+  set(SVUVM_SOURCES ${SVUVM_SOURCES} inc/dpi_stub.c)
+endif()
+
 nanobind_add_module(
   _svuvm
   NOMINSIZE
@@ -62,21 +73,10 @@ elseif(UNIX)
     "-Wl,-z,undefs"
   )
 elseif(WIN32)
-  # Disable dllimport for VPI/DPI functions so that VPI symbols are
-  # ordinary undefined references (not __imp_ prefixed).
+  # Disable dllimport for VPI/DPI functions so that the stubs in
+  # dpi_stub.c (compiled directly into _svuvm) can satisfy the
+  # references without __imp_ prefix.
   target_compile_definitions(_svuvm PRIVATE PLI_DLLISPEC= DPI_DLLISPEC=)
-  # Use delay-loaded import to allow VPI/SV DPI symbols to be
-  # resolved at runtime (by the simulator that loads this extension),
-  # rather than failing at link time.
-  target_link_options(_svuvm PRIVATE
-    "/DELAYLOAD:python3.dll"
-    "/DELAYLOAD:vcruntime140.dll"
-  )
-  # The /DELAY:UNLOAD and /DELAY:NOBIND flags are not needed here.
-  # When the simulator loads _svuvm.pyd, Windows will resolve the
-  # remaining undefined VPI symbols from the simulator's address space
-  # (or the symbol will be missing at runtime and we already handle
-  # that via vpi_func_optional / dlsym).
 endif()
 
 add_library(dpi_stub SHARED inc/dpi_stub.c)
