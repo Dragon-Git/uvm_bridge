@@ -3,11 +3,26 @@
 
 #include "sv_vpi_user.h"
 #include "vpi_user.h"
-#include <dlfcn.h>
 #include <functional>
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
+
+// Cross-platform dynamic loading
+#ifdef _WIN32
+  #include <windows.h>
+  #ifndef RTLD_DEFAULT
+    #define RTLD_DEFAULT NULL
+  #endif
+  // Windows does not have dlerror. Provide a stub that always returns NULL.
+  // This is only safe because we treat dlerror()==NULL as "no error" in
+  // vpi_func_optional; since dlsym's GetProcAddress on Windows does not
+  // set per-thread error state, treating any non-NULL return as success
+  // is correct.
+  #define dlerror() ((const char*)NULL)
+#else
+  #include <dlfcn.h>
+#endif
 
 namespace nb = nanobind;
 
