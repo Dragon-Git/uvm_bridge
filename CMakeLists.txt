@@ -41,6 +41,9 @@ file(GLOB SVUVM_SOURCES "src/svuvm/*.cpp")
 # dpi_stub library while still satisfying the linker. At runtime,
 # when loaded inside a SystemVerilog simulator, the simulator's
 # real VPI symbols take precedence over these stubs.
+# The svuvm.def file (in inc/) controls the exported symbols so that
+# only PyInit__svuvm and the SV-facing DPI exports are visible to the
+# Python/SV environment, while VPI references remain private.
 if(WIN32)
   enable_language(C)
   set(SVUVM_SOURCES ${SVUVM_SOURCES} inc/dpi_stub.c)
@@ -77,6 +80,16 @@ elseif(WIN32)
   # dpi_stub.c (compiled directly into _svuvm) can satisfy the
   # references without __imp_ prefix.
   target_compile_definitions(_svuvm PRIVATE PLI_DLLISPEC= DPI_DLLISPEC=)
+  # Use svuvm.def to control exported symbols. This explicitly
+  # declares PyInit__svuvm and the SV-facing DPI export functions
+  # as exported, and ensures the resulting .pyd is properly named
+  # (resolves MSB8012 TargetPath/OutputFile mismatch warnings).
+  set_target_properties(_svuvm PROPERTIES
+    WINDOWS_EXPORT_ALL_SYMBOLS OFF
+  )
+  target_link_options(_svuvm PRIVATE
+    "/DEF:${CMAKE_SOURCE_DIR}/inc/svuvm.def"
+  )
 endif()
 
 add_library(dpi_stub SHARED inc/dpi_stub.c)
