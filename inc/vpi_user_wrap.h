@@ -1,6 +1,18 @@
 #ifndef VPI_USER_WRAP_H
 #define VPI_USER_WRAP_H
 
+// On Windows, disable dllimport for VPI/DPI functions so that
+// /FORCE:UNRESOLVED can handle them as regular undefined symbols
+// (rather than __imp_ prefixed import symbols).
+#ifdef _WIN32
+  #ifndef PLI_DLLISPEC
+    #define PLI_DLLISPEC
+  #endif
+  #ifndef DPI_DLLISPEC
+    #define DPI_DLLISPEC
+  #endif
+#endif
+
 #include "sv_vpi_user.h"
 #include "vpi_user.h"
 #include <functional>
