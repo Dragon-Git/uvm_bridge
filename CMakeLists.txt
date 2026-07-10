@@ -35,6 +35,25 @@ add_custom_command(
 
 file(GLOB SVUVM_SOURCES "src/svuvm/*.cpp")
 
+add_library(dpi_stub SHARED inc/dpi_stub.c)
+set_target_properties(dpi_stub PROPERTIES
+  POSITION_INDEPENDENT_CODE ON
+  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+  PREFIX ""
+  C_VISIBILITY_PRESET default
+)
+
+if(WIN32)
+  set_target_properties(dpi_stub PROPERTIES
+    WINDOWS_EXPORT_ALL_SYMBOLS ON
+    SUFFIX ".dll"
+  )
+else()
+  set_target_properties(dpi_stub PROPERTIES
+    WINDOWS_EXPORT_ALL_SYMBOLS ON
+  )
+endif()
+
 nanobind_add_module(
   _svuvm
   NOMINSIZE
@@ -68,25 +87,7 @@ elseif(WIN32)
   target_link_options(_svuvm PRIVATE
     "/FORCE:UNRESOLVED"
   )
-endif()
-
-add_library(dpi_stub SHARED inc/dpi_stub.c)
-set_target_properties(dpi_stub PROPERTIES
-  POSITION_INDEPENDENT_CODE ON
-  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
-  PREFIX ""
-  C_VISIBILITY_PRESET default
-)
-
-if(WIN32)
-  set_target_properties(dpi_stub PROPERTIES
-    WINDOWS_EXPORT_ALL_SYMBOLS ON
-    SUFFIX ".dll"
-  )
-else()
-  set_target_properties(dpi_stub PROPERTIES
-    WINDOWS_EXPORT_ALL_SYMBOLS ON
-  )
+  target_link_libraries(_svuvm PRIVATE dpi_stub)
 endif()
 
 add_custom_command(
