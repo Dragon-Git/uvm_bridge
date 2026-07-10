@@ -1,13 +1,23 @@
 #include "svdpi.h"
 #include <cstdlib>
 #include <cstring>
-#include <dlfcn.h>
 #include <iostream>
-#include <libgen.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
+
+// Platform-specific dynamic loading headers
+#ifdef _WIN32
+  #include <windows.h>
+  #define RTLD_DEFAULT NULL
+  static void* dlsym(void* handle, const char* symbol) {
+    return (void*)GetProcAddress((HMODULE)handle, symbol);
+  }
+#else
+  #include <dlfcn.h>
+  #include <libgen.h>
+#endif
 
 namespace nb = nanobind;
 
@@ -1207,9 +1217,16 @@ NB_MODULE(_svuvm, m) {
       "Get time precision for scope");
 }
 
+// Platform-specific export macros
+#ifdef _WIN32
+  #define SVUVM_EXPORT __declspec(dllexport)
+#else
+  #define SVUVM_EXPORT __attribute__((visibility("default")))
+#endif
+
 extern "C" {
 
-__attribute__((visibility("default"))) void
+SVUVM_EXPORT void
 py_func(const char *mod_name, const char *func_name, const char *mod_paths) {
 
   if (!Py_IsInitialized()) {
@@ -1225,7 +1242,28 @@ py_func(const char *mod_name, const char *func_name, const char *mod_paths) {
   std::string ext_suffix =
       nb::cast<std::string>(sysconfig.attr("get_config_var")("EXT_SUFFIX"));
 
-#ifdef __linux__
+#ifdef _WIN32
+  // Windows: use GetModuleFileName to find the DLL path
+  char dll_path[MAX_PATH];
+  HMODULE hModule = NULL;
+  if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS, (LPCSTR)&py_func, &hModule)) {
+    if (GetModuleFileNameA(hModule, dll_path, MAX_PATH)) {
+      std::string dll_path_str(dll_path);
+      size_t last_slash = dll_path_str.find_last_of("\\/");
+      if (last_slash != std::string::npos) {
+        std::string dir_path = dll_path_str.substr(0, last_slash);
+        path.attr("append")(dir_path);
+      }
+    }
+  }
+  // Add virtual environment site-packages path if available
+  if (getenv("VIRTUAL_ENV")) {
+    auto version_info = sysconfig.attr("get_config_var")("VERSION");
+    std::string site_packages_path =
+        std::string(getenv("VIRTUAL_ENV")) + "\\Lib\\site-packages";
+    path.attr("append")(site_packages_path);
+  }
+#elif defined(__linux__)
   char *dir_path;
   FILE *maps = fopen("/proc/self/maps", "r");
   if (!maps) {
@@ -1260,12 +1298,6 @@ py_func(const char *mod_name, const char *func_name, const char *mod_paths) {
               << std::endl;
   }
 #elif defined(__APPLE__)
-  //   char *dir_path;
-  //   Dl_info dl_info;
-  //   if (dladdr((void *)py_func, &dl_info)) {
-  //     dir_path = dirname(dirname(const_cast<char *>(dl_info.dli_fname)));
-  //     path.attr("append")(dir_path);
-  //   }
   // Add the virtual environment site package path
   if (getenv("VIRTUAL_ENV")) {
     auto version_info = sysconfig.attr("get_config_var")("VERSION");
@@ -1286,7 +1318,7 @@ py_func(const char *mod_name, const char *func_name, const char *mod_paths) {
   py_seq_mod.attr(func_name)();
 }
 
-__attribute__((visibility("default"))) void
+SVUVM_EXPORT void
 py_task(const char *mod_name, const char *func_name, const char *mod_paths) {
   py_func(mod_name, func_name, mod_paths);
 }
