@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+*.pyd
+*.dll
 .Python
 build/
 develop-eggs/
@@ -26,6 +28,7 @@ CMakeFiles/
 cmake_install.cmake
 Makefile
 *.cmake
+!CMakeLists.txt
 
 # IDE
 .vscode/
@@ -37,6 +40,18 @@ Makefile
 # OS
 .DS_Store
 Thumbs.db
+
+# Windows build artifacts
+*.obj
+*.exe
+*.pdb
+*.ilk
+*.lib
+*.exp
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
 
 # 测试和覆盖率
 .pytest_cache/

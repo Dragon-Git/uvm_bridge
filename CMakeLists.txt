@@ -17,9 +17,8 @@ if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 endif()
 
-find_program(PYTHON_EXECUTABLE python3)
-
 # Detect the installed nanobind package and import it into CMake
+# Use Python_EXECUTABLE from find_package instead of hardcoding python3
 execute_process(
   COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
   OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE nanobind_ROOT)
@@ -66,6 +65,7 @@ target_include_directories(_svuvm PRIVATE inc)
 # 在 macOS 上：强制构建为 dylib (MH_DYLIB) 而非 bundle (MH_BUNDLE)，
 #   这样同一个 .so 文件既可被 Python 导入，也可被 Verilator 链接
 # 在 Linux 上：显式允许共享库中有未解析符号，并禁用链接器的 --no-undefined
+# 在 Windows 上：使用标准 DLL 导出机制
 if(APPLE)
   set_target_properties(_svuvm PROPERTIES
     BUNDLE FALSE
@@ -80,6 +80,12 @@ elseif(UNIX)
     "-Wl,-z,lazy"
     "-Wl,-z,undefs"
   )
+elseif(WIN32)
+  # Windows: allow undefined symbols for runtime-loaded DPI functions
+  # The DPI functions will be provided by the simulator at runtime
+  target_link_options(_svuvm PRIVATE
+    "/FORCE:UNRESOLVED"
+  )
 endif()
 
 # 自动生成 Python stub 文件 (.pyi)
@@ -92,8 +98,19 @@ set_target_properties(dpi_stub PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
   PREFIX ""
   C_VISIBILITY_PRESET default
-  WINDOWS_EXPORT_ALL_SYMBOLS ON
 )
+
+# Platform-specific settings for dpi_stub
+if(WIN32)
+  set_target_properties(dpi_stub PROPERTIES
+    WINDOWS_EXPORT_ALL_SYMBOLS ON
+    SUFFIX ".dll"
+  )
+else()
+  set_target_properties(dpi_stub PROPERTIES
+    WINDOWS_EXPORT_ALL_SYMBOLS ON
+  )
+endif()
 
 add_custom_command(
   OUTPUT ${CMAKE_BINARY_DIR}/_svuvm/__init__.pyi ${CMAKE_BINARY_DIR}/_svuvm/vpi.pyi
