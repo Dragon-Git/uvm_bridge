@@ -40,8 +40,9 @@
 // On Windows, we disable the regex functions (uvm_dpi_regcomp, uvm_dpi_regexec, uvm_dpi_regfree)
 // as they are not commonly used in the core svuvm functionality
 #ifdef _WIN32
-  // Define regex_t as a placeholder type on Windows
-  typedef struct {} regex_t;
+  // Define regex_t as a placeholder type on Windows.
+  // MSVC C mode requires at least one member in a struct.
+  typedef struct { int _dummy; } regex_t;
   #define REG_EXTENDED 0
   #define REG_ICASE 0
   #define REG_NOSUB 0
