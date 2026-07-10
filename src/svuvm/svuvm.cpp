@@ -8,6 +8,7 @@
 #include <nanobind/stl/vector.h>
 
 // Platform-specific dynamic loading headers
+// We must include <windows.h> on Windows before any code that uses HMODULE/MAX_PATH
 #ifdef _WIN32
   #include <windows.h>
   #define RTLD_DEFAULT NULL
@@ -19,9 +20,9 @@
   #include <libgen.h>
 #endif
 
-namespace nb = nanobind;
-
 // DPI 导出函数声明（供 SystemVerilog 调用）
+
+namespace nb = nanobind;
 
 #ifndef NO_VPI
 #include "vpi_user_wrap.h"
