@@ -60,7 +60,11 @@ if (-not (Test-Path $buildDir)) {
 Set-Location $buildDir
 
 Write-Host "Configuring verilator with CMake + Ninja..."
-& cmd /c """$vcvarsPath"" && cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=""$InstallDir"" -DFLEX_EXECUTABLE=""$WinFlexBisonDir\flex.exe"" -DBISON_EXECUTABLE=""$WinFlexBisonDir\bison.exe"""
+# Verilator recurses deeply over the AST; MSVC's default 1 MB stack overflows on
+# large designs (e.g. uvm_pkg.sv) and crashes with an access violation. On Linux
+# the verilator Perl wrapper runs `ulimit -s unlimited`, but there is no such
+# step on Windows, so link verilator_bin.exe with a 512 MB stack reserve.
+& cmd /c """$vcvarsPath"" && cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=""$InstallDir"" -DFLEX_EXECUTABLE=""$WinFlexBisonDir\flex.exe"" -DBISON_EXECUTABLE=""$WinFlexBisonDir\bison.exe"" -DCMAKE_EXE_LINKER_FLAGS=""/STACK:536870912"""
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "cmake configuration failed"
