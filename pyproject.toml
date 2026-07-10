@@ -28,8 +28,26 @@ cmake.version = ">=3.15"
 build.verbose = true
 logging.level = "INFO"
 
+# Ensure the wheel is properly named across platforms
+wheel.py-api = "cp312"
+wheel.expand-macos-universal-tags = true
+
 [tool.ruff]
 line-length = 120
 
 [tool.ruff.lint.pydocstyle]
     convention = "google"
+
+[tool.cibuildwheel]
+# Build settings for cibuildwheel
+build = "cp39-* cp310-* cp311-* cp312-* cp313-* cp314-*"
+skip = "pp* *_s390x *-musllinux*"
+
+[tool.cibuildwheel.windows]
+test-skip = "*"
+
+[tool.cibuildwheel.linux]
+before-build = "pip install cmake"
+
+[tool.cibuildwheel.macos]
+before-build = "pip install cmake"
