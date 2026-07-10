@@ -105,24 +105,38 @@ if(WIN32)
     WINDOWS_EXPORT_ALL_SYMBOLS ON
     SUFFIX ".dll"
   )
+  # Suppress C4273: inconsistent dll linkage warnings.
+  # VPI functions are declared with __declspec(dllimport) in headers
+  # but defined without decoration in dpi_stub.c. We intentionally
+  # override dllimport with empty macros to avoid __imp_ prefix.
+  target_compile_definitions(dpi_stub PRIVATE PLI_DLLISPEC= DPI_DLLISPEC=)
 else()
   set_target_properties(dpi_stub PROPERTIES
     WINDOWS_EXPORT_ALL_SYMBOLS ON
   )
 endif()
 
-add_custom_command(
-  OUTPUT ${CMAKE_BINARY_DIR}/_svuvm/__init__.pyi ${CMAKE_BINARY_DIR}/_svuvm/vpi.pyi
-  COMMAND "${Python_EXECUTABLE}" ${CMAKE_SOURCE_DIR}/scripts/gen_stub.py -i ${CMAKE_BINARY_DIR} -m _svuvm -r -O ${CMAKE_BINARY_DIR}
-  WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-  DEPENDS _svuvm dpi_stub ${CMAKE_SOURCE_DIR}/scripts/gen_stub.py
-  COMMENT "Generating Python stubs for _svuvm (recursive)"
-  VERBATIM
-)
+# Stub generation is skipped on Windows because MSVC multi-config
+# generators place the .pyd in a Release/ subdirectory, which
+# gen_stub.py does not currently handle. Stubs are nice-to-have
+# for IDE autocompletion but are not required at runtime.
+if(NOT WIN32)
+  add_custom_command(
+    OUTPUT ${CMAKE_BINARY_DIR}/_svuvm/__init__.pyi ${CMAKE_BINARY_DIR}/_svuvm/vpi.pyi
+    COMMAND "${Python_EXECUTABLE}" ${CMAKE_SOURCE_DIR}/scripts/gen_stub.py -i ${CMAKE_BINARY_DIR} -m _svuvm -r -O ${CMAKE_BINARY_DIR}
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    DEPENDS _svuvm dpi_stub ${CMAKE_SOURCE_DIR}/scripts/gen_stub.py
+    COMMENT "Generating Python stubs for _svuvm (recursive)"
+    VERBATIM
+  )
 
-add_custom_target(svuvm_stub ALL DEPENDS ${CMAKE_BINARY_DIR}/_svuvm/__init__.pyi)
+  add_custom_target(svuvm_stub ALL DEPENDS ${CMAKE_BINARY_DIR}/_svuvm/__init__.pyi)
+endif()
 
 install(TARGETS _svuvm LIBRARY DESTINATION svuvm)
-install(DIRECTORY ${CMAKE_BINARY_DIR}/_svuvm
-        DESTINATION svuvm
-        FILES_MATCHING PATTERN "*.pyi")
+
+if(NOT WIN32)
+  install(DIRECTORY ${CMAKE_BINARY_DIR}/_svuvm
+          DESTINATION svuvm
+          FILES_MATCHING PATTERN "*.pyi")
+endif()
