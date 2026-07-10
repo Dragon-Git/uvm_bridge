@@ -28,17 +28,6 @@
 #ifndef UVM_DPI__H
 #define UVM_DPI__H
 
-// On Windows, disable dllimport for VPI/DPI functions so that
-// /FORCE:UNRESOLVED can handle them as regular undefined symbols.
-#ifdef _WIN32
-  #ifndef PLI_DLLISPEC
-    #define PLI_DLLISPEC
-  #endif
-  #ifndef DPI_DLLISPEC
-    #define DPI_DLLISPEC
-  #endif
-#endif
-
 #include <stdlib.h>
 #include "vpi_user.h"
 #include "veriuser.h"
