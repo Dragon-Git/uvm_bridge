@@ -62,12 +62,21 @@ elseif(UNIX)
     "-Wl,-z,undefs"
   )
 elseif(WIN32)
-  # Disable dllimport for VPI/DPI functions so that /FORCE:UNRESOLVED
-  # can handle them as regular undefined symbols (not __imp_ prefixed).
+  # Disable dllimport for VPI/DPI functions so that VPI symbols are
+  # ordinary undefined references (not __imp_ prefixed).
   target_compile_definitions(_svuvm PRIVATE PLI_DLLISPEC= DPI_DLLISPEC=)
+  # Use delay-loaded import to allow VPI/SV DPI symbols to be
+  # resolved at runtime (by the simulator that loads this extension),
+  # rather than failing at link time.
   target_link_options(_svuvm PRIVATE
-    "/FORCE:UNRESOLVED"
+    "/DELAYLOAD:python3.dll"
+    "/DELAYLOAD:vcruntime140.dll"
   )
+  # The /DELAY:UNLOAD and /DELAY:NOBIND flags are not needed here.
+  # When the simulator loads _svuvm.pyd, Windows will resolve the
+  # remaining undefined VPI symbols from the simulator's address space
+  # (or the symbol will be missing at runtime and we already handle
+  # that via vpi_func_optional / dlsym).
 endif()
 
 add_library(dpi_stub SHARED inc/dpi_stub.c)
