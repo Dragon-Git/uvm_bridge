@@ -27,32 +27,9 @@ build-backend = "scikit_build_core.build"
 cmake.version = ">=3.15"
 build.verbose = true
 logging.level = "INFO"
-# Windows-specific settings
-cmake.generator = { name = "Visual Studio 17 2022", platform = "x64" }
-
-# Exclude Verilator/uvm-verilator from the wheel (platform-specific)
-wheel.exclude = ["uvm-verilator/**", "*.log", "*.bak"]
 
 [tool.ruff]
 line-length = 120
 
 [tool.ruff.lint.pydocstyle]
     convention = "google"
-
-[tool.cibuildwheel]
-# Build settings for cibuildwheel
-build = "cp39-* cp310-* cp311-* cp312-* cp313-* cp314-*"
-skip = "pp* *_s390x *-musllinux*"
-
-[tool.cibuildwheel.windows]
-# Windows-specific cibuildwheel settings
-test-skip = "*"
-environment = { CMAKE_GENERATOR = "Visual Studio 17 2022" }
-
-[tool.cibuildwheel.linux]
-# Linux-specific cibuildwheel settings
-before-build = "pip install cmake"
-
-[tool.cibuildwheel.macos]
-# macOS-specific cibuildwheel settings
-before-build = "pip install cmake"
