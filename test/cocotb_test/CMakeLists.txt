@@ -3,10 +3,6 @@ project(cocotb_test LANGUAGES CXX)
 
 find_package(Python REQUIRED COMPONENTS Interpreter Development)
 
-if(WIN32)
-    find_package(Perl REQUIRED)
-endif()
-
 find_program(VERILATOR NAMES verilator_bin.exe verilator.exe verilator_bin verilator
     PATHS $ENV{VERILATOR_ROOT}/bin
     NO_DEFAULT_PATH
@@ -23,16 +19,13 @@ if(WIN32)
     if(NOT DEFINED ENV{VERILATOR_ROOT})
         message(FATAL_ERROR "VERILATOR_ROOT environment variable is required on Windows")
     endif()
-    # Use forward slashes to avoid backslash-escaping issues in the Perl wrapper's sh_escape
-    file(TO_CMAKE_PATH "$ENV{VERILATOR_ROOT}/bin/verilator" VERILATOR_SCRIPT)
-    if(NOT EXISTS ${VERILATOR_SCRIPT})
-        message(FATAL_ERROR "Verilator Perl script not found at ${VERILATOR_SCRIPT}")
-    endif()
-    set(VERILATOR_CMD ${PERL_EXECUTABLE} ${VERILATOR_SCRIPT})
-    message(STATUS "Using perl to run verilator: ${VERILATOR_CMD}")
-else()
-    set(VERILATOR_CMD ${VERILATOR})
 endif()
+# Call verilator_bin(.exe) directly instead of the Perl wrapper. The wrapper's
+# sh_escape mangles -CFLAGS/-LDFLAGS spacing and its verilator_bin() drops the
+# .exe suffix so system() can't spawn it on Windows. find_program already
+# resolved VERILATOR to verilator_bin.exe there; it takes the same arguments and
+# only needs VERILATOR_ROOT in the environment (passed by the build target).
+set(VERILATOR_CMD ${VERILATOR})
 
 execute_process(
     COMMAND ${Python_EXECUTABLE} -m svuvm.config
