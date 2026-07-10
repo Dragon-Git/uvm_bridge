@@ -23,7 +23,8 @@ def main():
         if python_lib_dir.exists():
             libs.append(f'-L"{python_lib_dir}"')
         # Add Python library name (e.g., python312.lib)
-        python_lib = f'python{getvar("VERSION")}{sys.abiflags}.lib'
+        abiflags = getvar("ABIFLAGS") or ""
+        python_lib = f'python{getvar("VERSION")}{abiflags}.lib'
         libs.append(f'-l{python_lib}')
         ldflags = ' '.join(libs)
     elif platform.system() in ['Linux', 'Darwin']:
@@ -40,14 +41,16 @@ def main():
             ldflags = result.stdout.strip()
         except subprocess.CalledProcessError:
             # Fallback to original method if python3-config fails
-            libs.append('-lpython' + getvar('VERSION') + sys.abiflags)
+            abiflags = getvar("ABIFLAGS") or ""
+            libs.append('-lpython' + getvar('VERSION') + abiflags)
             libs.extend(getvar('LIBS').split() + getvar('SYSLIBS').split())
             if not getvar('Py_ENABLE_SHARED'):
                 libs.insert(0, '-L' + getvar('LIBPL'))
             ldflags = ' '.join(libs)
     else:
         # Other platforms: use generic method
-        libs.append('-lpython' + getvar('VERSION') + sys.abiflags)
+        abiflags = getvar("ABIFLAGS") or ""
+        libs.append('-lpython' + getvar('VERSION') + abiflags)
         libs.extend(getvar('LIBS').split() + getvar('SYSLIBS').split())
         if not getvar('Py_ENABLE_SHARED'):
             libs.insert(0, '-L' + getvar('LIBPL'))
