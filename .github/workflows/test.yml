@@ -162,9 +162,11 @@ jobs:
           $cmd = $line.Substring($idx)
           Write-Host "===== running under cdb ====="
           $env:VERILATOR_ROOT = "D:\a\verilator\install"
-          # -g/-G ignore initial/final breakpoints; -c runs, prints exception
+          # -g/-G ignore initial/final breakpoints; -o debugs child processes
+          # (verilator_bin.exe spawned by cmd.exe); -c runs, prints exception
           # record (.lastevent), stack (kb), then quits.
-          & $cdb.FullName -g -G -c ".lastevent; kb; q" -- cmd /c "$cmd" 2>&1 | Out-String | Write-Host
+          # NOTE: no "--" separator -- cdb.exe does not support it.
+          & $cdb.FullName -g -G -o -c ".lastevent; kb; q" cmd /c "$cmd" 2>&1 | Out-String | Write-Host
         }
 
     - name: Run base test
