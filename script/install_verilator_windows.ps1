@@ -83,23 +83,23 @@ if (-not (Test-Path $buildDir)) {
 
 Set-Location $buildDir
 
-Write-Host "Configuring verilator with CMake + Ninja..."
-& cmd /c """$vcvarsPath"" && cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=""$InstallDir"" -DFLEX_EXECUTABLE=""$WinFlexBisonDir\flex.exe"" -DBISON_EXECUTABLE=""$WinFlexBisonDir\bison.exe"""
+Write-Host "Configuring verilator with CMake + Ninja (Debug)..."
+& cmd /c """$vcvarsPath"" && cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=""$InstallDir"" -DFLEX_EXECUTABLE=""$WinFlexBisonDir\flex.exe"" -DBISON_EXECUTABLE=""$WinFlexBisonDir\bison.exe"""
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "cmake configuration failed"
     exit 1
 }
 
-Write-Host "Building verilator..."
-& cmd /c """$vcvarsPath"" && cmake --build . --config Release"
+Write-Host "Building verilator (Debug)..."
+& cmd /c """$vcvarsPath"" && cmake --build . --config Debug"
 if ($LASTEXITCODE -ne 0) {
     Write-Error "cmake build failed"
     exit 1
 }
 
-Write-Host "Installing verilator..."
-& cmd /c """$vcvarsPath"" && cmake --install . --prefix ""$InstallDir"""
+Write-Host "Installing verilator (Debug)..."
+& cmd /c """$vcvarsPath"" && cmake --install . --prefix ""$InstallDir"" --config Debug"
 if ($LASTEXITCODE -ne 0) {
     Write-Error "cmake install failed"
     exit 1
