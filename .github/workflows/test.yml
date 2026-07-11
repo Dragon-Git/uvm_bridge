@@ -96,7 +96,7 @@ jobs:
         cache-name: cache-verilator-windows
       with:
         path: D:\a\verilator
-        key: verilator-windows-v6-${{ env.cache-name }}
+        key: verilator-windows-v7-debug-${{ env.cache-name }}
 
     - name: Cache winflexbison (Windows)
       uses: actions/cache@v6
