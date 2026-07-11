@@ -44,7 +44,9 @@ function Set-VerilatorStack {
 $installMarker = Join-Path $InstallDir "bin\verilator_bin.exe"
 if (Test-Path $installMarker) {
     Write-Host "Verilator already built, skipping compile/install steps"
-    Set-VerilatorStack
+    # Skip Set-VerilatorStack on cache hit -- the binary was already patched by
+    # editbin during the original build.  Running editbin a second time on a
+    # cached binary corrupts the PE header ("inappropriate file type or format").
     $env:VERILATOR_ROOT = $InstallDir
     $env:PATH = "$InstallDir\bin;$env:PATH"
     exit 0
