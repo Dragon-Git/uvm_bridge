@@ -96,7 +96,7 @@ jobs:
         cache-name: cache-verilator-windows
       with:
         path: D:\a\verilator
-        key: verilator-windows-v7-debug-${{ env.cache-name }}
+        key: verilator-windows-v8-debug-${{ env.cache-name }}
 
     - name: Cache winflexbison (Windows)
       uses: actions/cache@v6
@@ -149,11 +149,17 @@ jobs:
         Write-Host "cdb = $($cdb.FullName)"
         # Re-run the build verbosely to capture the exact verilator command line.
         Remove-Item build_base_test/build/Vtop* -ErrorAction SilentlyContinue
-        $verbose = & cmake --build build_base_test --target build --verbose 2>&1 | Out-String
+        # Use -join "`n" instead of Out-String to avoid PowerShell stream-ordering
+        # issues that can swallow the cmake/Ninja command-line output.
+        $verbose = (& cmake --build build_base_test --target build --verbose 2>&1) -join "`n"
         Write-Host "===== verbose build output ====="
         Write-Host $verbose
-        # Extract the verilator_bin.exe invocation line.
-        $line = ($verbose -split "`n") | Where-Object { $_ -match "verilator.*--vpi" } | Select-Object -First 1
+        # Extract the verilator invocation line (Perl wrapper or _bin_dbg.exe).
+        $line = $verbose | Select-String -Pattern "verilator.*--vpi" | Select-Object -First 1 -ExpandProperty Line
+        if (-not $line) {
+          # Fallback: try to extract the command from the Ninja build log.
+          $line = (& ninja -v -C build_base_test build 2>&1) -join "`n" | Select-String -Pattern "verilator.*--vpi" | Select-Object -First 1 -ExpandProperty Line
+        }
         Write-Host "===== verilate command ====="
         Write-Host $line
         if ($cdb -and $line) {
