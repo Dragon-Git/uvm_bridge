@@ -134,6 +134,39 @@ jobs:
         cmake -S test/base_test -B build_base_test -G Ninja
         cmake --build build_base_test --target build
 
+    - name: Diagnose verilator crash (cdb backtrace)
+      if: failure()
+      shell: pwsh
+      run: |
+        # The build target crashes verilator_bin.exe with an "Access violation".
+        # Run the exact same verilate command under cdb to capture the real
+        # exception code (0xC00000FD = stack overflow vs 0xC0000005 = access
+        # violation) and a stack trace, so we stop guessing.
+        $ErrorActionPreference = "Continue"
+        # Locate cdb from the Windows SDK.
+        $cdb = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe" -ErrorAction SilentlyContinue
+        if (-not $cdb) { $cdb = Get-ChildItem "C:\Program Files*\Windows Kits\*\Debuggers\x64\cdb.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }
+        Write-Host "cdb = $($cdb.FullName)"
+        # Re-run the build verbosely to capture the exact verilator command line.
+        Remove-Item build_base_test/build/Vtop* -ErrorAction SilentlyContinue
+        $verbose = & cmake --build build_base_test --target build --verbose 2>&1 | Out-String
+        Write-Host "===== verbose build output ====="
+        Write-Host $verbose
+        # Extract the verilator_bin.exe invocation line.
+        $line = ($verbose -split "`n") | Where-Object { $_ -match "verilator_bin\.exe" } | Select-Object -First 1
+        Write-Host "===== verilate command ====="
+        Write-Host $line
+        if ($cdb -and $line) {
+          # Pull out everything from verilator_bin.exe onward as the child command.
+          $idx = $line.IndexOf("verilator_bin.exe")
+          $cmd = $line.Substring($idx)
+          Write-Host "===== running under cdb ====="
+          $env:VERILATOR_ROOT = "D:\a\verilator\install"
+          # -g/-G ignore initial/final breakpoints; -c runs, prints exception
+          # record (.lastevent), stack (kb), then quits.
+          & $cdb.FullName -g -G -c ".lastevent; kb; q" -- cmd /c "$cmd" 2>&1 | Out-String | Write-Host
+        }
+
     - name: Run base test
       run: |
         cmake --build build_base_test --target run
