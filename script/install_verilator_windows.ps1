@@ -107,7 +107,13 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-Set-VerilatorStack
+# Temporarily disabled: Set-VerilatorStack
+# editbin /STACK appears to corrupt the Debug binary's PE header on GitHub
+# Windows runners, causing "inappropriate file type or format" when the Perl
+# wrapper tries to launch verilator_bin_dbg.exe.  First verify the binary
+# works without the stack-reserve tweak; if the crash is a genuine stack
+# overflow we can re-enable with a safer approach later.
+# Set-VerilatorStack
 
 $env:VERILATOR_ROOT = $InstallDir
 $env:PATH = "$InstallDir\bin;$env:PATH"
