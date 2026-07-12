@@ -21,25 +21,11 @@ if (-not (Test-Path $vcvarsPath)) {
 Write-Host "Using vcvars: $vcvarsPath"
 
 # Verilator recurses deeply over the AST and MSVC's default 1 MB stack overflows
-# on large designs (e.g. uvm_pkg.sv), surfacing as an access violation. On Linux
-# the verilator Perl wrapper runs `ulimit -s unlimited`; there is no such step on
-# Windows, so force a large stack reserve on the installed binaries via editbin,
-# then print the resulting value so the CI log shows what actually took effect.
-function Set-VerilatorStack {
-    $stackReserve = 536870912  # 512 MB
-    foreach ($exeName in @("verilator_bin.exe", "verilator_bin_dbg.exe")) {
-        $exe = Join-Path $InstallDir "bin\$exeName"
-        if (Test-Path $exe) {
-            Write-Host "Setting stack reserve on $exeName to $stackReserve"
-            & cmd /c """$vcvarsPath"" && editbin /STACK:$stackReserve ""$exe"""
-            if ($LASTEXITCODE -ne 0) {
-                Write-Error "editbin /STACK failed for $exeName"
-                exit 1
-            }
-            & cmd /c """$vcvarsPath"" && dumpbin /headers ""$exe"" | findstr /C:""size of stack reserve"""
-        }
-    }
-}
+# on large designs (e.g. uvm_pkg.sv), surfacing as an access violation. Pass
+# /STACK to the linker at build time so the PE header is correct from the start
+# (post-hoc editbin /STACK corrupts the Debug binary on GitHub runners).
+$stackReserve = 536870912  # 512 MB
+$linkerFlags = "/STACK:$stackReserve"
 
 $installMarker = Join-Path $InstallDir "bin\verilator_bin.exe"
 if (Test-Path $installMarker) {
@@ -85,8 +71,15 @@ if (-not (Test-Path $buildDir)) {
 
 Set-Location $buildDir
 
+# Verilator recurses deeply over the AST and MSVC's default 1 MB stack overflows
+# on large designs (e.g. uvm_pkg.sv), surfacing as an access violation. Pass
+# /STACK to the linker at build time so the PE header is correct from the start
+# (post-hoc editbin /STACK corrupts the Debug binary on GitHub runners).
+$stackReserve = 536870912  # 512 MB
+$linkerFlags = "/STACK:$stackReserve"
+
 Write-Host "Configuring verilator with CMake + Ninja (Debug)..."
-& cmd /c """$vcvarsPath"" && cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=""$InstallDir"" -DFLEX_EXECUTABLE=""$WinFlexBisonDir\flex.exe"" -DBISON_EXECUTABLE=""$WinFlexBisonDir\bison.exe"""
+& cmd /c """$vcvarsPath"" && cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=""$InstallDir"" -DCMAKE_EXE_LINKER_FLAGS=""$linkerFlags"" -DFLEX_EXECUTABLE=""$WinFlexBisonDir\flex.exe"" -DBISON_EXECUTABLE=""$WinFlexBisonDir\bison.exe"""
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "cmake configuration failed"
@@ -106,14 +99,6 @@ if ($LASTEXITCODE -ne 0) {
     Write-Error "cmake install failed"
     exit 1
 }
-
-# Temporarily disabled: Set-VerilatorStack
-# editbin /STACK appears to corrupt the Debug binary's PE header on GitHub
-# Windows runners, causing "inappropriate file type or format" when the Perl
-# wrapper tries to launch verilator_bin_dbg.exe.  First verify the binary
-# works without the stack-reserve tweak; if the crash is a genuine stack
-# overflow we can re-enable with a safer approach later.
-# Set-VerilatorStack
 
 $env:VERILATOR_ROOT = $InstallDir
 $env:PATH = "$InstallDir\bin;$env:PATH"
