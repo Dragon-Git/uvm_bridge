@@ -68,3 +68,130 @@ jobs:
     - name: Run cocotb test
       run: |
         make -f test/cocotb_test/Makefile run
+
+  windows-test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install CMake and Ninja
+      run: |
+        python -m pip install cmake ninja
+
+    - name: Add MSVC to PATH
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Cache verilator (Windows)
+      uses: actions/cache@v6
+      env:
+        cache-name: cache-verilator-windows
+      with:
+        path: D:\a\verilator
+        key: verilator-windows-v10-stack-${{ env.cache-name }}
+
+    - name: Cache winflexbison (Windows)
+      uses: actions/cache@v6
+      env:
+        cache-name: cache-winflexbison
+      with:
+        path: D:\a\winflexbison
+        key: winflexbison-v2.5.25-${{ env.cache-name }}
+
+    - name: Install Verilator from source
+      shell: pwsh
+      run: |
+        ./script/install_verilator_windows.ps1
+        "VERILATOR_ROOT=D:\a\verilator\install" >> $env:GITHUB_ENV
+        "D:\a\verilator\install\bin" >> $env:GITHUB_PATH
+
+    - name: Clone verilator-uvm repository
+      run: |
+        git clone https://github.com/Dragon-Git/uvm-verilator.git
+        cd uvm-verilator
+        git checkout patch
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install . -v
+        python -m pip install cocotb==2.0.0
+
+    - name: Verify package installation
+      run: |
+        python -c "import svuvm; print('svuvm imported successfully')"
+
+    - name: Build base test
+      run: |
+        cmake -S test/base_test -B build_base_test -G Ninja
+        cmake --build build_base_test --target build
+
+    - name: Diagnose verilator crash (cdb backtrace)
+      if: failure()
+      shell: pwsh
+      run: |
+        # The build target crashes verilator_bin.exe with an "Access violation".
+        # Run the exact same verilate command under cdb to capture the real
+        # exception code (0xC00000FD = stack overflow vs 0xC0000005 = access
+        # violation) and a stack trace, so we stop guessing.
+        $ErrorActionPreference = "Continue"
+        # Locate cdb from the Windows SDK.
+        $cdb = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe" -ErrorAction SilentlyContinue
+        if (-not $cdb) { $cdb = Get-ChildItem "C:\Program Files*\Windows Kits\*\Debuggers\x64\cdb.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 }
+        Write-Host "cdb = $($cdb.FullName)"
+        # Re-run the build verbosely to capture the exact verilator command line.
+        Remove-Item build_base_test/build/Vtop* -ErrorAction SilentlyContinue
+        # Use -join "`n" instead of Out-String to avoid PowerShell stream-ordering
+        # issues that can swallow the cmake/Ninja command-line output.
+        $verbose = (& cmake --build build_base_test --target build --verbose 2>&1) -join "`n"
+        Write-Host "===== verbose build output ====="
+        Write-Host $verbose
+        # Extract the verilator invocation line (Perl wrapper or _bin_dbg.exe).
+        $line = $verbose | Select-String -Pattern "verilator.*--vpi" | Select-Object -First 1 -ExpandProperty Line
+        if (-not $line) {
+          # Fallback: try to extract the command from the Ninja build log.
+          $line = (& ninja -v -C build_base_test build 2>&1) -join "`n" | Select-String -Pattern "verilator.*--vpi" | Select-Object -First 1 -ExpandProperty Line
+        }
+        Write-Host "===== verilate command ====="
+        Write-Host $line
+        if ($cdb -and $line) {
+          # Extract the verilator invocation from the verbose build line.
+          # Release build: .../verilator_bin.exe --vpi ...
+          # Debug build:   .../bin/verilator --vpi ... (Perl wrapper)
+          $idx = $line.IndexOf("verilator_bin.exe")
+          if ($idx -eq -1) { $idx = $line.IndexOf("verilator_bin_dbg.exe") }
+          if ($idx -eq -1) { $idx = $line.IndexOf("verilator --vpi") }
+          if ($idx -ge 0) {
+            $cmd = $line.Substring($idx)
+            Write-Host "===== running under cdb ====="
+            $env:VERILATOR_ROOT = "D:\a\verilator\install"
+            # -g/-G ignore initial/final breakpoints; -o debugs child processes
+            # (verilator_bin.exe spawned by cmd.exe); -c runs, prints exception
+            # record (.lastevent), stack (kb), then quits.
+            # NOTE: no "--" separator -- cdb.exe does not support it.
+            & $cdb.FullName -g -G -o -c ".lastevent; kb; q" cmd /c "$cmd" 2>&1 | Out-String | Write-Host
+          } else {
+            Write-Host "Could not extract verilator command from build output"
+          }
+        }
+
+    - name: Run base test
+      run: |
+        cmake --build build_base_test --target run
+
+    - name: Build cocotb test
+      run: |
+        cmake -S test/cocotb_test -B build_cocotb_test -G Ninja
+        cmake --build build_cocotb_test --target build
+
+    - name: Run cocotb test
+      run: |
+        cmake --build build_cocotb_test --target run

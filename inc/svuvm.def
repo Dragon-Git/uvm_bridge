@@ -1,0 +1,146 @@
+; svuvm.def - Module definition file for Windows _svuvm.pyd
+;
+; This .def file controls which symbols are exported from _svuvm.pyd.
+;
+; EXPORTS section lists symbols that must be visible to:
+;   - Python (PyInit__svuvm)
+;   - SystemVerilog simulator (DPI export functions called from SV)
+;
+; The dpi_stub.c stubs that satisfy VPI references (e.g. vpi_register_cb,
+; vpi_get, etc.) are compiled directly into _svuvm.pyd and are NOT
+; exported here, because they are private implementation details.
+; At runtime, when the simulator loads _svuvm.pyd, the simulator's
+; own VPI symbols override these stubs (Windows DLL symbol resolution
+; prefers the loading module's symbols over the loaded module's stubs).
+
+LIBRARY _svuvm
+EXPORTS
+    ; Python extension module init (provided by nanobind)
+    PyInit__svuvm
+
+    ; ===== UVM DPI exports (called by SystemVerilog) =====
+    process_pool_run
+    process_pool_clear
+    print_factory
+    set_factory_inst_override
+    set_factory_type_override
+    create_object_by_name
+    create_component_by_name
+    debug_factory_create
+    find_factory_override
+    print_topology
+    set_timeout
+    set_finish_on_completion
+    set_drain_time
+    get_drain_time
+    get_objection_count
+    get_objection_total
+    display_objections
+    get_current_phase_name
+    get_phase_state
+    get_phase_state_name
+    phase_jump
+    uvm_objection_op
+    component_get_num_children
+    component_get_child_name
+    component_get_parent
+    component_get_type_name
+    component_sprint
+    uvm_top_sprint
+    is_type_registered
+    dbg_print
+    tlm_connect
+    wait_on
+    wait_off
+    wait_trigger
+    wait_ptrigger
+    get_trigger_time
+    is_on
+    is_off
+    reset
+    cancel
+    get_num_waiters
+    trigger
+    set_config_uint64_t
+    get_config_uint64_t
+    set_config_double
+    get_config_double
+    set_config_string
+    get_config_string
+    config_db_trace_on
+    config_db_trace_off
+    config_db_exists
+    get_report_verbosity_level
+    get_report_max_verbosity_level
+    set_report_verbosity_level
+    set_report_id_verbosity
+    set_report_severity_id_verbosity
+    get_report_action
+    set_report_severity_action
+    set_report_id_action
+    set_report_severity_id_action
+    set_report_severity_override
+    set_report_severity_id_override
+    set_max_quit_count
+    get_max_quit_count
+    set_quit_count
+    get_quit_count
+    set_severity_count
+    get_severity_count
+    set_id_count
+    get_id_count
+    print_report_server
+    report_summarize
+    set_top_reg_block_by_path
+    write_reg
+    read_reg
+    check_reg
+    get_reg_mirrored_value
+    get_reg_desired_value
+    get_reg_address
+    reset_reg
+    predict_reg
+    mirror_reg
+    get_reg_names
+    get_block_names
+    get_reg_field_names
+    read_field_by_name
+    write_field_by_name
+    reg_block_sprint
+    start_seq
+    is_sequencer_busy
+    get_current_sequence_name
+    stop_sequences
+    barrier_set_threshold
+    barrier_get_threshold
+    barrier_wait
+    barrier_reset
+    barrier_get_num_waiters
+    pool_exists
+    pool_num
+    pool_keys
+    get_callback_count
+    get_callback_type_names
+    set_default_printer_knob
+    get_default_printer_knob
+    set_default_comparer_knob
+    get_default_comparer_knob
+    component_compare
+    wait_unit
+    run_test_wrap
+    int_str_max
+    m_uvm_report_dpi
+    uvm_hdl_check_path
+    uvm_hdl_read
+    uvm_hdl_deposit
+    uvm_hdl_force
+    uvm_hdl_release_and_read
+    uvm_hdl_release
+    push_data
+    walk_level
+    uvm_dpi_get_next_arg_c
+    uvm_dpi_get_tool_name_c
+    uvm_dpi_get_tool_version_c
+    uvm_dpi_regcomp
+    uvm_dpi_regexec
+    uvm_dpi_regfree
