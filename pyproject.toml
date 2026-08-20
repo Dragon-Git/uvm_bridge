@@ -1,6 +1,6 @@
 [project]
 name = "svuvm"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Hardware verification framework enabling Python to call SystemVerilog UVM APIs for writing test cases and dynamically configuring verification environments"
 authors = [
     { name = "Dragon-Git", email = "1762578117@qq.com" }
@@ -10,16 +10,18 @@ readme = "README.md"
 requires-python = ">= 3.9"
 
 [project.optional-dependencies]
+build = ["setuptools_scm>=8.0, <9.0"]
 lint = ['ruff']
 doc = ['sphinx']
 test = ['pytest', 'coverage', 'pytest-cov']
-dev = ['svuvm[lint, doc, test]']
+dev = ['svuvm[build, lint, doc, test]']
 
 [build-system]
 requires = [
     "scikit-build-core>=1.0.0, <2.0.0",
     "nanobind>=2.4.0, <3.0.0",
     "pyslang>=11.0.0, <12.0.0",
+    "setuptools_scm>=8.0, <9.0",
 ]
 build-backend = "scikit_build_core.build"
 
@@ -27,6 +29,16 @@ build-backend = "scikit_build_core.build"
 cmake.version = ">=3.15"
 build.verbose = true
 logging.level = "INFO"
+
+[tool.setuptools_scm]
+# Read version from git tags of the form vX.Y.Z or vX.Y.Z-rcN
+tag_regex = "^v(?P<version>[\\d.]+(-[\\w.]+)?)$"
+# Also write the resolved version into src/svuvm/_version.py
+write_to = "src/svuvm/_version.py"
+# Fallback when git is unavailable (e.g., sdist download from PyPI)
+fallback_version = "0.0.0+unknown"
+# Make `pip install .` on an arbitrary commit produce a usable PEP 440 version
+local_scheme = "node-and-date"
 
 [tool.ruff]
 line-length = 120

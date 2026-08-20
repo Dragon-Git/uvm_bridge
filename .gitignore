@@ -20,6 +20,9 @@ wheels/
 .installed.cfg
 *.egg
 
+# setuptools_scm generated file (re-generated on every build)
+src/svuvm/_version.py
+
 # CMake
 CMakeCache.txt
 CMakeFiles/
