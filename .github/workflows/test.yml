@@ -18,6 +18,11 @@ jobs:
         os: [ubuntu-latest, macos-26]
     steps:
     - uses: actions/checkout@v7
+      with:
+        # setuptools_scm needs full git history to resolve the version
+        # from tags; shallow clones trigger "is shallow and may cause
+        # errors" warnings and produce incorrect dev versions.
+        fetch-depth: 0
 
     - name: Cache verilator (Ubuntu)
       if: matrix.os == 'ubuntu-latest'
@@ -37,7 +42,14 @@ jobs:
 
     - name: Install dependencies on macOS (arm64)
       if: matrix.os == 'macos-26'
+      env:
+        # Homebrew 5.x requires explicit trust for third-party taps
+        # (e.g. aws/tap) that older macOS-26 images don't pre-trust.
+        # The trust requirement is a non-essential safety check; we
+        # only install verilator from the default tap, so we skip it.
+        HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
       run: |
+        export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
         brew update
         brew install verilator
 
@@ -59,7 +71,7 @@ jobs:
         python -m pip install cocotb==2.0.0
 
     - name: Lint with ruff
-      uses: chartboost/ruff-action@v1
+      uses: astral-sh/ruff-action@v4.1.0
 
     - name: Run base test
       run: |
