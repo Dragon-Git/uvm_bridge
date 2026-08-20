@@ -42,7 +42,14 @@ jobs:
 
     - name: Install dependencies on macOS (arm64)
       if: matrix.os == 'macos-26'
+      env:
+        # Homebrew 5.x requires explicit trust for third-party taps
+        # (e.g. aws/tap) that older macOS-26 images don't pre-trust.
+        # The trust requirement is a non-essential safety check; we
+        # only install verilator from the default tap, so we skip it.
+        HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
       run: |
+        export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
         brew update
         brew install verilator
 
