@@ -14,7 +14,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        # cocotb 2.0.x is the latest stable line and explicitly
+        # rejects Python 3.14 at install time
+        # (RuntimeError: cocotb 2.0.1 only supports a maximum
+        # Python version of 3.13). We pin to 3.13 max until
+        # cocotb 2.1 ships with 3.14 wheels.
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
         os: [ubuntu-latest, macos-26]
     steps:
     - uses: actions/checkout@v7
