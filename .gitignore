@@ -59,3 +59,5 @@ results.xml
 inc/export_dpi.h
 inc/vpi_attr.h
 inc/svuvm_export_dpi.svh
+# setuptools_scm generated file (re-generated on every build)
+src/svuvm/_version.py

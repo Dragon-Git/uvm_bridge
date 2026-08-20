@@ -18,6 +18,11 @@ jobs:
         os: [ubuntu-latest, macos-26]
     steps:
     - uses: actions/checkout@v7
+      with:
+        # setuptools_scm needs full git history to resolve the version
+        # from tags; shallow clones trigger "is shallow and may cause
+        # errors" warnings and produce incorrect dev versions.
+        fetch-depth: 0
 
     - name: Cache verilator (Ubuntu)
       if: matrix.os == 'ubuntu-latest'
@@ -59,7 +64,7 @@ jobs:
         python -m pip install cocotb==2.0.0
 
     - name: Lint with ruff
-      uses: chartboost/ruff-action@v1
+      uses: astral-sh/ruff-action@v4
 
     - name: Run base test
       run: |
