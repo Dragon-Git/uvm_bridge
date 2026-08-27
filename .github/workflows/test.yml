@@ -14,15 +14,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # We keep Python 3.14 in the matrix. No released cocotb
-        # version (latest stable is 2.0.1) ships a prebuilt
-        # wheel for 3.14, and the 2.0.x sdist fails to build
-        # on macos-26 + Py3.14 with:
-        #   ld: unsupported mach-o filetype ... in 'libgpilog.so'
-        # The "Install Python dependencies" step pulls cocotb
-        # from a specific commit on master that has the 3.14
-        # build fix; once cocotb 2.1 ships a stable 3.14 wheel
-        # we can switch back to a PyPI version pin.
+        # Python 3.14 is kept in the matrix. cocotb 2.0.1 (latest
+        # stable on PyPI as of 2026-08) hard-codes
+        # python_requires="<=3.13" in its pyproject.toml and
+        # rejects 3.14 at install time, so we set
+        # COCOTB_IGNORE_PYTHON_REQUIRES=True in the "Install
+        # Python dependencies" step to bypass that check.
+        # 2.0.1 also publishes a prebuilt macOS ARM64 wheel, so
+        # no sdist build is needed on macos-26.
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
         os: [ubuntu-latest, macos-26]
     steps:
@@ -74,18 +73,26 @@ jobs:
         python-version: ${{ matrix.python-version }}
 
     - name: Install Python dependencies
+      env:
+        # cocotb 2.0.1 (the latest stable on PyPI as of 2026-08)
+        # hard-codes python_requires="<=3.13" in its pyproject.toml.
+        # Setting this bypasses that check so the install can
+        # proceed on Python 3.14. cocotb itself runs fine on
+        # 3.14 -- the constraint is a stale guard in 2.0.x's
+        # build metadata. cocotb 2.1 / master removed the
+        # constraint; once 2.1 ships a stable 3.14 wheel on
+        # PyPI we can drop this and pin to cocotb==2.1 instead.
+        COCOTB_IGNORE_PYTHON_REQUIRES: "True"
       run: |
         python -m pip install --upgrade pip
         python -m pip install . -v
-        # As of 2026-08 no released cocotb version ships a
-        # prebuilt wheel for Python 3.14, and the 2.0.x sdist
-        # fails to build on macos-26 + Py3.14 with:
-        #   ld: unsupported mach-o filetype ... in 'libgpilog.so'
-        # Pull master from GitHub, which has the Py3.14 build
-        # fix in place. Pin to a specific commit SHA so we get
-        # reproducible builds and can drop the @master ref once
-        # cocotb 2.1 is released.
-        python -m pip install git+https://github.com/cocotb/cocotb@b58c5e73fb7997ad288dd99fc8069bf18e8be587
+        # Pin to cocotb 2.0.1 instead of pulling from master:
+        # 2.0.1 ships a prebuilt macOS ARM64 wheel, so the
+        # macos-26 + Py3.14 LTO + -bundle link error from the
+        # 2.0.x sdist is no longer in the picture. The Py3.14
+        # gate is still active in 2.0.1's python_requires field,
+        # which is why we set COCOTB_IGNORE_PYTHON_REQUIRES above.
+        python -m pip install cocotb==2.0.1
 
     - name: Lint with ruff
       uses: astral-sh/ruff-action@v4.1.0
