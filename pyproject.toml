@@ -19,7 +19,7 @@ dev = ['svuvm[build, lint, doc, test]']
 [build-system]
 requires = [
     "scikit-build-core>=1.0.0, <2.0.0",
-    "nanobind>=2.4.0, <3.0.0",
+    "nanobind>=2.4.0, <4.0.0",
     "pyslang>=11.0.0, <12.0.0",
     "setuptools_scm>=8.0, <9.0",
 ]
