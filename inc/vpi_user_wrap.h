@@ -33,8 +33,17 @@ struct func_traits<R (*)(Args...)> {
 
 template <typename T> auto convert(T t) {
   if constexpr (std::is_same_v<T, vpiHandle>) {
+    // replace_type<vpiHandle> is specialized to nb::object
+    // (see top of this file), so the Python-facing return
+    // type is always nb::object. Returning nb::none() here
+    // would give the auto return type a conflicting
+    // deduction (nb::none vs nb::object) and GCC refuses to
+    // compile under nanobind 3.0.0 (it tolerated this in
+    // 2.4.x because nb::none had a more relaxed conversion
+    // path to nb::object). Wrap into nb::object so both
+    // branches agree on the deduced type.
     if (t == nullptr) {
-      return nb::none();
+      return nb::object(nb::none());
     }
     return nb::object(nb::capsule((void *)t, [](void *) noexcept {}));
   } else if constexpr (std::is_same_v<T, nb::object>) {
