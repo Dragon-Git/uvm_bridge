@@ -96,9 +96,29 @@ jobs:
         # constraint; once 2.1 ships a stable 3.14 wheel on
         # PyPI we can drop this and pin to cocotb==2.1 instead.
         COCOTB_IGNORE_PYTHON_REQUIRES: "True"
+        # nanobind 3.0.0 (Aug 2026) raises ImportError at import
+        # time on Python < 3.10 because its stable ABI floor
+        # moved up to 3.10. pyproject.toml advertises
+        # nanobind>=2.4.0,<4.0.0 (per Dependabot PR #26) which
+        # pip happily resolves to 3.0.0 even on Python 3.9,
+        # causing the wheel build to fail. On 3.9 we constrain
+        # pip (in both the main and the isolated build env) to
+        # nanobind 2.4.x via a PEP 665-style constraints file
+        # written to a temp file. PIP_CONSTRAINT applies to
+        # every pip invocation in this step, including the
+        # build-time resolver that PEP 517's isolated build
+        # creates, so the sdist build cannot re-resolve
+        # nanobind to 3.0.0. On every other Python version
+        # PIP_CONSTRAINT is not set, so 3.0.0 is picked
+        # normally.
       run: |
         python -m pip install --upgrade pip
-        python -m pip install . -v
+        if [ "${{ matrix.python-version }}" = "3.9" ]; then
+          printf 'nanobind==2.4.0\nnanobind-backend==2.4.0\n' > /tmp/nb39.txt
+          PIP_CONSTRAINT=/tmp/nb39.txt python -m pip install . -v
+        else
+          python -m pip install . -v
+        fi
         # Pin to cocotb 2.0.1 instead of pulling from master:
         # 2.0.1 ships a prebuilt macOS ARM64 wheel, so the
         # macos-26 + Py3.14 LTO + -bundle link error from the
