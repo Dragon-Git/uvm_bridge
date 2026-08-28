@@ -1218,6 +1218,34 @@ py_func(const char *mod_name, const char *func_name, const char *mod_paths) {
 
   nb::gil_scoped_acquire gil;
 
+  // Force-import the _svuvm extension so nanobind's internals
+  // (nb::detail::internals, including the 3.0 interned-string
+  // cache) are populated before we touch any nb::module_::import_
+  // or nb::object::attr call below. py_func is a DPI export:
+  // it is called by SystemVerilog through DPI, and the .so it
+  // lives in is dlopen()ed by the simulator's VPI loader. The
+  // Python side never gets a chance to do `import svuvm` first
+  // (cocotb is driven by the testbench, not the other way
+  // around), so the nanobind module init that would normally
+  // populate nb_internals at `import _svuvm` time never runs.
+  //
+  // Pre-3.0 this was harmless because nb::module_::import_ used
+  // a pure-Python C API path that didn't touch nb_internals.
+  // Starting in 3.0 every attr() lookup routes through the
+  // interned-string cache stored in nb_internals, and a NULL
+  // nb_internals causes an immediate null-pointer dereference
+  // in the very first `sys.attr("path")` call below.
+  //
+  // The import is idempotent: if some other path already
+  // triggered svuvm's module init, PyImport_ImportModule
+  // returns the existing module without re-running
+  // _PyInit__svuvm.
+  PyImport_ImportModule("_svuvm");
+  if (PyErr_Occurred()) {
+    PyErr_Print();
+    return;
+  }
+
   nb::module_ sys = nb::module_::import_("sys");
   nb::list path = sys.attr("path");
 
