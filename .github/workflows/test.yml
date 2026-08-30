@@ -65,26 +65,25 @@ jobs:
         python-version: ${{ matrix.python-version }}
 
     - name: Install Python dependencies
-      env:
-        # nanobind 3.0.0 (Aug 2026) raises ImportError at import
-        # time on Python < 3.10 because its stable ABI floor
-        # moved up to 3.10. pyproject.toml advertises
-        # nanobind>=2.4.0,<4.0.0 (per Dependabot PR #26) which
-        # pip happily resolves to 3.0.0 even on Python 3.9,
-        # causing the wheel build to fail. On 3.9 we constrain
-        # pip (in both the main and the isolated build env) to
-        # nanobind 2.4.x via a PEP 665-style constraints file
-        # written to a temp file. PIP_CONSTRAINT applies to
-        # every pip invocation in this step, including the
-        # build-time resolver that PEP 517's isolated build
-        # creates, so the sdist build cannot re-resolve
-        # nanobind to 3.0.0. On every other Python version
-        # PIP_CONSTRAINT is not set, so 3.0.0 is picked
-        # normally.
+      # nanobind 3.0.0 (Aug 2026) raises ImportError at import
+      # time on Python < 3.10 because its stable ABI floor
+      # moved up to 3.10. pyproject.toml advertises
+      # nanobind>=2.4.0,<4.0.0 (per Dependabot PR #26) which
+      # pip happily resolves to 3.0.0 even on Python 3.9,
+      # causing the wheel build to fail. On 3.9 we constrain
+      # pip (in both the main and the isolated build env) to
+      # nanobind 2.4.x via a PEP 665-style constraints file
+      # written to a temp file. PIP_CONSTRAINT applies to
+      # every pip invocation in this step, including the
+      # build-time resolver that PEP 517's isolated build
+      # creates, so the sdist build cannot re-resolve
+      # nanobind to 3.0.0. On every other Python version
+      # PIP_CONSTRAINT is not set, so 3.0.0 is picked
+      # normally.
       run: |
         python -m pip install --upgrade pip
         if [ "${{ matrix.python-version }}" = "3.9" ]; then
-          printf 'nanobind==2.4.0\nnanobind-backend==2.4.0\n' > /tmp/nb39.txt
+          printf '%s\n%s\n' 'nanobind==2.4.0' 'nanobind-backend==2.4.0' > /tmp/nb39.txt
           PIP_CONSTRAINT=/tmp/nb39.txt python -m pip install . -v
         else
           python -m pip install . -v
