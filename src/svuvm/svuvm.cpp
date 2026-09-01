@@ -1321,7 +1321,21 @@ py_func(const char *mod_name, const char *func_name, const char *mod_paths) {
   }
   nb::print(path);
   nb::module_ py_seq_mod = nb::module_::import_(mod_name);
-  py_seq_mod.attr(func_name)();
+  // Guard the user-Python call so an unhandled exception in the
+  // user's regression / test code does not propagate as a
+  // nanobind::python_error across this extern "C" DPI boundary
+  // (uncaught exceptions there hit std::terminate and core dump
+  // the simulator with no useful diagnostic). nb::python_error
+  // is non-const, so we catch by reference and pass it to
+  // discard_as_unraisable, which prints the full Python
+  // traceback via PyErr_Print() semantics and consumes the
+  // error state cleanly. Any non-nb exception is a bug -- we
+  // re-raise so it is not silently lost.
+  try {
+    py_seq_mod.attr(func_name)();
+  } catch (nb::python_error &e) {
+    e.discard_as_unraisable(__func__);
+  }
 }
 
 __attribute__((visibility("default"))) void

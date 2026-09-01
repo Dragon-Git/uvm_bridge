@@ -1,5 +1,13 @@
 import cocotb
 from cocotb.triggers import Timer
+# cocotb 2.1.0 moved run_regression out of cocotb._init into
+# the cocotb.regression submodule as '_run_regression'. The
+# submodule is not auto-imported by 'import cocotb' in 2.1.0
+# (cocotb.top-level has no 'regression' attribute), so it
+# must be explicitly imported in both branches of the hasattr
+# check below. Without this import the 2.1.0 else branch
+# would AttributeError on 'cocotb.regression'.
+import cocotb.regression
 
 from svuvm import _svuvm as svuvm
 def cb_test(data):
@@ -150,7 +158,20 @@ def main():
     # cocotb._regression_manager = cocotb.regression.RegressionManager()
     # cocotb._scheduler_inst = cocotb._scheduler.Scheduler()
     svuvm.set_finish_on_completion(False)
-    cocotb._init.run_regression(None)
+    # cocotb 2.0.x exposes run_regression as a module-level
+    # function on cocotb._init; cocotb 2.1.0 moved it to the
+    # cocotb.regression submodule as '_run_regression'. The
+    # 'import cocotb.regression' at the top of this file is
+    # needed because cocotb 2.1.0 no longer auto-attaches the
+    # regression submodule to the top-level cocotb namespace
+    # (no 'cocotb.regression' attribute), so without that
+    # import the else branch below would AttributeError.
+    # Sniff the 2.0.1 attribute first; fall back to the 2.1.0
+    # name.
+    if hasattr(cocotb._init, "run_regression"):
+        cocotb._init.run_regression(None)
+    else:
+        cocotb.regression._run_regression()
     cocotb.top.dpi_vec_test.value = 0xBABABABA
     cocotb.log.info(hex(cocotb.top.dpi_vec_test.value.to_unsigned()))
 
