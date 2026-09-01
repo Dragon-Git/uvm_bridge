@@ -4,7 +4,18 @@ module top ();
     import python_bridge_pkg::*;
 
     reg test_wire/*verilator public_flat*/  /*verilator forceable*/;
-    int dpi_vec_test/*verilator public_flat*/  /*verilator forceable*/ = 32'hBABABABA;
+    // uvm_hdl_force and uvm_hdl_deposit (and the SV
+    // 'force' statement) drive the target signal through
+    // VPI vpi_put_value. Verilator 5.x only implements
+    // vpi_put_value for logic/reg vector types; on the
+    // SystemVerilog 'int' type the call returns a
+    // non-zero status and the value is never written,
+    // which is why this had to change from 'int' to a
+    // 32-bit logic vector. The public_flat and forceable
+    // pragmas below are kept so the cocotb-top access
+    // path and any future SV 'force' statements still
+    // work.
+    logic [31:0] dpi_vec_test/*verilator public_flat*/  /*verilator forceable*/ = 32'hBABABABA;
 
     // --- 基础配置类 (用于 factory override 测试) ---
     class env_cfg extends uvm_object;
