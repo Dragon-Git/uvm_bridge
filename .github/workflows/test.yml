@@ -56,8 +56,6 @@ jobs:
     - name: Clone verilator-uvm repository
       run: |
         git clone https://github.com/Dragon-Git/uvm-verilator.git
-        cd uvm-verilator
-        git checkout patch
 
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v7

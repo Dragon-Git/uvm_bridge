@@ -41,7 +41,7 @@ VERILATOR_FLAGS = -j $(NPROC) --vpi   -cc --exe --build --timing \
 				  -Wno-lint -Wno-style -Wno-SYMRSVDWORD -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND \
 				  -Wno-IGNOREDRETURN -Wno-CONSTRAINTIGN -Wno-ZERODLY -Wno-CASTCONST \
 
-CXXFLAGS        = -CFLAGS "-I$(UVM_HOME)/dpi -I$(ROOT)/inc  -DVERILATOR" \
+CXXFLAGS        = -CFLAGS "-I$(UVM_HOME)/dpi -I$(ROOT)/inc  -DVERILATOR -DUVM_NO_MALLOC" \
 					-LDFLAGS "-Wl,-rpath,$(shell cocotb-config --lib-dir) \
           			-L$(shell cocotb-config --lib-dir) \
           			-lcocotbvpi_verilator" \
