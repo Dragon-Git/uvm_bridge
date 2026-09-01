@@ -1240,7 +1240,17 @@ py_func(const char *mod_name, const char *func_name, const char *mod_paths) {
   // triggered svuvm's module init, PyImport_ImportModule
   // returns the existing module without re-running
   // _PyInit__svuvm.
-  PyImport_ImportModule("_svuvm");
+  //
+  // Note: import the package "svuvm", not the raw C
+  // extension "_svuvm". __init__.py does
+  //     from ._svuvm import *
+  // so importing the package is what actually loads
+  // _svuvm.so and runs PyInit__svuvm. A bare
+  // PyImport_ImportModule("_svuvm") would fail with
+  // ModuleNotFoundError because _svuvm is only registered
+  // as a sub-module of the svuvm package, not at the
+  // top level.
+  PyImport_ImportModule("svuvm");
   if (PyErr_Occurred()) {
     PyErr_Print();
     return;
