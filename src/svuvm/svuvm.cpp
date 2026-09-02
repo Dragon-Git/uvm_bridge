@@ -218,6 +218,23 @@ NB_MODULE(_svuvm, m) {
 
   nb::class_<s_vpi_delay>(vpi, "VpiDelay")
       .def(nb::init<>())
+      .def(
+          "__init__",
+          [](s_vpi_delay *self, nb::object da_obj, int no_of_delays,
+             int time_type, int mtm_flag, int append_flag,
+             int pulsere_flag) {
+            self->da = da_obj.is_none()
+                           ? nullptr
+                           : (p_vpi_time)nb::cast<nb::capsule>(da_obj).data();
+            self->no_of_delays = no_of_delays;
+            self->time_type = time_type;
+            self->mtm_flag = mtm_flag;
+            self->append_flag = append_flag;
+            self->pulsere_flag = pulsere_flag;
+          },
+          nb::arg("da"), nb::arg("no_of_delays"), nb::arg("time_type"),
+          nb::arg("mtm_flag") = 0, nb::arg("append_flag") = 0,
+          nb::arg("pulsere_flag") = 0)
       .def_rw("no_of_delays", &s_vpi_delay::no_of_delays)
       .def_rw("time_type", &s_vpi_delay::time_type)
       .def_rw("mtm_flag", &s_vpi_delay::mtm_flag)
@@ -277,6 +294,21 @@ NB_MODULE(_svuvm, m) {
             self->value.time = (p_vpi_time)nb::cast<nb::capsule>(obj).data();
           },
           nb::arg("format"), nb::arg("value"))
+      .def(
+          "__init__",
+          [](s_vpi_value *self, PLI_INT32 format, nb::object obj) {
+            self->format = format;
+            self->value.vector = (p_vpi_vecval)nb::cast<nb::capsule>(obj).data();
+          },
+          nb::arg("format"), nb::arg("value"))
+      .def(
+          "__init__",
+          [](s_vpi_value *self, PLI_INT32 format, nb::object obj) {
+            self->format = format;
+            self->value.strength =
+                (p_vpi_strengthval)nb::cast<nb::capsule>(obj).data();
+          },
+          nb::arg("format"), nb::arg("value"))
       .def_rw("format", &s_vpi_value::format)
       .def_prop_rw(
           "str",
@@ -317,6 +349,102 @@ NB_MODULE(_svuvm, m) {
 
   nb::class_<s_vpi_arrayvalue>(vpi, "VpiArrayValue")
       .def(nb::init<>())
+      .def(
+          "__init__",
+          [](s_vpi_arrayvalue *self, unsigned int format, unsigned int flags,
+             std::vector<PLI_INT32> integers) {
+            self->format = format;
+            self->flags = flags;
+            self->value.integers = new PLI_INT32[integers.size()];
+            for (size_t i = 0; i < integers.size(); ++i) {
+              self->value.integers[i] = integers[i];
+            }
+          },
+          nb::arg("format"), nb::arg("flags"), nb::arg("value"))
+      .def(
+          "__init__",
+          [](s_vpi_arrayvalue *self, unsigned int format, unsigned int flags,
+             std::vector<PLI_INT16> shortints) {
+            self->format = format;
+            self->flags = flags;
+            self->value.shortints = new PLI_INT16[shortints.size()];
+            for (size_t i = 0; i < shortints.size(); ++i) {
+              self->value.shortints[i] = shortints[i];
+            }
+          },
+          nb::arg("format"), nb::arg("flags"), nb::arg("value"))
+      .def(
+          "__init__",
+          [](s_vpi_arrayvalue *self, unsigned int format, unsigned int flags,
+             std::vector<PLI_INT64> longints) {
+            self->format = format;
+            self->flags = flags;
+            self->value.longints = new PLI_INT64[longints.size()];
+            for (size_t i = 0; i < longints.size(); ++i) {
+              self->value.longints[i] = longints[i];
+            }
+          },
+          nb::arg("format"), nb::arg("flags"), nb::arg("value"))
+      .def(
+          "__init__",
+          [](s_vpi_arrayvalue *self, unsigned int format, unsigned int flags,
+             std::vector<PLI_BYTE8> rawvals) {
+            self->format = format;
+            self->flags = flags;
+            self->value.rawvals = new PLI_BYTE8[rawvals.size()];
+            for (size_t i = 0; i < rawvals.size(); ++i) {
+              self->value.rawvals[i] = rawvals[i];
+            }
+          },
+          nb::arg("format"), nb::arg("flags"), nb::arg("value"))
+      .def(
+          "__init__",
+          [](s_vpi_arrayvalue *self, unsigned int format, unsigned int flags,
+             std::vector<s_vpi_vecval> vectors) {
+            self->format = format;
+            self->flags = flags;
+            self->value.vectors = new s_vpi_vecval[vectors.size()];
+            for (size_t i = 0; i < vectors.size(); ++i) {
+              self->value.vectors[i] = vectors[i];
+            }
+          },
+          nb::arg("format"), nb::arg("flags"), nb::arg("value"))
+      .def(
+          "__init__",
+          [](s_vpi_arrayvalue *self, unsigned int format, unsigned int flags,
+             std::vector<s_vpi_time> times) {
+            self->format = format;
+            self->flags = flags;
+            self->value.times = new s_vpi_time[times.size()];
+            for (size_t i = 0; i < times.size(); ++i) {
+              self->value.times[i] = times[i];
+            }
+          },
+          nb::arg("format"), nb::arg("flags"), nb::arg("value"))
+      .def(
+          "__init__",
+          [](s_vpi_arrayvalue *self, unsigned int format, unsigned int flags,
+             std::vector<double> reals) {
+            self->format = format;
+            self->flags = flags;
+            self->value.reals = new double[reals.size()];
+            for (size_t i = 0; i < reals.size(); ++i) {
+              self->value.reals[i] = reals[i];
+            }
+          },
+          nb::arg("format"), nb::arg("flags"), nb::arg("value"))
+      .def(
+          "__init__",
+          [](s_vpi_arrayvalue *self, unsigned int format, unsigned int flags,
+             std::vector<float> shortreals) {
+            self->format = format;
+            self->flags = flags;
+            self->value.shortreals = new float[shortreals.size()];
+            for (size_t i = 0; i < shortreals.size(); ++i) {
+              self->value.shortreals[i] = shortreals[i];
+            }
+          },
+          nb::arg("format"), nb::arg("flags"), nb::arg("value"))
       .def_rw("format", &s_vpi_arrayvalue::format)
       .def_rw("flags", &s_vpi_arrayvalue::flags)
       .def("get_integers",
@@ -362,6 +490,23 @@ NB_MODULE(_svuvm, m) {
       .def(
           "__init__",
           [](s_vpi_systf_data *self, PLI_INT32 type, PLI_INT32 sysfunctype,
+             nb::callable calltf) {
+            std::string func_name =
+                nb::cast<std::string>(calltf.attr("__name__"));
+            std::string tfname = "$" + func_name;
+            auto *callback_info = new CallbackInfo(calltf, "user_data");
+            self->type = type;
+            self->sysfunctype = sysfunctype;
+            self->tfname = const_cast<char *>(tfname.c_str());
+            self->calltf = systf_callback_wrap;
+            self->compiletf = nullptr;
+            self->sizetf = nullptr;
+            self->user_data = reinterpret_cast<PLI_BYTE8 *>(callback_info);
+          },
+          nb::arg("type"), nb::arg("sysfunctype"), nb::arg("calltf"))
+      .def(
+          "__init__",
+          [](s_vpi_systf_data *self, PLI_INT32 type, PLI_INT32 sysfunctype,
              const std::string &tfname) {
             self->type = type;
             self->sysfunctype = sysfunctype;
@@ -392,8 +537,18 @@ NB_MODULE(_svuvm, m) {
             o.user_data = const_cast<PLI_BYTE8 *>(s.c_str());
           });
 
+  // Use nb::new_ instead of def("__init__", ...) so that the side-effect
+  // call to the simulator runtime happens in __new__ (before placement-new
+  // settles) and the returned object is fully populated by the time
+  // __init__ is invoked. A bare .def("__init__", [](T* self){...}) would
+  // place the side effect after Python already constructed an uninitialized
+  // T, so reading the field from Python would still see garbage.
   nb::class_<s_vpi_vlog_info>(vpi, "VpiVlogInfo")
-      .def(nb::init<>())
+      .def(nb::new_([]() -> s_vpi_vlog_info * {
+        s_vpi_vlog_info *info = new s_vpi_vlog_info();
+        vpi_get_vlog_info(info);
+        return info;
+      }))
       .def_prop_ro("argc", [](s_vpi_vlog_info &o) { return o.argc; })
       .def_prop_ro("argv",
                    [](s_vpi_vlog_info &o) {
@@ -413,7 +568,12 @@ NB_MODULE(_svuvm, m) {
       });
 
   nb::class_<s_vpi_error_info>(vpi, "VpiErrorInfo")
-      .def(nb::init<>())
+      .def(nb::new_([]() -> s_vpi_error_info * {
+        s_vpi_error_info *info = new s_vpi_error_info();
+        std::memset(info, 0, sizeof(s_vpi_error_info));
+        vpi_chk_error(info);
+        return info;
+      }))
       .def_rw("state", &s_vpi_error_info::state)
       .def_rw("level", &s_vpi_error_info::level)
       .def_rw("line", &s_vpi_error_info::line)
@@ -505,6 +665,8 @@ NB_MODULE(_svuvm, m) {
             return cb->user_data;
           },
           [](s_cb_data &o, nb::object cb_rtn_obj, const std::string &s) {
+            // 替换 callback：先释放旧 CallbackInfo（持有 nb::object，必须
+            // 在持 GIL 时析构，所以这里 delete 是安全的），再装新的。
             if (o.user_data != nullptr) {
               auto *old_cb = reinterpret_cast<CallbackInfo *>(o.user_data);
               delete old_cb;
@@ -513,6 +675,12 @@ NB_MODULE(_svuvm, m) {
             auto *new_cb = new CallbackInfo(cb_rtn_obj, s);
             o.user_data = reinterpret_cast<PLI_BYTE8 *>(new_cb);
           });
+
+  // NOTE: CallbackInfo（被 s_cb_data::user_data / s_vpi_systf_data::user_data
+  // 持有）目前没有自动回收路径。simulator 调 vpi_remove_cb / unregister
+  // systf 时不会通知 C 端 free user_data。Python 用户应保留 callback
+  // 引用直到 sim 端确认不再触发回调，否则会泄漏 nb::object + std::string。
+  // 后续 commit 计划在 vpi_user_wrap.h 加一个 dispose hook。
   // functions
   vpi.def("vpi_register_cb", vpi_func_wrap(vpi_register_cb),
           nb::arg("cb_data_p"), "Register a callback.");
@@ -607,15 +775,14 @@ NB_MODULE(_svuvm, m) {
 
   // 运行时检测：VCS/VCSMX 不支持这些函数。使用 vpi_func_optional
   // 统一处理 "存在→包装 / 不存在→占位" 的两种分支，避免重复 if/else。
-  vpi.def("vpi_get_data",
-          vpi_func_optional<decltype(&vpi_get_data)>("vpi_get_data", nullptr),
-          nb::arg("id"), nb::arg("dataLoc"), nb::arg("numOfBytes"),
-          "Get data.");
+  // 名字只写一次：宏从 decltype(&f) 推导出函数名字符串。
+#define VPI_DEF_OPTIONAL(name)                                  \
+  vpi.def(#name, vpi_func_optional<decltype(&name)>(#name, nullptr))
 
-  vpi.def("vpi_put_data",
-          vpi_func_optional<decltype(&vpi_put_data)>("vpi_put_data", nullptr),
-          nb::arg("id"), nb::arg("dataLoc"), nb::arg("numOfBytes"),
-          "Put data.");
+  VPI_DEF_OPTIONAL(vpi_get_data);
+  VPI_DEF_OPTIONAL(vpi_put_data);
+
+#undef VPI_DEF_OPTIONAL
   vpi.def("vpi_get_userdata", &vpi_get_userdata_wrap, nb::arg("obj"),
           "Get user data.");
 
