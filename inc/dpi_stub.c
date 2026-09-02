@@ -326,7 +326,7 @@ int get_reg_desired_value(const char* n) { (void)n; STUB_MSG(get_reg_desired_val
 long long get_reg_address(const char* n) { (void)n; STUB_MSG(get_reg_address); return 0; }
 void reset_reg(const char* n, const char* k) { (void)n;(void)k; STUB_MSG(reset_reg); }
 int predict_reg(const char* n, int d, const char* k) { (void)n;(void)d;(void)k; STUB_MSG(predict_reg); return 0; }
-int mirror_reg(const char* n, int c) { (void)n;(void)c; STUB_MSG(mirror_reg); return 0; }
+int mirror_reg(const char* n, int c, int *d) { (void)n;(void)c;(void)d; STUB_MSG(mirror_reg); return 0; }
 const char* get_reg_names(const char* b) { (void)b; STUB_MSG(get_reg_names); return ""; }
 const char* get_block_names(const char* b) { (void)b; STUB_MSG(get_block_names); return ""; }
 const char* get_reg_field_names(const char* r) { (void)r; STUB_MSG(get_reg_field_names); return ""; }
