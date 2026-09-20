@@ -29,6 +29,9 @@ build-backend = "scikit_build_core.build"
 cmake.version = ">=3.15"
 build.verbose = true
 logging.level = "INFO"
+wheel.exclude = [
+    "**/*.cpp",
+]
 
 # Standard PEP 621 dynamic-metadata hook: tell scikit-build-core to
 # delegate version resolution to setuptools_scm. Without this, the
