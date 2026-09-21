@@ -32,6 +32,15 @@ jobs:
     - name: Set up Verilator
       uses: veryl-lang/setup-verilator@v2
 
+    - name: Pin Verilator to a stable path
+      if: runner.os == 'Linux'
+      run: |
+        VLT_ROOT="$(dirname "$(dirname "$(readlink -f "$(command -v verilator)")")")"
+        rm -rf "$HOME/vlt-root"
+        mv "$VLT_ROOT" "$HOME/vlt-root"
+        echo "VERILATOR_ROOT=$HOME/vlt-root" >> "$GITHUB_ENV"
+        echo "$HOME/vlt-root/bin" >> "$GITHUB_PATH"
+
     - name: Cache ccache (verilator tests)
       uses: actions/cache@v6
       with:
