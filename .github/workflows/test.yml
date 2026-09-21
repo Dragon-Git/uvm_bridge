@@ -45,8 +45,8 @@ jobs:
       uses: actions/cache@v6
       with:
         path: ${{ github.workspace }}/.ccache-vlt
-        key: ccache-vlt-${{ runner.os }}-${{ github.sha }}
-        restore-keys: ccache-vlt-${{ runner.os }}-
+        key: ccache-vlt-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('src/**', 'test/**', 'inc/**', 'pyproject.toml') }}
+        restore-keys: ccache-vlt-${{ runner.os }}-${{ matrix.python-version }}-
 
     - name: Cache ccache (wheel build)
       uses: actions/cache@v6
