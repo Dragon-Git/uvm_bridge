@@ -11,6 +11,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
+      CCACHE_DIR: /home/runner/.ccache
       OBJCACHE: ccache
     steps:
     - uses: actions/checkout@v7
