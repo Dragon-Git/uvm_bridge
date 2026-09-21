@@ -22,6 +22,11 @@ VERILATOR_FLAGS = -j $(NPROC) --vpi --binary \
 
 CXXFLAGS        = -CFLAGS "-I$(UVM_HOME)/dpi -I$(ROOT)/inc  -DVERILATOR -DUVM_NO_MALLOC"
 
+ifeq ($(shell uname),Linux)
+ASNEEDED_PRE    = -LDFLAGS "-Wl,--no-as-needed"
+ASNEEDED_POST   = -LDFLAGS "-Wl,--as-needed"
+endif
+
 RUN_FLAGS       = +UVM_TESTNAME=base_test +UVM_NO_RELNOTES +UVM_OBJECTION_TRACE $(RUN_OPTS)
 
 all: run
@@ -31,7 +36,7 @@ $(BUILD_DIR):
 
 build: $(BUILD_DIR)
 	$(VERILATOR) $(VERILATOR_FLAGS) $(INCLUDE_DIRS) $(UVM_DPI) \
-	$(UVM_PKG) $(SVUVM_CONFIG) $(SV_SOURCE) $(CXXFLAGS) $(LDFLAGS)
+	$(UVM_PKG) $(ASNEEDED_PRE) $(SVUVM_CONFIG) $(SV_SOURCE) $(CXXFLAGS) $(ASNEEDED_POST) $(LDFLAGS)
 
 
 run: build
