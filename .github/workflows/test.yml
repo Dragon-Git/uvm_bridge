@@ -16,6 +16,11 @@ jobs:
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
         os: [ubuntu-latest, macos-26]
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache-vlt
+      OBJCACHE: ccache
+      SKBUILD_CMAKE_ARGS: >-
+        -DCMAKE_C_COMPILER_LAUNCHER=${{ github.workspace }}/ccwrap;-DCMAKE_CXX_COMPILER_LAUNCHER=${{ github.workspace }}/ccwrap
     steps:
     - uses: actions/checkout@v7
       with:
@@ -23,6 +28,20 @@ jobs:
         # from tags; shallow clones trigger "is shallow and may cause
         # errors" warnings and produce incorrect dev versions.
         fetch-depth: 0
+
+    - name: Cache ccache (verilator tests)
+      uses: actions/cache@v6
+      with:
+        path: ${{ github.workspace }}/.ccache-vlt
+        key: ccache-vlt-${{ runner.os }}-${{ github.sha }}
+        restore-keys: ccache-vlt-${{ runner.os }}-
+
+    - name: Cache ccache (wheel build)
+      uses: actions/cache@v6
+      with:
+        path: ${{ github.workspace }}/.ccache-whl
+        key: ccache-whl-${{ runner.os }}-${{ matrix.python-version }}-${{ github.sha }}
+        restore-keys: ccache-whl-${{ runner.os }}-${{ matrix.python-version }}-
 
     - name: Cache verilator (Ubuntu)
       if: matrix.os == 'ubuntu-latest'
@@ -37,7 +56,9 @@ jobs:
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y --no-install-recommends help2man make g++ perl python3 autoconf flex bison libfl2 libfl-dev zlib1g zlib1g-dev
+        sudo apt-get install -y --no-install-recommends ccache help2man make g++ perl python3 autoconf flex bison libfl2 libfl-dev zlib1g zlib1g-dev
+        ccache --set-config=max_size=2G
+        ccache -z
         sudo bash ./script/install_verilator.sh
 
     - name: Install dependencies on macOS (arm64)
@@ -51,7 +72,9 @@ jobs:
       run: |
         export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
         brew update
-        brew install verilator
+        brew install verilator ccache
+        ccache --set-config=max_size=2G
+        ccache -z
 
     - name: Clone verilator-uvm repository
       run: |
@@ -61,6 +84,13 @@ jobs:
       uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
+
+    - name: Set up ccache wheel wrapper
+      run: |
+        printf '#!/bin/sh\nCCACHE_DIR=%s/.ccache-whl exec ccache "$@"\n' "${{ github.workspace }}" > "${{ github.workspace }}/ccwrap"
+        chmod +x "${{ github.workspace }}/ccwrap"
+        CCACHE_DIR="${{ github.workspace }}/.ccache-whl" ccache --set-config=max_size=500M
+        CCACHE_DIR="${{ github.workspace }}/.ccache-whl" ccache -z
 
     - name: Install Python dependencies
       # nanobind 3.0.0 (Aug 2026) raises ImportError at import
@@ -98,3 +128,10 @@ jobs:
     - name: Run cocotb test
       run: |
         make -f test/cocotb_test/Makefile run
+
+    - name: Show ccache stats
+      run: |
+        echo "== verilator tests =="
+        CCACHE_DIR="${{ github.workspace }}/.ccache-vlt" ccache -s
+        echo "== wheel build =="
+        CCACHE_DIR="${{ github.workspace }}/.ccache-whl" ccache -s
