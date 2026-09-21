@@ -52,6 +52,10 @@ fallback_version = "0.0.0+unknown"
 # Make `pip install .` on an arbitrary commit produce a usable PEP 440 version
 local_scheme = "node-and-date"
 
+# Ensure the wheel is properly named across platforms
+wheel.py-api = "cp312"
+wheel.expand-macos-universal-tags = true
+
 [tool.ruff]
 line-length = 120
 
@@ -73,3 +77,17 @@ ignore = ["BLE001", "EXE001", "I001", "RUF100"]
 
 [tool.ruff.lint.pydocstyle]
     convention = "google"
+
+[tool.cibuildwheel]
+# Build settings for cibuildwheel
+build = "cp39-* cp310-* cp311-* cp312-* cp313-* cp314-*"
+skip = "pp* *_s390x *-musllinux*"
+
+[tool.cibuildwheel.windows]
+test-skip = "*"
+
+[tool.cibuildwheel.linux]
+before-build = "pip install cmake"
+
+[tool.cibuildwheel.macos]
+before-build = "pip install cmake"

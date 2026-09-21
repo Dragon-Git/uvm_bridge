@@ -34,8 +34,23 @@
 #include "svdpi.h"
 #include <string.h>
 #include <stdio.h>
-#include <regex.h>
 #include <limits.h>
+
+// POSIX regex.h is not available on Windows MSVC
+// On Windows, we disable the regex functions (uvm_dpi_regcomp, uvm_dpi_regexec, uvm_dpi_regfree)
+// as they are not commonly used in the core svuvm functionality
+#ifdef _WIN32
+  // Define regex_t as a placeholder type on Windows.
+  // MSVC C mode requires at least one member in a struct.
+  typedef struct { int _dummy; } regex_t;
+  #define REG_EXTENDED 0
+  #define REG_ICASE 0
+  #define REG_NOSUB 0
+  #define REG_NEWLINE 0
+  #define REG_NOMATCH 1
+#else
+  #include <regex.h>
+#endif
 
 // The following consts and method call are for
 // internal usage by the UVM DPI implementation,

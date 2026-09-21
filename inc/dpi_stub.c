@@ -155,6 +155,21 @@ const char *uvm_dpi_get_next_arg_c(int init) { (void)init; return (const char *)
 char *uvm_dpi_get_tool_name_c(void) { return (char *)"stub-simulator"; }
 char *uvm_dpi_get_tool_version_c(void) { return (char *)"0.0"; }
 
+/* ===== Regex stubs (for Windows compatibility) ===== */
+regex_t* uvm_dpi_regcomp(char* pattern) {
+    (void)pattern;
+    // On Windows and in stub mode, regex is not supported
+    return (regex_t*)0;
+}
+int uvm_dpi_regexec(regex_t* re, char* str) {
+    (void)re; (void)str;
+    // Return no match in stub mode
+    return REG_NOMATCH;
+}
+void uvm_dpi_regfree(regex_t* re) {
+    (void)re;
+}
+
 /* ===== DPI Export stubs (from SystemVerilog to C++) ===== */
 /* 此段由 scripts/generate_dpi_stub.py 自动生成，请勿手工修改。
  * 若需要新增 export function，请在 src/svuvm/python_bridge_pkg.sv
