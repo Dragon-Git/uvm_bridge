@@ -29,6 +29,9 @@ jobs:
         # errors" warnings and produce incorrect dev versions.
         fetch-depth: 0
 
+    - name: Set up Verilator
+      uses: veryl-lang/setup-verilator@v2
+
     - name: Cache ccache (verilator tests)
       uses: actions/cache@v6
       with:
@@ -43,36 +46,18 @@ jobs:
         key: ccache-whl-${{ runner.os }}-${{ matrix.python-version }}-${{ github.sha }}
         restore-keys: ccache-whl-${{ runner.os }}-${{ matrix.python-version }}-
 
-    - name: Cache verilator (Ubuntu)
-      if: matrix.os == 'ubuntu-latest'
-      uses: actions/cache@v6
-      env:
-        cache-name: cache-verilator-new
-      with:
-        path: /home/runner/work/verilator
-        key: verilator-v5${{ env.cache-name }}
-
     - name: Install dependencies on Ubuntu
       if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
-        sudo apt-get install -y --no-install-recommends ccache help2man make g++ perl python3 autoconf flex bison libfl2 libfl-dev zlib1g zlib1g-dev
+        sudo apt-get install -y --no-install-recommends ccache g++ make
         ccache --set-config=max_size=2G
         ccache -z
-        sudo bash ./script/install_verilator.sh
 
-    - name: Install dependencies on macOS (arm64)
+    - name: Install dependencies on macOS
       if: matrix.os == 'macos-26'
-      env:
-        # Homebrew 5.x requires explicit trust for third-party taps
-        # (e.g. aws/tap) that older macOS-26 images don't pre-trust.
-        # The trust requirement is a non-essential safety check; we
-        # only install verilator from the default tap, so we skip it.
-        HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
       run: |
-        export HOMEBREW_NO_REQUIRE_TAP_TRUST=1
-        brew update
-        brew install verilator ccache
+        brew install ccache
         ccache --set-config=max_size=2G
         ccache -z
 
