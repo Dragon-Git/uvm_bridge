@@ -927,44 +927,34 @@ package python_bridge_pkg;
     //
     // Provides a named barrier synchronization primitive.
     //------------------------------------------------------------------------------
-    class barrier_pool;
-        static uvm_barrier pool[string];
-        static function uvm_barrier get(string name, int threshold=1);
-            if (!pool.exists(name)) begin
-                pool[name] = new(name, threshold);
-            end
-            return pool[name];
-        endfunction
-        static function void delete(string name);
-            if (pool.exists(name)) pool.delete(name);
-        endfunction
-    endclass
-
     function automatic void barrier_set_threshold(string name, int threshold);
-        uvm_barrier b = barrier_pool::get(name, threshold);
+        uvm_barrier b = uvm_barrier_pool::get_global(name);
         b.set_threshold(threshold);
     endfunction
 
     function automatic int barrier_get_threshold(string name);
-        if (!barrier_pool::pool.exists(name)) return 0;
-        return barrier_pool::pool[name].get_threshold();
+        uvm_barrier_pool p = uvm_barrier_pool::get_global_pool();
+        if (!p.exists(name)) return 0;
+        return p.get(name).get_threshold();
     endfunction
 
     task automatic barrier_wait(string name);
-        uvm_barrier b = barrier_pool::get(name, 1);
+        uvm_barrier b = uvm_barrier_pool::get_global(name);
        `ifndef VERILATOR
         b.wait_for();
-        `endif //VERILATOR
+       `endif //VERILATOR
     endtask
 
     function automatic void barrier_reset(string name, int wakeup=0);
-        if (!barrier_pool::pool.exists(name)) return;
-        barrier_pool::pool[name].reset(wakeup);
+        uvm_barrier_pool p = uvm_barrier_pool::get_global_pool();
+        if (!p.exists(name)) return;
+        p.get(name).reset(wakeup);
     endfunction
 
     function automatic int barrier_get_num_waiters(string name);
-        if (!barrier_pool::pool.exists(name)) return 0;
-        return barrier_pool::pool[name].get_num_waiters();
+        uvm_barrier_pool p = uvm_barrier_pool::get_global_pool();
+        if (!p.exists(name)) return 0;
+        return p.get(name).get_num_waiters();
     endfunction
 
     //------------------------------------------------------------------------------
