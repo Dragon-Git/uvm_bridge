@@ -2,6 +2,24 @@
 
 [English](README.md) | 简体中文
 
+[![CI](https://github.com/Dragon-Git/uvm_bridge/actions/workflows/test.yml/badge.svg)](https://github.com/Dragon-Git/uvm_bridge/actions/workflows/test.yml)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Dragon-Git/uvm_bridge)
+[![PyPI - Version](https://img.shields.io/pypi/v/svuvm)](https://pypi.org/project/svuvm)
+[![Latest Release](https://img.shields.io/github/v/release/Dragon-Git/uvm_bridge?color=blue&label=Latest%20Release)](https://github.com/Dragon-Git/uvm_bridge/releases/latest)
+[![GitHub deployments](https://img.shields.io/github/deployments/Dragon-Git/uvm_bridge/pypi)](https://github.com/Dragon-Git/uvm_bridge/deployments)
+[![downloads](https://pepy.tech/badge/svuvm)](https://pepy.tech/project/svuvm)
+[![PyPI downloads](https://img.shields.io/pypi/dm/svuvm)](https://pypi.org/project/svuvm)
+[![Python 3.9–3.14](https://img.shields.io/badge/python-3.9%E2%80%933.14-blue)](https://pypi.org/project/svuvm)
+[![Platform](https://img.shields.io/badge/platform-Linux%20x86__64%20%7C%20macOS%20arm64-lightgrey)](https://pypi.org/project/svuvm)
+[![Verilator](https://img.shields.io/badge/verilator-5.x-brightgreen)](https://github.com/verilator/verilator)
+[![UVM](https://img.shields.io/badge/UVM-IEEE%201800.2--2020-informational)](https://github.com/Dragon-Git/uvm-verilator)
+[![Stars](https://img.shields.io/github/stars/Dragon-Git/uvm_bridge)](https://github.com/Dragon-Git/uvm_bridge/stargazers)
+[![Issues](https://img.shields.io/github/issues/Dragon-Git/uvm_bridge)](https://github.com/Dragon-Git/uvm_bridge/issues)
+[![Open PRs](https://img.shields.io/github/issues-pr/Dragon-Git/uvm_bridge)](https://github.com/Dragon-Git/uvm_bridge/pulls)
+[![Contributors](https://img.shields.io/github/contributors/Dragon-Git/uvm_bridge)](https://github.com/Dragon-Git/uvm_bridge/graphs/contributors)
+[![Last commit](https://img.shields.io/github/last-commit/Dragon-Git/uvm_bridge)](https://github.com/Dragon-Git/uvm_bridge/commits/main)
+[![Language count](https://img.shields.io/github/languages/count/Dragon-Git/uvm_bridge?logo=python)](https://github.com/Dragon-Git/uvm_bridge)
+
 ## 概述
 
 svuvm 是一款硬件验证框架, 通过该框架，用户可以在 Python 中调用 SystemVerilog UVM 的常用 API 来编写case或者动态配置环境，从而节省编译时间并提高开发效率。 
