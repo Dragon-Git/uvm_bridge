@@ -315,11 +315,19 @@ def main():
         svuvm.vpi.vpi_printf(f"  child[{i}] = {child_name}\n")
 
     # parent / type_name
+    # component_get_child_name returns a `const char*` from SV; a simulator
+    # that does not model string returns for exported functions (xezim
+    # reports "calls from C return 0") hands back None, so skip the check
+    # rather than failing on the concatenation.
     if num_children > 0:
-        first_child_path = "uvm_test_top." + svuvm.component_get_child_name("uvm_test_top", 0)
-        parent = svuvm.component_get_parent(first_child_path)
-        type_name = svuvm.component_get_type_name(first_child_path)
-        svuvm.vpi.vpi_printf(f"  parent = {parent}, type_name = {type_name}\n")
+        child0 = svuvm.component_get_child_name("uvm_test_top", 0)
+        if child0 is None:
+            svuvm.vpi.vpi_printf("  child name unavailable (simulator does not model string returns)\n")
+        else:
+            first_child_path = "uvm_test_top." + child0
+            parent = svuvm.component_get_parent(first_child_path)
+            type_name = svuvm.component_get_type_name(first_child_path)
+            svuvm.vpi.vpi_printf(f"  parent = {parent}, type_name = {type_name}\n")
 
     # component_sprint / uvm_top_sprint
     sprint_text = svuvm.component_sprint("uvm_test_top")
