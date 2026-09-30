@@ -160,14 +160,57 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install . -v
 
-    - name: Install xezim
+    # TODO: restore this once a release newer than 0.11.0 is published, and
+    # drop the source build below. Kept here so the switch back is a one-liner.
+    # - name: Install xezim
+    #   run: |
+    #     curl -fL --retry 3 -o /tmp/xezim.tar.gz \
+    #       "https://github.com/EDAPack/xezim-bin/releases/download/v${XEZIM_VERSION}/${{ matrix.xezim_asset }}"
+    #     tar -xzf /tmp/xezim.tar.gz -C "$HOME"
+    #     echo "$HOME/xezim/bin" >> "$GITHUB_PATH"
+    #     echo "XEZIM_PREFIX=$HOME/xezim" >> "$GITHUB_ENV"
+
+    - name: Build xezim from main
+      env:
+        # cargo's libgit2 does not use the runner's git credential helper;
+        # shelling out to git does, which is what a public repo needs.
+        CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       run: |
-        curl -fL --retry 3 -o /tmp/xezim.tar.gz \
-          "https://github.com/EDAPack/xezim-bin/releases/download/v${XEZIM_VERSION}/${{ matrix.xezim_asset }}"
-        tar -xzf /tmp/xezim.tar.gz -C "$HOME"
+        rustup set profile minimal
+        rustup toolchain install stable
+        rustup default stable
+        git clone --depth 1 https://github.com/aionhw/xezim.git /tmp/xezim-src
+        # Same UVM fork the verilator leg uses. Its src/dpi/uvm_dpi.h guards
+        # the glibc-only <malloc.h> with `ifndef UVM_NO_MALLOC, which both
+        # builds define; upstream Accellera does not, so on macOS the
+        # preprocessor stopped at "malloc.h file not found".
+        git clone --depth 1 https://github.com/Dragon-Git/uvm-verilator.git /tmp/uvm-verilator
+        cd /tmp/xezim-src
+        cargo build --release
+        mkdir -p "$HOME/xezim/share/uvm"
+        cp -r /tmp/uvm-verilator/src "$HOME/xezim/share/uvm/"
+        mkdir -p "$HOME/xezim/bin"
+        cp /tmp/xezim-src/target/release/xezim "$HOME/xezim/bin/"
+        cp -r /tmp/xezim-src/include "$HOME/xezim/"
         echo "$HOME/xezim/bin" >> "$GITHUB_PATH"
         echo "XEZIM_PREFIX=$HOME/xezim" >> "$GITHUB_ENV"
+        "$HOME/xezim/bin/xezim" -V
 
     - name: Run xezim test
       run: |
         make -f test/base_test/Makefile run SIM=xezim
+
+    - name: Install peakrdl
+      # peakrdl-pyral brings the cli + systemrdl front-end; the regblock
+      # exporter that turns the same .rdl into RTL is a separate plugin.
+      run: |
+        python -m pip install 'peakrdl-pyral[cli]' peakrdl-pyral-runtime peakrdl-regblock
+
+    - name: Generate pyral model and register block
+      run: |
+        mkdir -p test/pyral_test/gen test/pyral_test/rtl
+        make -f test/pyral_test/Makefile gen
+
+    - name: Run pyral register test
+      run: |
+        make -f test/pyral_test/Makefile run

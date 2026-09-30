@@ -26,25 +26,26 @@ RUN_FLAGS       = +UVM_TESTNAME=base_test +UVM_NO_RELNOTES +UVM_OBJECTION_TRACE 
 ifeq ($(SIM),xezim)
 
 MAX_TIME        ?= 10ms
-LOG             = $(BUILD_DIR)/xezim.log
+# Separate from the verilator branch's relative BUILD_DIR: these paths end
+# up in --dpi-lib arguments and in the log redirect, so they must mean the
+# same thing whoever invokes make. The verilator branch keeps its relative
+# build/ because verilator is given it as -Mdir.
+XEZIM_BUILD_DIR = $(TEST_DIR)/build
+LOG             = $(XEZIM_BUILD_DIR)/xezim.log
 
 # XEZIM_PREFIX: env var wins; otherwise derive from the binary on PATH
 XEZIM_PREFIX   ?= $(shell p="$$(command -v xezim 2>/dev/null)"; [ -n "$$p" ] && cd "$$(dirname "$$p")/.." && pwd)
 XEZIM           = $(XEZIM_PREFIX)/bin/xezim
-UVM_HOME        = $(XEZIM_PREFIX)/share/uvm
+UVM_HOME        = $(if $(XEZIM_UVM_SRC),$(patsubst %/uvm_pkg.sv,%,$(XEZIM_UVM_SRC)),$(XEZIM_PREFIX)/share/uvm)
 
 SVUVM_DIR       = $(shell $(PYTHON) -c "import svuvm, os; print(os.path.dirname(svuvm.__file__))" 2>/dev/null)
 SVUVM_SV        = $(SVUVM_DIR)/python_bridge_pkg.sv
 SVUVM_DPI_LIB   = $(firstword $(wildcard $(SVUVM_DIR)/_svuvm*.so))
-VPI_SHIM_SRC    = $(TEST_DIR)/xezim_vpi_shim.c
-VPI_SHIM        = $(BUILD_DIR)/xezim_vpi_shim.so
-
 # UVM's own DPI-C layer. verilator links uvm_dpi.cc into Vtop; under xezim
 # it must be a preloaded library. The tarball ships a xezim-specific
 # variant that implements the uvm_hdl_* surface on plain IEEE 1800 VPI.
 UVM_DPI_SRC     = $(XEZIM_PREFIX)/include/uvm_dpi_xezim.cc
-UVM_DPI_HEADER  = $(TEST_DIR)/xezim_uvm_report_bridge.h
-UVM_DPI_SO      = $(BUILD_DIR)/uvm_dpi_xezim.so
+UVM_DPI_SO      = $(XEZIM_BUILD_DIR)/uvm_dpi_xezim.so
 
 # _svuvm.so is a Python extension: it does not link libpython, so in a
 # non-Python host (xezim dlopens it with RTLD_NOW) the Py* symbols must
@@ -68,73 +69,53 @@ check:
 
 ifeq ($(shell uname),Darwin)
 # -Wl,-z,lazy is a GNU-ld option; ld64 rejects it (and lazy binding is the
-# default for dylibs on macOS anyway). The shim and the UVM DPI library
-# reference vpi_*/svSetScope, which only exist inside xezim, so they need
+# default for dylibs on macOS anyway). The UVM DPI library references
+# vpi_*/svSetScope, which only exist inside xezim, so it needs
 # -undefined dynamic_lookup to link.
 LAZY            =
 UNDEF           = -Wl,-undefined,dynamic_lookup
-# macOS 13+ uses chained fixups by default, which eagerly binds even
-# dynamic_lookup imports at load time. Inside the compiler child there are
-# no VPI symbols, so the inserted shim would be killed before it can do
-# anything. -no_fixup_chains restores classic lazy binding.
-NO_FIXUP        = -Wl,-no_fixup_chains
-SHIM_ARCH       = -arch arm64 -arch arm64e
-# xezim's generated link for the export trampoline leaves
-# ___xezim_dpi_export_dispatch undefined; ld64 rejects undefined symbols in
-# a dylib by default (Linux -shared allows them), so the trampoline link
-# fails on macOS. Route the compiler through a wrapper that marks the
-# symbol as runtime-resolved - its definition lives in the xezim binary
-# (the same -U trick nanobind uses for _Py* symbols).
-# xezim spawns a bare "cc" for the trampoline and resolves it through PATH:
-# setting CC (or CC_<triple>) has no effect. Shadow "cc" on PATH instead.
-# Its generated link leaves ___xezim_dpi_export_dispatch undefined; ld64
-# rejects undefined symbols in a dylib by default (Linux -shared allows
-# them, which is why Linux works). The definition lives in the xezim
-# binary, so marking the symbol as runtime-resolved is enough - the same
-# -U trick nanobind uses for _Py* symbols.
-CC_WRAPPER      = $(BUILD_DIR)/cc
+# xezim generates the export-trampoline link itself, as
+# "cc -m64 -fPIC -shared" with no -U (simulator.rs). The trampoline
+# references __xezim_dpi_export_dispatch, whose definition lives in the
+# xezim binary, and ld64 rejects undefined symbols in a dylib - Linux's
+# -shared allows them, which is why only macOS needs this. xezim spawns a
+# bare "cc" resolved through PATH and ignores CC, so the flag is injected
+# by shadowing cc.
+CC_WRAPPER      = $(XEZIM_BUILD_DIR)/cc
 REAL_CC         = $(shell command -v cc)
 CC_WRAPPER_SH   = $(TEST_DIR)/xezim_cc_wrapper.sh
 CC_MAKE         = @cp "$(CC_WRAPPER_SH)" $(CC_WRAPPER) && chmod +x $(CC_WRAPPER)
-CC_PATH         = PATH="$(abspath $(BUILD_DIR)):$$PATH" XEZIM_REAL_CC="$(REAL_CC)"
-PRELOAD_VAR     = DYLD_INSERT_LIBRARIES
-PRELOAD_ARGS    = $(abspath $(VPI_SHIM))
-BOOTSTRAP_ARGS  = $(abspath $(LIBPYTHON)) $(abspath $(UVM_DPI_SO))
+CC_PATH         = PATH="$(abspath $(XEZIM_BUILD_DIR)):$$PATH" XEZIM_REAL_CC="$(REAL_CC)"
 else
 LAZY            = -Wl,-z,lazy
 UNDEF           =
-NO_FIXUP        =
-SHIM_ARCH       =
 CC_WRAPPER      =
 REAL_CC         =
 CC_WRAPPER_SH   =
 CC_MAKE         =
 CC_PATH         =
-PRELOAD_VAR     = LD_PRELOAD
-PRELOAD_ARGS    = $(abspath $(LIBPYTHON)) $(abspath $(VPI_SHIM)) $(abspath $(UVM_DPI_SO))
-BOOTSTRAP_ARGS  =
 endif
 
 run: check
-	@mkdir -p $(BUILD_DIR)
+	@mkdir -p $(XEZIM_BUILD_DIR)
 	$(CC_MAKE)
-	cc -shared -fPIC $(LAZY) $(UNDEF) $(NO_FIXUP) $(SHIM_ARCH) -I "$(XEZIM_PREFIX)/include" $(VPI_SHIM_SRC) -o $(VPI_SHIM)
-	c++ -shared -fPIC $(LAZY) $(UNDEF) $(SHIM_ARCH) -std=c++17 -Wno-format-security \
+	c++ -shared -fPIC $(LAZY) $(UNDEF) -std=c++17 -Wno-format-security \
 	  -DUVM_NO_MALLOC \
-	  -include "$(UVM_DPI_HEADER)" \
 	  -I "$(XEZIM_PREFIX)/include" -I "$(UVM_HOME)/src/dpi" \
 	  $(UVM_DPI_SRC) -o $(UVM_DPI_SO)
-# xezim's --dpi-lib dlopen turns out to be RTLD_LOCAL despite the docs, so
-# libpython, the VPI shim and UVM's DPI layer must reach the global
-# namespace via the OS loader for _svuvm.so to relocate. Set only the
-# platform's own variable: setting both loads the libraries twice and the
-# second copy fails to relocate. Absolute paths are required because xezim
-# changes directory before the loader sees the list.
+# Everything _svuvm.so needs comes in as a --dpi-lib sibling. xezim opens
+# each with RTLD_NOW | RTLD_GLOBAL and retries while a pass still loads
+# something, so one library may call into another in any command-line
+# order; no OS-level preloading is needed. Order below is dependency-first
+# anyway, purely for readability:
+#   libpython  - Py* symbols (the extension deliberately does not link it)
+#   uvm_dpi    - UVM's DPI-C layer (uvm_hdl_* and friends)
+#   _svuvm     - the bridge itself
 	PYTHONPATH="$(TEST_DIR):$$PYTHONPATH" \
-	XEZIM_PRELOAD_LIBS="$(BOOTSTRAP_ARGS)" \
-	$(PRELOAD_VAR)="$(PRELOAD_ARGS)" \
 	$(CC_PATH) \
 	$(XEZIM) --simulate -s top \
+	  --dpi-lib "$(LIBPYTHON)" \
+	  --dpi-lib "$(abspath $(UVM_DPI_SO))" \
 	  --dpi-lib "$(SVUVM_DPI_LIB)" \
 	  --max-time $(MAX_TIME) --error-exit \
 	  -I "$(UVM_HOME)/src" "$(UVM_HOME)/src/uvm_pkg.sv" \
@@ -184,5 +165,8 @@ endif
 
 clean:
 	rm -rf $(BUILD_DIR)/* *.pyc __pycache__
+ifeq ($(SIM),xezim)
+	rm -rf $(XEZIM_BUILD_DIR)
+endif
 
 .PHONY: all build run check clean

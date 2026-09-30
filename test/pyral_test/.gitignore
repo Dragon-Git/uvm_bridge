@@ -1,0 +1,9 @@
+# peakrdl output: regenerate with `make gen`
+gen/
+rtl/
+build/
+*.db
+# xezim coverage output
+xezim_cov.json
+# the repo-wide .gitignore excludes Makefile; this one has to be tracked
+!Makefile
