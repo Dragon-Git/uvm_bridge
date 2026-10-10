@@ -168,14 +168,15 @@ def main():
     string_value = svuvm.get_config_string("", "", "string_value")
     svuvm.vpi.vpi_printf(f"string_value: {string_value}\n")
 
-    svuvm.vpi.vpi_printf("*" * 120 + "\n")
-    svuvm.vpi.vpi_printf("*        TEST reg operator \n")
-    svuvm.vpi.vpi_printf("*" * 120 + "\n")
-    data = 0xDEADBEEF
-    for i in range(3):
-        svuvm.write_reg(str(i), i)
-        data = svuvm.read_reg(str(i))
-        svuvm.vpi.vpi_printf(f"read data: {data}\n")
+    # The reg-operator section that used to be here is gone: it called
+    # svuvm.write_reg()/read_reg() without a register block ever being set,
+    # so reg_operator::inst was null and the calls dereferenced it. On 0.11.0
+    # xezim let that through and returned uninitialised data ("read data:
+    # 32514" in old logs); on 0.11.1 it is a segfault. The setup it needed is
+    # the block further down that is commented out, and the register names
+    # would not have matched either (the block has reg_0/reg_1/reg_2).
+    # Register access is covered for real by test/pyral_test, which drives an
+    # actual peakrdl block through a UVM agent.
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST vpi io \n")
