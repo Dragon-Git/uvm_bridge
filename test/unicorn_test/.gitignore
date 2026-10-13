@@ -1,0 +1,6 @@
+# peakrdl output: regenerate with `make gen`
+gen/
+build/
+*.db
+# the repo-wide .gitignore excludes Makefile; this one has to be tracked
+!Makefile

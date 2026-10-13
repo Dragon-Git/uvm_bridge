@@ -208,3 +208,23 @@ jobs:
     - name: Run pyral register test
       run: |
         make -f test/pyral_test/Makefile run
+
+    - name: Install unicorn
+      # The Unicorn test drives the same PyRAL model through a
+      # Unicorn-emulated ARM core that performs real ldr/str
+      # instructions to a memory-mapped APB region - no simulator
+      # involved, so it is a bisect point for the model rather than a
+      # second end-to-end RTL run. peakrdl-pyral-runtime was already
+      # installed for the pyral step above; only the unicorn engine
+      # bindings are added here.
+      run: |
+        python -m pip install unicorn
+
+    - name: Generate unicorn pyral model
+      run: |
+        mkdir -p test/unicorn_test/gen
+        make -f test/unicorn_test/Makefile gen
+
+    - name: Run unicorn register test
+      run: |
+        make -f test/unicorn_test/Makefile run
