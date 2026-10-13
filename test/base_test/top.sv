@@ -108,6 +108,122 @@ module top ();
         endfunction
     endclass
 
+    // --- 寄存器模型的前端总线 ---
+    //
+    // RAL 的 reg.write()/read() 要经过一个 map：adapter 把 uvm_reg_bus_op
+    // 翻成总线 item，driver 负责响应。缺了这一套，模型就只能做 predict，
+    // 不能真的读写。这里给出最小的一套，接到 test_reg_block 上。
+
+    class reg_bus_item extends uvm_sequence_item;
+        `uvm_object_utils(reg_bus_item)
+        rand bit [31:0] addr;
+        rand bit [31:0] data;
+        rand bit        is_write;
+        function new(string name = "reg_bus_item");
+            super.new(name);
+        endfunction
+    endclass
+
+    class reg_bus_adapter extends uvm_reg_adapter;
+        `uvm_object_utils(reg_bus_adapter)
+        function new(string name = "reg_bus_adapter");
+            super.new(name);
+            supports_byte_enable = 0;
+            // driver 原地改 item 再 item_done()，所以不需要 response item。
+            provides_responses   = 0;
+        endfunction
+
+        virtual function uvm_sequence_item reg2bus(const ref uvm_reg_bus_op rw);
+            reg_bus_item tr = reg_bus_item::type_id::create("tr");
+            tr.addr     = rw.addr[31:0];
+            tr.data     = rw.data[31:0];
+            tr.is_write = (rw.kind == UVM_WRITE);
+            return tr;
+        endfunction
+
+        virtual function void bus2reg(uvm_sequence_item bus_item, ref uvm_reg_bus_op rw);
+            reg_bus_item tr;
+            if (!$cast(tr, bus_item)) begin
+                `uvm_fatal("REG_BUS", "bus2reg got something that is not a reg_bus_item")
+                return;
+            end
+            rw.kind   = tr.is_write ? UVM_WRITE : UVM_READ;
+            rw.addr   = tr.addr;
+            rw.data   = tr.data;
+            rw.status = UVM_IS_OK;
+        endfunction
+    endclass
+
+    // 一个最小的寄存器堆：写进去存起来，读回最后写的值，没写过的读 0。
+    // 用存储而不是 RTL，是为了让读写的结果可预期、可直接断言。
+    class reg_bus_driver extends uvm_driver #(reg_bus_item);
+        `uvm_component_utils(reg_bus_driver)
+        bit [31:0] mem[int unsigned];
+        function new(string name, uvm_component parent);
+            super.new(name, parent);
+        endfunction
+        task run_phase(uvm_phase phase);
+            forever begin
+                seq_item_port.get_next_item(req);
+                if (req.is_write) mem[req.addr] = req.data;
+                else              req.data = mem.exists(req.addr) ? mem[req.addr] : 32'h0;
+                seq_item_port.item_done();
+            end
+        endtask
+    endclass
+
+    class reg_bus_agent extends uvm_agent;
+        `uvm_component_utils(reg_bus_agent)
+        reg_bus_driver                m_drv;
+        uvm_sequencer #(reg_bus_item) m_sqr;
+        function new(string name, uvm_component parent);
+            super.new(name, parent);
+        endfunction
+        function void build_phase(uvm_phase phase);
+            super.build_phase(phase);
+            m_drv = reg_bus_driver::type_id::create("m_drv", this);
+            m_sqr = uvm_sequencer#(reg_bus_item)::type_id::create("m_sqr", this);
+        endfunction
+        function void connect_phase(uvm_phase phase);
+            super.connect_phase(phase);
+            m_drv.seq_item_port.connect(m_sqr.seq_item_export);
+        endfunction
+    endclass
+
+    // 把寄存器模型接到总线上，并注册成 python_bridge 的 top reg block，
+    // 这样 Python 侧的 write_reg()/read_reg()/get_reg_names() 才找得到它。
+    //
+    // 注册只能在这里做：uvm_reg_block 是 uvm_object，不是 uvm_component，
+    // 而桥接的 set_top_reg_block_by_path() 走的是 top.find()——找不到对象。
+    class reg_model_env extends uvm_component;
+        `uvm_component_utils(reg_model_env)
+        test_reg_block  m_block;
+        reg_bus_agent   m_bus;
+        uvm_reg_adapter m_adapter;
+
+        function new(string name, uvm_component parent);
+            super.new(name, parent);
+        endfunction
+
+        function void build_phase(uvm_phase phase);
+            super.build_phase(phase);
+            m_bus     = reg_bus_agent::type_id::create("m_bus", this);
+            m_adapter = reg_bus_adapter::type_id::create("m_adapter");
+            m_block   = test_reg_block::type_id::create("m_block");
+            m_block.build();
+        endfunction
+
+        function void end_of_elaboration_phase(uvm_phase phase);
+            super.end_of_elaboration_phase(phase);
+            m_block.default_map.set_sequencer(m_bus.m_sqr, m_adapter);
+            // 默认 auto_predict 是关的：总线写不会碰镜像值，那要靠 monitor +
+            // uvm_reg_predictor。这个测试没有 monitor，所以打开它——这样每次
+            // 读写之后 get_mirrored_value() 的断言才有意义。
+            m_block.default_map.set_auto_predict(1);
+            reg_operator::set_top_reg_block(m_block);
+        endfunction
+    endclass
+
     // --- 自定义组件 (用于 component topology 测试) ---
     class custom_component extends uvm_component;
         `uvm_component_utils(custom_component)

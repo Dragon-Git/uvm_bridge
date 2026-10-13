@@ -138,9 +138,16 @@ build: $(BUILD_DIR)
 	$(UVM_PKG) $(ASNEEDED_PRE) $(SVUVM_CONFIG) $(SV_SOURCE) $(CXXFLAGS) $(ASNEEDED_POST) $(LDFLAGS)
 
 
+# Verilator's DPI export cannot consume time, and a register access runs a
+# sequence on the bus, so python_bridge_pkg compiles write_reg/read_reg out
+# under `ifdef VERILATOR`: a Python-driven register access cannot reach the
+# bus on that simulator. The Python side is told (REG_BUS_ACCESS=0) and
+# confines the register-model test to what needs no bus - names, addresses,
+# reset, predict, the field list.
 run: build
 	DYLD_LIBRARY_PATH=$(shell pip show pip | grep Location | awk '{print $$2}')/svuvm \
 	PYTHONPATH=$(TEST_DIR) \
+	REG_BUS_ACCESS=0 \
 	./$(BUILD_DIR)/Vtop $(RUN_FLAGS)
 
 endif

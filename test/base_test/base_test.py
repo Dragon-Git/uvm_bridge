@@ -1,6 +1,16 @@
 import itertools
+import os
 
 from svuvm import _svuvm as svuvm
+
+# A register access drives the bus through a sequence, and an exported task
+# cannot consume time on verilator - python_bridge_pkg compiles write_reg /
+# read_reg out under `ifdef VERILATOR` for that reason, and the verilator leg
+# of test/base_test/Makefile passes REG_BUS_ACCESS=0. What needs the bus is
+# skipped here; the rest of the register-model test runs on both.
+REG_BUS_ACCESS = os.environ.get("REG_BUS_ACCESS", "1") != "0"
+
+
 def cb_test(data):
     print("hello cb")
     return 1
@@ -16,6 +26,8 @@ def build():
             svuvm.create_component_by_name("base_driver", f"uvm_test_top.m_env_{i}.m_agent_{j}", "m_driver")
             svuvm.create_component_by_name("base_monitor", f"uvm_test_top.m_env_{i}.m_agent_{j}", "m_monitor")
             svuvm.create_component_by_name("base_sequencer", f"uvm_test_top.m_env_{i}.m_agent_{j}", "m_sequencer")
+    # 寄存器模型 + 它的前端总线；main() 里用它做 RAL 读写测试
+    svuvm.create_component_by_name("reg_model_env", "uvm_test_top", "m_reg_model")
     svuvm.print_topology()
 
 def connect():
@@ -384,54 +396,91 @@ def main():
     svuvm.config_db_trace_off()
     svuvm.uvm_info("config_db extended test success", svuvm.UVM_LOW)
 
-    # # =============================================================
-    # # TEST: Register Model 扩展
-    # # =============================================================
-    # svuvm.vpi.vpi_printf("*" * 120 + "\n")
-    # svuvm.vpi.vpi_printf("*        TEST register model extended \n")
-    # svuvm.vpi.vpi_printf("*" * 120 + "\n")
+    # =============================================================
+    # TEST: register model (RAL)
+    # =============================================================
+    svuvm.vpi.vpi_printf("*" * 120 + "\n")
+    svuvm.vpi.vpi_printf("*        TEST register model \n")
+    svuvm.vpi.vpi_printf("*" * 120 + "\n")
 
-    # # 创建一个 register block 组件并注册为 top reg block
-    # svuvm.create_component_by_name("test_reg_block", "uvm_test_top", "m_reg_block")
-    # # reg_operator 只能通过 SV 端调用；这里通过 set_top_reg_block_by_path 设置顶层
-    # try:
-    #     svuvm.set_top_reg_block_by_path("uvm_test_top.m_reg_block")
+    reg_names = svuvm.get_reg_names("")
+    svuvm.vpi.vpi_printf(f"get_reg_names: {reg_names}\n")
+    block_names = svuvm.get_block_names("")
+    svuvm.vpi.vpi_printf(f"get_block_names: {block_names}\n")
 
-    #     reg_names = svuvm.get_reg_names("")
-    #     svuvm.vpi.vpi_printf(f"get_reg_names: {reg_names}\n")
+    regs = [r for r in (reg_names or "").split(",") if r]
+    if not regs:
+        svuvm.uvm_error("register model: no registers found in the top reg block")
+    else:
+        first_reg = regs[0]
 
-    #     block_names = svuvm.get_block_names("")
-    #     svuvm.vpi.vpi_printf(f"get_block_names: {block_names}\n")
+        # Model-level checks, no bus involved, so they run everywhere.
+        for name in regs:
+            addr = svuvm.get_reg_address(name)
+            svuvm.reset_reg(name, "HARD")
+            reset_val = svuvm.get_reg_mirrored_value(name)
+            desired = svuvm.get_reg_desired_value(name)
+            svuvm.vpi.vpi_printf(
+                f"  {name}: addr=0x{addr:x} reset(mirror)=0x{reset_val:08x} "
+                f"desired=0x{desired:08x}\n"
+            )
+            if addr != 4 * regs.index(name):
+                svuvm.uvm_error(f"register model: {name} is at 0x{addr:x}, expected 0x{4 * regs.index(name):x}")
 
-    #     # 如果有寄存器，做进一步测试
-    #     if reg_names:
-    #         first_reg = reg_names.split(",")[0] if isinstance(reg_names, str) and reg_names else "reg_0"
-    #         reg_addr = svuvm.get_reg_address(first_reg)
-    #         mirrored = svuvm.get_reg_mirrored_value(first_reg)
-    #         desired = svuvm.get_reg_desired_value(first_reg)
-    #         svuvm.vpi.vpi_printf(f"  {first_reg}: addr=0x{reg_addr:x}, mirrored=0x{mirrored:x}, desired=0x{desired:x}\n")
+        # Written straight into the model, no bus: the mirror must follow.
+        if svuvm.predict_reg(first_reg, 0xABCD, "DIRECT"):
+            predicted = svuvm.get_reg_mirrored_value(first_reg)
+            svuvm.vpi.vpi_printf(f"  predict_reg({first_reg}, 0xABCD) -> mirror=0x{predicted:x}\n")
+            if predicted != 0xABCD:
+                svuvm.uvm_error(f"register model: mirror after predict is 0x{predicted:x}, expected 0xabcd")
 
-    #         # reset_reg / predict_reg
-    #         svuvm.reset_reg(first_reg, "HARD")
-    #         ok = svuvm.predict_reg(first_reg, 0xABCD)
-    #         svuvm.vpi.vpi_printf(f"  predict_reg({first_reg}, 0xABCD) = {ok}\n")
+        field_names = svuvm.get_reg_field_names(first_reg)
+        svuvm.vpi.vpi_printf(f"  {first_reg} fields: {field_names}\n")
+        fields = [f for f in (field_names or "").split(",") if f]
+        if not fields:
+            svuvm.uvm_error(f"register model: {first_reg} reports no fields")
 
-    #         # field tests
-    #         field_names = svuvm.get_reg_field_names(first_reg)
-    #         svuvm.vpi.vpi_printf(f"  field_names: {field_names}\n")
-    #         if field_names:
-    #             f0 = field_names.split(",")[0]
-    #             f_val = svuvm.read_field_by_name(first_reg, f0)
-    #             svuvm.vpi.vpi_printf(f"  read_field_by_name({first_reg}.{f0}) = 0x{f_val:x}\n")
-    #             svuvm.write_field_by_name(first_reg, f0, 0x1234)
-    #             svuvm.vpi.vpi_printf(f"  write_field_by_name({first_reg}.{f0}, 0x1234) done\n")
+        block_sprint = svuvm.reg_block_sprint("")
+        svuvm.vpi.vpi_printf(f"  reg_block_sprint length: {len(block_sprint) if block_sprint else 0}\n")
 
-    #     # reg_block_sprint
-    #     block_sprint = svuvm.reg_block_sprint("uvm_test_top.m_reg_block")
-    #     svuvm.vpi.vpi_printf(f"reg_block_sprint length: {len(block_sprint) if block_sprint else 0}\n")
-    #     svuvm.uvm_info("register model extended test success", svuvm.UVM_LOW)
-    # except Exception as e:
-    #     svuvm.uvm_error(f"register model test skipped: {e}")
+        # Bus checks. A register access runs a sequence, and an exported task
+        # cannot consume time on Verilator, so a Python-driven access cannot
+        # reach the bus there: python_bridge_pkg compiles write_reg/read_reg
+        # out under `ifdef VERILATOR` and the Makefile's verilator leg passes
+        # REG_BUS_ACCESS=0. Those calls would be silent no-ops, so the checks
+        # are skipped rather than asserting on nothing.
+        if REG_BUS_ACCESS:
+            for i, name in enumerate(regs):
+                value = 0x1000_0000 + i
+                svuvm.write_reg(name, value)
+                read_back = svuvm.read_reg(name)
+                mirrored = svuvm.get_reg_mirrored_value(name)
+                svuvm.vpi.vpi_printf(
+                    f"  {name}: write=0x{value:08x} read=0x{read_back:08x} mirror=0x{mirrored:08x}\n"
+                )
+                if read_back != value:
+                    svuvm.uvm_error(
+                        f"register model: {name} read back 0x{read_back:08x}, expected 0x{value:08x}"
+                    )
+                # The map has auto_predict on, so a bus write updates the mirror.
+                if mirrored != value:
+                    svuvm.uvm_error(
+                        f"register model: {name} mirror is 0x{mirrored:08x}, expected 0x{value:08x}"
+                    )
+
+            # Field write: the value must land in the field's own bits.
+            if fields:
+                svuvm.write_field_by_name(first_reg, fields[0], 0x1234)
+                f_val = svuvm.read_field_by_name(first_reg, fields[0])
+                svuvm.vpi.vpi_printf(
+                    f"  write_field_by_name({first_reg}.{fields[0]}, 0x1234) -> read 0x{f_val:x}\n"
+                )
+                if f_val != 0x1234:
+                    svuvm.uvm_error(
+                        f"register model: field {first_reg}.{fields[0]} read 0x{f_val:x}, expected 0x1234"
+                    )
+
+        svuvm.uvm_info("register model test success", svuvm.UVM_LOW)
 
     # =============================================================
     # TEST: Sequencer & Sequence
