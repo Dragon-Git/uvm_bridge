@@ -1,0 +1,8 @@
+# generated: `make gen` runs peakrdl for the RTL and for the C header
+rtl/
+c_header/
+build/
+# xezim coverage output
+xezim_cov.json
+# the repo-wide .gitignore excludes Makefile; this one has to be tracked
+!Makefile

@@ -158,7 +158,9 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install . -v
+        # The test extra carries what the register tests need to build their
+        # inputs: peakrdl (RTL, C header, PyRAL model) and unicorn.
+        python -m pip install '.[test]' -v
 
     # Built from main rather than taken from a release: the work this test
     # needs is on main and is newer than 0.11.1. Switch back to the release
@@ -194,12 +196,6 @@ jobs:
       run: |
         make -f test/base_test/Makefile run SIM=xezim
 
-    - name: Install peakrdl
-      # peakrdl-pyral brings the cli + systemrdl front-end; the regblock
-      # exporter that turns the same .rdl into RTL is a separate plugin.
-      run: |
-        python -m pip install 'peakrdl-pyral[cli]' peakrdl-pyral-runtime peakrdl-regblock
-
     - name: Generate pyral model and register block
       run: |
         mkdir -p test/pyral_test/gen test/pyral_test/rtl
@@ -208,3 +204,10 @@ jobs:
     - name: Run pyral register test
       run: |
         make -f test/pyral_test/Makefile run
+
+    - name: Run unicorn register test
+      # Same register block and same APB agent as the pyral test; what drives
+      # the bus is a bare-metal firmware under unicorn instead of the PyRAL
+      # model. The Makefile generates the RTL and the C header itself.
+      run: |
+        make -f test/unicorn_test/Makefile run
