@@ -1,7 +1,7 @@
 """Extract the loadable image from a compiled firmware object.
 
-Unicorn loads a flat image, so something has to turn the compiler's output
-into one. Two input shapes are handled:
+The emulators load a flat image, so something has to turn the compiler's
+output into one. Two input shapes are handled:
 
 * a relocatable object (the usual case here) - its .text is the image. The
   firmware is a single function with no global data, so nothing needs
@@ -12,7 +12,7 @@ into one. Two input shapes are handled:
   address.
 
 Either way the result is checked to start at address 0, since that is where
-unicorn is told to begin executing.
+the emulator is told to begin executing.
 """
 
 import struct

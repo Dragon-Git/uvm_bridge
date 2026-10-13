@@ -20,15 +20,18 @@ ROOT            = $(shell git rev-parse --show-toplevel)
 TEST_DIR        = $(ROOT)/test/unicorn_test
 SV_DIR          = $(ROOT)/test/pyral_test/sv
 RDL             = $(ROOT)/test/pyral_test/demo_regs.rdl
+# The firmware is shared with test/renode_test: same image, different emulator.
+FW_DIR          = $(ROOT)/test/fw
 RDL_MODULE      = demo_reg_block
 BUILD_DIR       = $(TEST_DIR)/build
 RTL_DIR         = $(TEST_DIR)/rtl
 HDR_DIR         = $(TEST_DIR)/c_header
 LOG             = $(BUILD_DIR)/xezim.log
 
+FW_SRC          = $(FW_DIR)/main.c
 FW_ELF          = $(BUILD_DIR)/fw.o
 FW_IMAGE        = $(BUILD_DIR)/fw.bin
-ELF2BIN         = $(TEST_DIR)/tools/elf2bin.py
+ELF2BIN         = $(ROOT)/test/fw/elf2bin.py
 
 MAX_TIME        ?= 10ms
 
@@ -52,7 +55,7 @@ CLANG          ?= clang
 FW_TARGET       = aarch64-none-elf
 FW_FLAGS        = --target=$(FW_TARGET) -march=armv8-a -mgeneral-regs-only \
                   -std=gnu11 -nostdlib -ffreestanding -fno-builtin \
-                  -I "$(HDR_DIR)" -I "$(TEST_DIR)/fw/compat"
+                  -I "$(HDR_DIR)" -I "$(FW_DIR)/compat"
 
 UNAME_S         := $(shell uname)
 
@@ -81,7 +84,7 @@ fw: gen
 	@mkdir -p $(BUILD_DIR)
 	@$(CLANG) --print-targets 2>/dev/null | grep -qw aarch64 || { \
 	  echo "ERROR: $(CLANG) has no aarch64 backend; set CLANG to one that has"; exit 1; }
-	$(CLANG) $(FW_FLAGS) -c "$(TEST_DIR)/fw/main.c" -o $(FW_ELF)
+	$(CLANG) $(FW_FLAGS) -c "$(FW_SRC)" -o $(FW_ELF)
 	$(PYTHON) $(ELF2BIN) $(FW_ELF) $(FW_IMAGE)
 
 check:
@@ -104,7 +107,7 @@ run: fw check
 # opens each RTLD_NOW | RTLD_GLOBAL and retries while a pass still loads
 # something, so cross-library references resolve regardless of order.
 	UNICORN_TEST_FW="$(abspath $(FW_IMAGE))" \
-	PYTHONPATH="$(TEST_DIR):$$PYTHONPATH" \
+	PYTHONPATH="$(FW_DIR):$(TEST_DIR):$$PYTHONPATH" \
 	$(XEZIM) --simulate -s top \
 	  --dpi-lib "$(LIBPYTHON)" \
 	  --dpi-lib "$(abspath $(UVM_DPI_SO))" \

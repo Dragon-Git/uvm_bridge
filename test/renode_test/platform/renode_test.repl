@@ -1,0 +1,37 @@
+// Platform for test/renode_test.
+//
+// Deliberately minimal: the firmware is the only thing running, and the
+// register block itself is not here - it is RTL, simulated by xezim. What this
+// describes is the bare metal the firmware expects to find.
+//
+//   code  the firmware image, loaded at address 0
+//   regs  the register window. Memory.ArrayMemory because the peripherals the
+//         Renode-side helper attaches its read and write hooks to are ordinary
+//         memory: whatever this stores is replaced or forwarded, so the block
+//         never answers anything by itself.
+//
+// The CPU is a Cortex-A53, matching the aarch64 image test/fw/main.c builds,
+// and the GIC is what CPU.ARMv8A requires at construction.
+
+code: Memory.MappedMemory @ sysbus 0x0
+    size: 0x100000
+
+// The firmware's stack. A bare-metal image sets its own stack pointer, which
+// the Renode-side helper does before the first instruction; this is the region
+// it points into. The addresses match test/fw/layout.py.
+stack: Memory.MappedMemory @ sysbus 0x20000000
+    size: 0x10000
+
+regs: Memory.ArrayMemory @ sysbus 0x40000000
+    size: 0x1000
+
+cpu: CPU.ARMv8A @ sysbus
+    cpuType: "cortex-a53"
+    genericInterruptController: gic
+
+gic: IRQControllers.ARM_GenericInterruptController @ {
+        sysbus new Bus.BusMultiRegistration { address: 0x08000000; size: 0x010000; region: "distributor" };
+        sysbus new Bus.BusMultiRegistration { address: 0x08010000; size: 0x010000; region: "cpuInterface" }
+    }
+    architectureVersion: .GICv2
+    supportsTwoSecurityStates: true

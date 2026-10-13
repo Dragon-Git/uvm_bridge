@@ -211,3 +211,35 @@ jobs:
       # model. The Makefile generates the RTL and the C header itself.
       run: |
         make -f test/unicorn_test/Makefile run
+
+    - name: Install Renode
+      # The multiplatform package would cover both runners, but not every
+      # release publishes it; the per-platform ones always are. pyrenode3
+      # needs the directory holding Renode's .NET assemblies: the tarball's
+      # top level on Linux, and the .app bundle's Contents/MacOS on macOS.
+      env:
+        RENODE_VERSION: 1.17.0
+      run: |
+        mkdir -p "$HOME/renode"
+        if [ "${{ runner.os }}" = "macOS" ]; then
+          curl -sSL -o /tmp/renode.dmg \
+            "https://github.com/renode/renode/releases/download/v$RENODE_VERSION/renode-$RENODE_VERSION.osx-arm64-portable.dmg"
+          mkdir -p /tmp/renode-mnt
+          hdiutil attach /tmp/renode.dmg -mountpoint /tmp/renode-mnt -nobrowse -quiet
+          cp -R /tmp/renode-mnt/Renode.app/Contents/MacOS/. "$HOME/renode"
+          hdiutil detach /tmp/renode-mnt -quiet
+        else
+          curl -sSL -o /tmp/renode.tar.gz \
+            "https://github.com/renode/renode/releases/download/v$RENODE_VERSION/renode-$RENODE_VERSION.linux-portable.tar.gz"
+          tar xzf /tmp/renode.tar.gz -C /tmp
+          cp -R "/tmp/renode_$RENODE_VERSION-portable/." "$HOME/renode"
+        fi
+        test -f "$HOME/renode/Renode.runtimeconfig.json"
+        echo "PYRENODE_PATH=$HOME/renode" >> "$GITHUB_ENV"
+
+    - name: Run Renode register test
+      # The same firmware as the unicorn test and the same UVM testbench as
+      # every other register test here; Renode runs the firmware, in a process
+      # of its own, instead of unicorn.
+      run: |
+        make -f test/renode_test/Makefile run

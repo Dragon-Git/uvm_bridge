@@ -15,12 +15,16 @@ lint = ['ruff']
 doc = ['sphinx']
 # The test group carries what the register tests need to build their inputs:
 # peakrdl generates the RTL, the C header and the PyRAL model from the same
-# .rdl, and unicorn runs the firmware of test/unicorn_test.
+# .rdl, and the two emulator tests run the same firmware - unicorn in-process,
+# Renode through pyrenode3.
 test = [
     'pytest',
     'coverage',
     'pytest-cov',
     'unicorn',
+    # Renode's Python binding. Not on PyPI, so pinned to a commit of the
+    # upstream repository - test/renode_test is the only thing that uses it.
+    'pyrenode3 @ git+https://github.com/antmicro/pyrenode3.git@27362def38ce409b95c972ce494cd8517dac17a4',
     'peakrdl-regblock',
     'peakrdl-cheader',
     'peakrdl-pyral[cli]',

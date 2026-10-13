@@ -1,4 +1,4 @@
-"""Run a bare-metal firmware against the register block, through APB.
+"""Run the bare-metal firmware against the register block, through APB.
 
 The firmware reaches the registers as memory-mapped I/O. Unicorn executes it,
 and every access inside the register window is turned into one UVM sequence
@@ -10,9 +10,9 @@ A read travels the same path back: the read hook writes the value the
 register returned into the emulated memory before the load completes, so the
 firmware's own load sees it.
 
-The firmware is built from fw/main.c using the offsets and field masks that
-`peakrdl c-header` generates from demo_regs.rdl. No register model is
-involved: the firmware is the thing doing the accessing.
+Everything that is not unicorn - the register map, the sequence, the expected
+access trace, the reporting - lives in ../fw/register_access.py, which
+test/renode_test drives the same way.
 
 The module is called reg_test because that is the name top.sv's test class
 carries, and the SV side reaches Python through
@@ -24,7 +24,10 @@ drives the bus differs.
     seq path: uvm_test_top.m_agent.m_sqr
 """
 
+from __future__ import annotations
+
 import os
+import sys
 from pathlib import Path
 
 from unicorn import (
@@ -37,91 +40,22 @@ from unicorn import (
 )
 from unicorn.arm64_const import UC_ARM64_REG_SP
 
-from svuvm import _svuvm as svuvm
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fw"))
 
-SEQ_PATH = "uvm_test_top.m_agent.m_sqr"
-
-# Where the firmware is linked, and what it expects to find. These match
-# fw/main.c.
-CODE_BASE = 0x0000_0000
-CODE_SIZE = 0x1000
-STACK_BASE = 0x2000_0000
-STACK_SIZE = 0x0001_0000
-REG_BASE = 0x4000_0000
-REG_SIZE = 0x1000
-
-# The firmware's last act: a store here, outside the register block.
-DONE_OFFSET = 0x0FF0
-DONE_MAGIC = 0x5EED_0000
-
-ACCESS_SIZE = 4
-
-# Register offsets, matching demo_regs.rdl.
-OFF_CTRL = 0x0
-OFF_STATUS = 0x4
-OFF_SCRATCH = 0x8
-
-# What the firmware does, in order. The driver is a register file, so a read
-# returns the last write; status is sw=r, so the block keeps no storage for it
-# and a software write is dropped.
-EXPECTED = [
-    ("R", OFF_SCRATCH, 0x0000_0000),
-    ("W", OFF_SCRATCH, 0xDEAD_BEEF),
-    ("R", OFF_SCRATCH, 0xDEAD_BEEF),
-    ("W", OFF_CTRL, (0xA << 4) | 0x1),
-    ("R", OFF_CTRL, (0xA << 4) | 0x1),
-    ("R", OFF_STATUS, 0x0000_0000),
-    ("W", OFF_STATUS, 0x0000_0015),
-    ("R", OFF_STATUS, 0x0000_0000),
-]
-
-FAILURES: list[str] = []
-
-
-def report(line: str) -> None:
-    """Put a line in the simulation log.
-
-    Not print(): xezim embeds CPython but never finalizes it, and stdout is a
-    file rather than a tty, so the interpreter's block buffering discards
-    print() output when the run ends at $finish. Reporting through UVM also
-    puts the results in the report summary.
-    """
-    svuvm.vpi.vpi_printf(line + "\n")
-
-
-def check(name: str, got: int, expected: int) -> None:
-    if got == expected:
-        report(f"PASS  {name}: 0x{got:08x}")
-    else:
-        msg = f"FAIL  {name}: got 0x{got:08x}, expected 0x{expected:08x}"
-        svuvm.uvm_error(msg)
-        FAILURES.append(msg)
-
-
-def one_sequence(offset: int, is_write: bool, wdata: int = 0) -> int:
-    """Run one register access as one UVM sequence, and return what was read."""
-    label = f"fw {'wr' if is_write else 'rd'} 0x{offset:03x}"
-
-    svuvm.set_config_int("", "*", "op_addr", offset & 0xFFFF_FFFF)
-    svuvm.set_config_int("", "*", "op_wdata", wdata & 0xFFFF_FFFF)
-    svuvm.set_config_int("", "*", "op_is_write", 1 if is_write else 0)
-    svuvm.set_config_string("", "*", "op_label", label)
-
-    # rand_en=0: the sequence fills the item explicitly. background=0: block
-    # until the transfer completes, so the result is there to read back.
-    svuvm.start_seq("reg_seq", SEQ_PATH, 0, 0)
-
-    if svuvm.get_config_int("", "*", "res_err"):
-        raise RuntimeError(f"APB error response for {label}")
-    return svuvm.get_config_int("", "*", "res_rdata")
-
-
-def firmware_image() -> Path:
-    path = os.environ.get("UNICORN_TEST_FW")
-    if path:
-        return Path(path)
-    return Path(__file__).resolve().parent / "build" / "fw.bin"
-
+from register_access import (  # noqa: E402
+    ACCESS_SIZE,
+    DONE_MAGIC,
+    DONE_OFFSET,
+    REG_BASE,
+    REG_SIZE,
+    check_read_sum,
+    compare_trace,
+    finish,
+    firmware_image,
+    one_sequence,
+    report,
+)
+from layout import CODE_BASE, CODE_SIZE, STACK_BASE, STACK_SIZE, STACK_TOP, is_checksum_store  # noqa: E402
 
 class FirmwareRun:
     """Unicorn running the firmware, with its register window served by APB."""
@@ -129,6 +63,7 @@ class FirmwareRun:
     def __init__(self, image: bytes) -> None:
         self.trace: list[tuple[str, int, int]] = []
         self.done = False
+        self.checksum: int | None = None
 
         self.mu = Uc(UC_ARCH_ARM64, UC_MODE_ARM)
         mu = self.mu
@@ -136,8 +71,9 @@ class FirmwareRun:
         mu.mem_write(CODE_BASE, image)
         mu.mem_map(STACK_BASE, STACK_SIZE)
         # A bare-metal image has no startup code to set the stack pointer, and
-        # the firmware's prologue writes to the stack straight away.
-        mu.reg_write(UC_ARM64_REG_SP, STACK_BASE + STACK_SIZE // 2)
+        # the firmware's prologue writes to the stack straight away. Renode
+        # needs the same thing - see ../renode_test/renode_runner.py.
+        mu.reg_write(UC_ARM64_REG_SP, STACK_TOP)
         # The register window is mapped so its accesses are ordinary loads and
         # stores; the hooks below decide what they mean.
         mu.mem_map(REG_BASE, REG_SIZE)
@@ -167,6 +103,9 @@ class FirmwareRun:
         if not self._in_window(address):
             return
         offset = address - REG_BASE
+        if is_checksum_store(offset):
+            self.checksum = value & 0xFFFF_FFFF
+            return
         if offset == DONE_OFFSET:
             if value == DONE_MAGIC:
                 self.done = True
@@ -187,44 +126,17 @@ class FirmwareRun:
                 "firmware used up its instruction budget without reaching its done marker"
             )
 
-
-def compare_trace(trace: list[tuple[str, int, int]]) -> None:
-    """Assert the firmware touched the registers in the expected order, with
-    the values the register block should have produced."""
-    if len(trace) != len(EXPECTED):
-        svuvm.uvm_error(
-            f"firmware made {len(trace)} register accesses, expected {len(EXPECTED)}"
-        )
-    for i, (exp_kind, exp_off, exp_val) in enumerate(EXPECTED):
-        if i >= len(trace):
-            break
-        kind, off, val = trace[i]
-        if (kind, off) != (exp_kind, exp_off):
-            svuvm.uvm_error(
-                f"access {i}: firmware did {kind} 0x{off:03x}, "
-                f"expected {exp_kind} 0x{exp_off:03x}"
-            )
-            continue
-        check(f"access {i}: {kind} 0x{off:03x}", val, exp_val)
-
-
 def main() -> None:
-    image_file = firmware_image()
+    image_file = Path(firmware_image(str(Path(__file__).resolve().parent)))
     image = image_file.read_bytes()
     report(f"firmware: {image_file.name}, {len(image)} bytes")
 
     run = FirmwareRun(image)
     run.run()
     compare_trace(run.trace)
+    check_read_sum(run.checksum)
 
-    report("")
-    if FAILURES:
-        report(f"TEST_FAIL count={len(FAILURES)}")
-        for failure in FAILURES:
-            report("  " + failure)
-        return
-    report("TEST_PASS")
-
+    finish()
 
 # No call at module scope on purpose: the SV side imports this module and then
 # calls its main() attribute, so a bare main() here would run the whole test a

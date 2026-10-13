@@ -1,14 +1,22 @@
-/* Bare-metal firmware for the unicorn test.
+/* Bare-metal firmware for the emulator register tests.
  *
  * It reaches the register block through memory-mapped I/O and nothing else:
- * no libc, no driver, no register model. Unicorn runs this image and turns
+ * no libc, no driver, no register model. An instruction-set emulator - unicorn
+ * in test/unicorn_test, Renode in test/renode_test - runs this image and turns
  * every access into a UVM sequence on the APB agent.
  *
  * The offsets and field positions come from the header `peakrdl c-header`
  * generates from demo_regs.rdl - the same .rdl the RTL comes from, so the
  * firmware and the hardware under test cannot drift apart.
  *
- * The order of operations is asserted on by reg_test.py:
+ * A read that only happened is not worth asserting on, so every read is one
+ * the firmware depends on: each value it takes out of a register is added to
+ * a running sum, and the sum is stored to CHECK_ADDR at the end. If a read
+ * never reaches the firmware - the emulator's hook dropping the value, the
+ * UVM sequence not running, the APB transfer failing - the sum is wrong and
+ * the test says so, wherever the break was.
+ *
+ * The order of operations is asserted on by both tests' reg_test.py:
  *
  *   read  scratch        -> 0, a fresh block
  *   write scratch        <- 0xdeadbeef
@@ -26,8 +34,17 @@
 #include "demo_regs.h"
 
 #define REG_BASE   0x40000000u
+/* Both of these are inside the register window's address range but are not
+ * registers, so the emulator's hooks treat them as the firmware's own
+ * memory rather than forwarding them. */
+#define CHECK_ADDR 0x40000fe0u
 #define DONE_ADDR  0x40000ff0u
 #define DONE_MAGIC 0x5eed0000u
+
+/* What the sum of the values above comes to. Each tests' Python side
+ * recomputes this from its own expected trace and asserts the firmware
+ * stored it, so it cannot be a number the firmware invented. */
+#define CHECK_MAGIC 0xdeadbee0u
 
 /* The generated struct is __packed__ - it has to describe the byte layout of
  * a register file - and going through its members would make the compiler
@@ -38,21 +55,21 @@
 #define REG(field)     (*(volatile unsigned int *)(REG_BASE + REG_OFF(field)))
 
 void _start(void) {
-    volatile unsigned int v;
+    unsigned int sum = 0;
 
-    v = REG(scratch);
+    sum += REG(scratch);
     REG(scratch) = 0xdeadbeefu;
-    v = REG(scratch);
+    sum += REG(scratch);
 
     REG(ctrl) = (0xau << DEMO_REGS__CTRL__CTRL_MODE_bp)
               | (0x1u << DEMO_REGS__CTRL__CTRL_ENABLE_bp);
-    v = REG(ctrl);
+    sum += REG(ctrl);
 
-    v = REG(status);
+    sum += REG(status);
     REG(status) = 0x15u;
-    v = REG(status);
+    sum += REG(status);
 
-    (void)v;
+    *(volatile unsigned int *)CHECK_ADDR = sum;
 
     *(volatile unsigned int *)DONE_ADDR = DONE_MAGIC;
 
