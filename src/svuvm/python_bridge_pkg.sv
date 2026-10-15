@@ -3,6 +3,23 @@ package python_bridge_pkg;
     import uvm_pkg::*;
     `include "uvm_macros.svh"
 
+    // Two ranges the version macros cannot express on their own. Both are
+    // negations: a release defining UVM_VERSION_1_0, _1_1 or _1_2 is before
+    // IEEE-2017, and one defining _1_0 or _1_1 is before 1.2. A positive test
+    // is not available - UVM_POST_VERSION_1_1 is missing from 2020-1.0.
+    `ifdef UVM_VERSION_1_0
+    `define PB_UVM_PRE_1_2
+    `endif
+    `ifdef UVM_VERSION_1_1
+    `define PB_UVM_PRE_1_2
+    `endif
+    `ifdef PB_UVM_PRE_1_2
+    `define PB_UVM_PRE_2017
+    `endif
+    `ifdef UVM_VERSION_1_2
+    `define PB_UVM_PRE_2017
+    `endif
+
     //-------------------------------------------------------------------------------------
     // Group: uvm_phase_hopper accessor
     //
@@ -250,7 +267,12 @@ package python_bridge_pkg;
     
     function automatic int is_type_registered(string type_name);
         uvm_factory factory = uvm_factory::get();
+`ifdef PB_UVM_PRE_1_2
+        // Before 1.2 this is find_by_name.
+        uvm_object_wrapper w = factory.find_by_name(type_name);
+`else
         uvm_object_wrapper w = factory.find_wrapper_by_name(type_name);
+`endif
         return (w != null) ? 1 : 0;
     endfunction
 
@@ -290,7 +312,13 @@ package python_bridge_pkg;
 
     function automatic void set_finish_on_completion(bit f=1);
         uvm_root top = uvm_root::get();
+`ifdef PB_UVM_PRE_2017
+        // Through 1.2 the flag is a public variable; the accessor arrives
+        // with the IEEE-2017 releases.
+        top.finish_on_completion = f;
+`else
         top.set_finish_on_completion(f);
+`endif
     endfunction
 
     // --- drain_time & objection query ---
@@ -388,7 +416,12 @@ package python_bridge_pkg;
         uvm_phase ph = dom.find_by_name(phase_name, 0);
         if (ph == null) return "UNKNOWN";
         case (ph.get_state())
+            // The constant arrives with 1.2. Inventing a case label for the
+            // older releases is not an option - there is no enumerator to name
+            // - and the state it reports cannot occur there in any case.
+`ifndef PB_UVM_PRE_1_2
             UVM_PHASE_UNINITIALIZED : return "UNINITIALIZED";
+`endif
             UVM_PHASE_DORMANT       : return "DORMANT";
             UVM_PHASE_SCHEDULED     : return "SCHEDULED";
             UVM_PHASE_SYNCING       : return "SYNCING";
@@ -650,14 +683,25 @@ package python_bridge_pkg;
 
     // Wrapper for get_default_data
     function automatic uvm_object get_default_data(string ev_name);
+`ifdef PB_UVM_PRE_2017
+        // No default data before the IEEE-2017 releases: neither the member
+        // nor its accessors exist, so there is nothing to return. The name is
+        // accepted rather than rejected.
+        return null;
+`else
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         return ev.get_default_data();
+`endif
     endfunction
 
     // Wrapper for set_default_data
     function automatic void set_default_data(string ev_name, uvm_object data);
+`ifdef PB_UVM_PRE_2017
+        // no default data before the IEEE-2017 releases, see above
+`else
         uvm_event ev = uvm_event_pool::get_global(ev_name);
         ev.set_default_data(data);
+`endif
     endfunction
     
 
@@ -698,11 +742,20 @@ package python_bridge_pkg;
     `GET_CONFIG_FUNC(byte_array_t)
 
     function automatic void config_db_trace_on();
+`ifdef UVM_VERSION_1_0
+        // uvm_config_db_options arrives with 1.1; 1.0 has no tracing to turn
+        // on, so the name is accepted and does nothing.
+`else
         uvm_config_db_options::turn_on_tracing();
+`endif
     endfunction
 
     function automatic void config_db_trace_off();
+`ifdef UVM_VERSION_1_0
+        // see above
+`else
         uvm_config_db_options::turn_off_tracing();
+`endif
     endfunction
 
     //------------------------------------------------------------------------------
@@ -735,7 +788,12 @@ package python_bridge_pkg;
 
     function automatic int get_report_max_verbosity_level(string contxt);
         uvm_component comp = get_contxt(contxt);
+`ifdef PB_UVM_PRE_1_2
+        // Before 1.2 this is uvm_get_max_verbosity, on the report object.
+        return comp.uvm_get_max_verbosity();
+`else
         return comp.get_report_max_verbosity_level();
+`endif
     endfunction
 
     function automatic void set_report_verbosity_level (string contxt, int verbosity_level);
@@ -835,7 +893,13 @@ package python_bridge_pkg;
 
     function automatic void report_summarize();
         uvm_report_server server = uvm_report_server::get_server();
+`ifdef PB_UVM_PRE_1_2
+        // Before 1.2 the server calls this summarize; report_summarize
+        // arrives with 1.2, on the report object rather than the server.
+        server.summarize();
+`else
         server.report_summarize();
+`endif
     endfunction
 
     // Base16 encoding and decoding functions
@@ -1069,7 +1133,36 @@ package python_bridge_pkg;
     //
     // Configures global default printer/comparer knobs.
     //------------------------------------------------------------------------------
+    //--- printer knobs ---
+    //
+    // Reaching the default printer, and whether its knobs can be reached at
+    // all, both move across the releases this bridge supports:
+    //
+    //   uvm-1.0 - 1.2  the uvm_default_printer global; knobs are public
+    //   uvm-2017-*     uvm_printer::get_default(); the knobs are local to
+    //   uvm-2020-1.x   uvm_printer, so nothing outside it can touch them
+    //   uvm-2020-2.0+  uvm_printer::get_default(); knobs public again
+    //
+    // The body is therefore written twice, once per end of that range, and the
+    // condition is either side of the middle taken positively: PB_UVM_PRE_2017
+    // for the first group, `UVM_VERSION_POST_2020_1_1 for the last. On the
+    // releases where the knobs are unreachable the name is accepted and has no
+    // effect, which is how max_width and min_width are already treated.
     function automatic void set_default_printer_knob(string knob_name, int value);
+`ifdef PB_UVM_PRE_2017
+        uvm_printer p = uvm_default_printer;
+        if (knob_name == "indent") p.knobs.indent = value;
+        else if (knob_name == "show_root") p.knobs.show_root = value[0];
+        else if (knob_name == "max_width") begin /* not supported in 1800.2 */ end
+        else if (knob_name == "min_width") begin /* not supported in 1800.2 */ end
+        else if (knob_name == "header") p.knobs.header = value[0];
+        else if (knob_name == "footer") p.knobs.footer = value[0];
+        else if (knob_name == "depth") p.knobs.depth = value;
+        else if (knob_name == "reference") p.knobs.reference = value[0];
+        else if (knob_name == "type_name") p.knobs.type_name = value[0];
+        else if (knob_name == "size") p.knobs.size = value[0];
+        else `uvm_warning("python_bridge_pkg", $sformatf("unknown printer knob: %s", knob_name))
+`elsif UVM_VERSION_POST_2020_1_1
         uvm_printer p = uvm_printer::get_default();
         if (knob_name == "indent") p.knobs.indent = value;
         else if (knob_name == "show_root") p.knobs.show_root = value[0];
@@ -1082,9 +1175,26 @@ package python_bridge_pkg;
         else if (knob_name == "type_name") p.knobs.type_name = value[0];
         else if (knob_name == "size") p.knobs.size = value[0];
         else `uvm_warning("python_bridge_pkg", $sformatf("unknown printer knob: %s", knob_name))
+`else
+        // unreachable here, see above
+`endif
     endfunction
 
     function automatic int get_default_printer_knob(string knob_name);
+`ifdef PB_UVM_PRE_2017
+        uvm_printer p = uvm_default_printer;
+        if (knob_name == "indent") return p.knobs.indent;
+        if (knob_name == "show_root") return p.knobs.show_root;
+        if (knob_name == "max_width") return 0; /* not supported in 1800.2 */
+        if (knob_name == "min_width") return 0; /* not supported in 1800.2 */
+        if (knob_name == "header") return p.knobs.header;
+        if (knob_name == "footer") return p.knobs.footer;
+        if (knob_name == "depth") return p.knobs.depth;
+        if (knob_name == "reference") return p.knobs.reference;
+        if (knob_name == "type_name") return p.knobs.type_name;
+        if (knob_name == "size") return p.knobs.size;
+        return -1;
+`elsif UVM_VERSION_POST_2020_1_1
         uvm_printer p = uvm_printer::get_default();
         if (knob_name == "indent") return p.knobs.indent;
         if (knob_name == "show_root") return p.knobs.show_root;
@@ -1097,24 +1207,58 @@ package python_bridge_pkg;
         if (knob_name == "type_name") return p.knobs.type_name;
         if (knob_name == "size") return p.knobs.size;
         return -1;
+`else
+        // unreachable here, see above
+        return -1;
+`endif
     endfunction
 
+    //--- comparer knobs ---
+    //
+    // Same split as the printer above, and for the same reason: the members
+    // are public through 1.2, local to uvm_comparer across the IEEE-2017
+    // releases and 2020-1.x, and public again from 2020-2.0. The accessor
+    // moves too - before 2017 it is init().
     function automatic void set_default_comparer_knob(string knob_name, int value);
+`ifdef PB_UVM_PRE_2017
+        uvm_comparer c = uvm_comparer::init();
+        if (knob_name == "show_max") c.show_max = value;
+        else if (knob_name == "max_messages") c.show_max = value;
+        // Through 1.2 the member is sev and has no accessor.
+        else if (knob_name == "severity") c.sev = uvm_severity'(value);
+        else if (knob_name == "verbosity") c.verbosity = value;
+        else `uvm_warning("python_bridge_pkg", $sformatf("unknown comparer knob: %s", knob_name))
+`elsif UVM_VERSION_POST_2020_1_1
         uvm_comparer c = uvm_comparer::get_default();
         if (knob_name == "show_max") c.show_max = value;
         else if (knob_name == "max_messages") c.show_max = value;
         else if (knob_name == "severity") c.set_severity(uvm_severity'(value));
         else if (knob_name == "verbosity") c.verbosity = value;
         else `uvm_warning("python_bridge_pkg", $sformatf("unknown comparer knob: %s", knob_name))
+`else
+        // unreachable here, see the printer above
+`endif
     endfunction
 
     function automatic int get_default_comparer_knob(string knob_name);
+`ifdef PB_UVM_PRE_2017
+        uvm_comparer c = uvm_comparer::init();
+        if (knob_name == "show_max") return c.show_max;
+        if (knob_name == "max_messages") return c.show_max;
+        if (knob_name == "severity") return c.sev;
+        if (knob_name == "verbosity") return c.verbosity;
+        return -1;
+`elsif UVM_VERSION_POST_2020_1_1
         uvm_comparer c = uvm_comparer::get_default();
         if (knob_name == "show_max") return c.show_max;
         if (knob_name == "max_messages") return c.show_max;
         if (knob_name == "severity") return c.get_severity();
         if (knob_name == "verbosity") return c.verbosity;
         return -1;
+`else
+        // unreachable here, see the printer above
+        return -1;
+`endif
     endfunction
 
     function automatic int component_compare(string path_a, string path_b);
