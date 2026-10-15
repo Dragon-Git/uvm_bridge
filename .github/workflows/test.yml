@@ -166,7 +166,30 @@ jobs:
     # needs is on main and is newer than 0.11.1. Switch back to the release
     # tarball once a release contains it - the matrix `xezim_asset` entries
     # are the record of what that would be.
+    #
+    # The build is shared with uvm-compat-build, which needs the same binary:
+    # same path, same key, so whichever job gets there first builds and the
+    # other restores it. Building xezim is the most expensive step in this
+    # workflow and was previously done once per job that needed it. The key
+    # carries the runner OS, because this job runs on two of them and their
+    # binaries are not interchangeable.
+    - name: Resolve the xezim revision
+      id: rev
+      run: |
+        sha=$(git ls-remote https://github.com/aionhw/xezim.git refs/heads/main | cut -f1)
+        test -n "$sha" || { echo "could not resolve xezim main"; exit 1; }
+        echo "sha=$sha" >> "$GITHUB_OUTPUT"
+        echo "xezim main is $sha"
+
+    - name: Restore the xezim build
+      id: xezim-cache
+      uses: actions/cache@v6
+      with:
+        path: ${{ runner.temp }}/xezim-prefix
+        key: xezim-${{ runner.os }}-${{ steps.rev.outputs.sha }}
+
     - name: Build xezim from main
+      if: steps.xezim-cache.outputs.cache-hit != 'true'
       env:
         # cargo's libgit2 does not use the runner's git credential helper;
         # shelling out to git does, which is what a public repo needs.
@@ -175,22 +198,37 @@ jobs:
         rustup set profile minimal
         rustup toolchain install stable
         rustup default stable
-        git clone --depth 1 https://github.com/aionhw/xezim.git /tmp/xezim-src
-        # Same UVM fork the verilator leg uses. Its src/dpi/uvm_dpi.h guards
-        # the glibc-only <malloc.h> with `ifndef UVM_NO_MALLOC, which both
-        # builds define; upstream Accellera does not, so on macOS the
-        # preprocessor stopped at "malloc.h file not found".
-        git clone --depth 1 https://github.com/Dragon-Git/uvm-verilator.git /tmp/uvm-verilator
-        cd /tmp/xezim-src
-        cargo build --release
-        mkdir -p "$HOME/xezim/share/uvm"
-        cp -r /tmp/uvm-verilator/src "$HOME/xezim/share/uvm/"
-        mkdir -p "$HOME/xezim/bin"
-        cp /tmp/xezim-src/target/release/xezim "$HOME/xezim/bin/"
-        cp -r /tmp/xezim-src/include "$HOME/xezim/"
-        echo "$HOME/xezim/bin" >> "$GITHUB_PATH"
-        echo "XEZIM_PREFIX=$HOME/xezim" >> "$GITHUB_ENV"
-        "$HOME/xezim/bin/xezim" -V
+        git clone --depth 1 https://github.com/aionhw/xezim.git "$RUNNER_TEMP/xezim-src"
+        ( cd "$RUNNER_TEMP/xezim-src" && cargo build --release )
+        mkdir -p "$RUNNER_TEMP/xezim-prefix/bin"
+        cp "$RUNNER_TEMP/xezim-src/target/release/xezim" "$RUNNER_TEMP/xezim-prefix/bin/"
+        cp -r "$RUNNER_TEMP/xezim-src/include" "$RUNNER_TEMP/xezim-prefix/"
+
+    # Saved here rather than by the post step of the restore above, so that
+    # what goes into the cache is the compiled binary alone. The UVM fork
+    # added below would otherwise be included when this job is the one that
+    # built, and the two jobs would then cache different things under one key.
+    - name: Save the xezim build
+      if: steps.xezim-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ runner.temp }}/xezim-prefix
+        key: xezim-${{ runner.os }}-${{ steps.rev.outputs.sha }}
+
+    # The UVM fork the verilator leg also uses. Its src/dpi/uvm_dpi.h guards
+    # the glibc-only <malloc.h> with `ifndef UVM_NO_MALLOC, which both builds
+    # define; upstream Accellera does not, so on macOS the preprocessor
+    # stopped at "malloc.h file not found".
+    - name: Bundle the UVM fork
+      run: |
+        git clone --depth 1 https://github.com/Dragon-Git/uvm-verilator.git "$RUNNER_TEMP/uvm-verilator"
+        mkdir -p "$RUNNER_TEMP/xezim-prefix/share/uvm"
+        cp -r "$RUNNER_TEMP/uvm-verilator/src" "$RUNNER_TEMP/xezim-prefix/share/uvm/"
+        # An artifact does not carry the executable bit; a restored cache may not either.
+        chmod +x "$RUNNER_TEMP/xezim-prefix/bin/xezim"
+        echo "$RUNNER_TEMP/xezim-prefix/bin" >> "$GITHUB_PATH"
+        echo "XEZIM_PREFIX=$RUNNER_TEMP/xezim-prefix" >> "$GITHUB_ENV"
+        "$RUNNER_TEMP/xezim-prefix/bin/xezim" -V
 
     - name: Run xezim test
       run: |
@@ -277,13 +315,14 @@ jobs:
         echo "xezim main is $sha"
 
     # Keyed on the exact upstream revision, so an unchanged xezim is a hit and
-    # a moved one rebuilds. Nothing older than that can be reused.
+    # a moved one rebuilds. Nothing older than that can be reused. xezim-test
+    # uses the same path and key, so the two share one build.
     - name: Restore the xezim build
       id: cache
       uses: actions/cache@v6
       with:
         path: ${{ runner.temp }}/xezim-prefix
-        key: uvm-compat-xezim-${{ steps.rev.outputs.sha }}
+        key: xezim-${{ runner.os }}-${{ steps.rev.outputs.sha }}
 
     - name: Build xezim
       if: steps.cache.outputs.cache-hit != 'true'
