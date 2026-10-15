@@ -10,7 +10,12 @@ package python_bridge_pkg;
     // code cannot call it directly.  We define a subclass that exposes it via a
     // public method and register a factory override, so that the singleton
     // returned by uvm_phase_hopper::get_global_hopper() is of our subclass type.
+    //
+    // The class only exists from UVM 2020-2.0 on, and the two are the same
+    // boundary: `UVM_VERSION_POST_2020_1_1 is defined exactly in the versions
+    // that have uvm_phase_hopper, so one `ifdef covers "does it exist".
     //-------------------------------------------------------------------------------------
+    `ifdef UVM_VERSION_POST_2020_1_1
     class _pb_phase_hopper extends uvm_phase_hopper;
         `uvm_object_utils(_pb_phase_hopper)
         function new(string name="_pb_phase_hopper");
@@ -21,15 +26,16 @@ package python_bridge_pkg;
         endfunction
     endclass
 
-    // function automatic void _pb_register_hopper_override();
-    //     static bit _pb_override_registered = 0;
-    //     uvm_factory factory;
-    //     if (!_pb_override_registered) begin
-    //         factory = uvm_factory::get();
-    //         factory.set_type_override_by_name("uvm_phase_hopper", "_pb_phase_hopper");
-    //         _pb_override_registered = 1;
-    //     end
-    // endfunction
+    bit _pb_hopper_override_done = 0;
+    function automatic void _pb_register_hopper_override();
+        uvm_factory factory;
+        if (!_pb_hopper_override_done) begin
+            factory = uvm_factory::get();
+            factory.set_type_override_by_name("uvm_phase_hopper", "_pb_phase_hopper");
+            _pb_hopper_override_done = 1;
+        end
+    endfunction
+    `endif // UVM_VERSION_POST_2020_1_1
 
     //-------------------------------------------------------------------------------------
     // Base classes
@@ -49,7 +55,16 @@ package python_bridge_pkg;
 
     class base_test extends uvm_test;
         `uvm_component_utils(base_test)
-        `uvm_new_func
+
+        // The hopper singleton is created by run_test()'s fork, before
+        // build_phase runs, so the type override has to be registered here -
+        // in the constructor - or the singleton is already the wrong type.
+        function new(string name="base_test", uvm_component parent=null);
+            super.new(name, parent);
+            `ifdef UVM_VERSION_POST_2020_1_1
+            _pb_register_hopper_override();
+            `endif // UVM_VERSION_POST_2020_1_1
+        endfunction
 
         virtual function void build_phase(uvm_phase phase);
             super.build_phase(phase);
@@ -279,27 +294,46 @@ package python_bridge_pkg;
     endfunction
 
     // --- drain_time & objection query ---
+    //
+    // Two paths, because the objection this sets drain time on moved:
+    //
+    //   UVM >= 2020-2.0  the phase hopper owns the run-time objection, and
+    //                    uvm_test_done_objection no longer exists.
+    //   older versions   the run phase's own objection is the one to set.
+    //
+    // Both branches return the value as an integer nanosecond count. No type
+    // cast is applied on the way out: a simulator's DPI export bug in this
+    // area is tracked upstream against the simulator, not worked around here.
     function automatic void set_drain_time(longint drain_ns);
+`ifdef UVM_VERSION_POST_2020_1_1
         uvm_phase_hopper hopper;
         _pb_phase_hopper pb_hopper;
-        // _pb_register_hopper_override();
-        // hopper = uvm_phase_hopper::get_global_hopper();
-        // if ($cast(pb_hopper, hopper)) begin
-        //     uvm_objection _objection = pb_hopper.get_objection_public();
-        //     _objection.set_drain_time(null, drain_ns * 1ns);
-        // end
+        hopper = uvm_phase_hopper::get_global_hopper();
+        if ($cast(pb_hopper, hopper))
+            pb_hopper.get_objection_public().set_drain_time(null, drain_ns * 1ns);
+`else
+        uvm_domain dom = uvm_domain::get_common_domain();
+        uvm_phase  ph  = dom.find_by_name("run", 0);
+        if (ph != null)
+            ph.get_objection().set_drain_time(null, drain_ns * 1ns);
+`endif // UVM_VERSION_POST_2020_1_1
     endfunction
 
     function automatic longint get_drain_time();
+`ifdef UVM_VERSION_POST_2020_1_1
         uvm_phase_hopper hopper;
         _pb_phase_hopper pb_hopper;
-        // _pb_register_hopper_override();
-        // hopper = uvm_phase_hopper::get_global_hopper();
-        // if ($cast(pb_hopper, hopper)) begin
-        //     uvm_objection _objection = pb_hopper.get_objection_public();
-        //     return _objection.get_drain_time(null) / 1ns;
-        // end
+        hopper = uvm_phase_hopper::get_global_hopper();
+        if ($cast(pb_hopper, hopper))
+            return pb_hopper.get_objection_public().get_drain_time(null) / 1ns;
         return 0;
+`else
+        uvm_domain dom = uvm_domain::get_common_domain();
+        uvm_phase  ph  = dom.find_by_name("run", 0);
+        if (ph != null)
+            return ph.get_objection().get_drain_time(null) / 1ns;
+        return 0;
+`endif // UVM_VERSION_POST_2020_1_1
     endfunction
 
     function automatic int get_objection_count(string phase_name, string contxt="");
