@@ -62,7 +62,8 @@ inc/svuvm_export_dpi.svh
 # setuptools_scm generated file (re-generated on every build)
 src/svuvm/_version.py
 
-# the UVM fork the verilator leg builds against; CI clones it into the root
-uvm-verilator/
+# the UVM fork the verilator leg builds against; CI clones it into the root,
+# and a local checkout is often a symlink, which a trailing slash would miss
+uvm-verilator
 # xezim coverage output
 xezim_cov.json

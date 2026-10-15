@@ -243,3 +243,222 @@ jobs:
       # of its own, instead of unicorn.
       run: |
         make -f test/renode_test/Makefile run
+  # UVM version compatibility, on both simulators.
+  #
+  # The jobs above each run the bridge against one UVM: the fork the verilator
+  # leg needs, and whatever the xezim tarball bundles. These two cover the
+  # other axis - the same bridge against every UVM release the project
+  # supports - so that a change here, or upstream in xezim or Verilator, shows
+  # up as a version that stopped working.
+  #
+  # What the two legs check is not the same thing, because what they can check
+  # is not. xezim interprets, so it runs the base test against each version.
+  # Verilator is used for elaboration only - see the note on its job - so its
+  # cells are a lint of the bridge against each version.
+  #
+  # They are split for cost. Under xezim a base test is about 8 s, while a
+  # fresh job spends about 35 s installing dependencies; ten jobs would be ten
+  # times that setup to run eighty seconds of testing, so those versions are
+  # steps in one job. A lint is seconds rather than minutes but each cell still
+  # pays the checkout and the Verilator install, so keeping them parallel is
+  # what makes a failure point at its version without the others waiting.
+  #
+  # Building xezim is the one expensive step in the whole thing, so it is its
+  # own job and the xezim cells consume its artifact.
+  uvm-compat-build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Resolve the xezim revision
+      id: rev
+      run: |
+        sha=$(git ls-remote https://github.com/aionhw/xezim.git refs/heads/main | cut -f1)
+        test -n "$sha" || { echo "could not resolve xezim main"; exit 1; }
+        echo "sha=$sha" >> "$GITHUB_OUTPUT"
+        echo "xezim main is $sha"
+
+    # Keyed on the exact upstream revision, so an unchanged xezim is a hit and
+    # a moved one rebuilds. Nothing older than that can be reused.
+    - name: Restore the xezim build
+      id: cache
+      uses: actions/cache@v6
+      with:
+        path: ${{ runner.temp }}/xezim-prefix
+        key: uvm-compat-xezim-${{ steps.rev.outputs.sha }}
+
+    - name: Build xezim
+      if: steps.cache.outputs.cache-hit != 'true'
+      env:
+        # cargo's libgit2 does not use the runner's git credential helper;
+        # shelling out to git does, which is what a public repo needs.
+        CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      run: |
+        rustup set profile minimal
+        rustup toolchain install stable
+        rustup default stable
+        git clone --depth 1 https://github.com/aionhw/xezim.git "$RUNNER_TEMP/xezim-src"
+        ( cd "$RUNNER_TEMP/xezim-src" && cargo build --release )
+        mkdir -p "$RUNNER_TEMP/xezim-prefix/bin"
+        cp "$RUNNER_TEMP/xezim-src/target/release/xezim" "$RUNNER_TEMP/xezim-prefix/bin/"
+        cp -r "$RUNNER_TEMP/xezim-src/include" "$RUNNER_TEMP/xezim-prefix/"
+
+    - name: Upload the xezim build
+      uses: actions/upload-artifact@v7
+      with:
+        name: xezim-uvm-compat
+        path: ${{ runner.temp }}/xezim-prefix
+        retention-days: 1
+
+  uvm-compat-verilator:
+    # Elaboration only, not a build and run. Upstream UVM gains a Verilator HDL
+    # backend only in 2020-3.2 - uvm_hdl.c #errors without one - so a full run
+    # is impossible for the earlier releases whatever the bridge does. Lint
+    # still compares the bridge's SystemVerilog surface against every version,
+    # which is the signal this matrix is after, and it takes seconds rather
+    # than the minutes a build does.
+    #
+    # No dependency on the xezim build: this leg does not use it, and waiting
+    # for it would serialise two unrelated things.
+    runs-on: ubuntu-latest
+    strategy:
+      # A version that fails says nothing about the others.
+      fail-fast: false
+      matrix:
+        include:
+          # The three that fail do so for reasons outside this bridge, which
+          # docs/uvm-version-compatibility.md explains: 1.1b and 1.1c cannot
+          # elaborate under any non-vendor tool, and 1.0p1 lacks three APIs the
+          # bridge uses. They are cells rather than omissions so that the
+          # boundary is visible and moving.
+          - { uvm: uvm-1.0p1,    expect: fail }
+          - { uvm: uvm-1.1a,     expect: pass }
+          - { uvm: uvm-1.1b,     expect: fail }
+          - { uvm: uvm-1.1c,     expect: fail }
+          - { uvm: uvm-1.1d,     expect: pass }
+          - { uvm: uvm-1.2,      expect: pass }
+          - { uvm: uvm-2017-0.9, expect: pass }
+          - { uvm: uvm-2017-1.0, expect: pass }
+          - { uvm: uvm-2017-1.1, expect: pass }
+          - { uvm: uvm-2020-1.0, expect: pass }
+          - { uvm: uvm-2020-1.1, expect: pass }
+          - { uvm: uvm-2020-2.0, expect: pass }
+          - { uvm: uvm-2020-3.0, expect: pass }
+          - { uvm: uvm-2020-3.1, expect: pass }
+          - { uvm: uvm-2020-3.2, expect: pass }
+
+    name: uvm-compat (verilator, ${{ matrix.uvm }})
+
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+        cache: pip
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install '.[test]' -q
+
+    - name: Set up Verilator
+      uses: ktbarrett/setup-verilator@dev
+      with:
+        version: 'nightly'
+
+    - name: Fetch UVM ${{ matrix.uvm }}
+      run: |
+        git clone --quiet --depth 1 --branch "${{ matrix.uvm }}" \
+          https://github.com/chipsalliance/uvm-verilator.git "$RUNNER_TEMP/uvm"
+
+    - name: Lint the bridge against UVM ${{ matrix.uvm }}
+      env:
+        # This leg is given the src directory itself.
+        UVM_HOME: ${{ runner.temp }}/uvm/src
+      run: script/uvm_compat_check.sh verilator "${{ matrix.uvm }}" "${{ matrix.expect }}" lint
+
+  uvm-compat-xezim:
+    needs: uvm-compat-build
+    # Ten versions, ten steps in one job. See the note above the build job for
+    # why these are not parallel cells like the Verilator ones.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+        cache: pip
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install '.[test]' -q
+
+    - name: Get the xezim build
+      uses: actions/download-artifact@v8
+      with:
+        name: xezim-uvm-compat
+        path: ${{ runner.temp }}/xezim-prefix
+
+    - name: Make xezim runnable
+      run: |
+        # An artifact does not carry the executable bit.
+        chmod +x "$RUNNER_TEMP/xezim-prefix/bin/xezim"
+        echo "XEZIM_PREFIX=$RUNNER_TEMP/xezim-prefix" >> "$GITHUB_ENV"
+        echo "$RUNNER_TEMP/xezim-prefix/bin" >> "$GITHUB_PATH"
+        "$RUNNER_TEMP/xezim-prefix/bin/xezim" -V
+
+    # One shallow clone per version, up front: they are 5-26 MB each, and
+    # doing it here keeps each version's step to the test alone.
+    - name: Fetch the UVM versions
+      run: |
+        for tag in uvm-1.2 uvm-2017-0.9 uvm-2017-1.0 uvm-2017-1.1 \
+                   uvm-2020-1.0 uvm-2020-1.1 uvm-2020-2.0 uvm-2020-3.0 \
+                   uvm-2020-3.1 uvm-2020-3.2; do
+          git clone --quiet --depth 1 --branch "$tag" \
+            https://github.com/chipsalliance/uvm-verilator.git "$RUNNER_TEMP/uvm/$tag" &
+        done
+        wait
+        ls "$RUNNER_TEMP/uvm"
+
+    # One step per version, so the run reads as a table and a failure points
+    # at the version that caused it. Each step checks its own result against
+    # the expectation passed to it, and is green when they agree - including
+    # the one known to fail.
+    # UVM_HOME is the tag directory here; this leg's Makefile appends /src.
+    - name: uvm-1.2
+      env: { UVM_HOME: '${{ runner.temp }}/uvm/uvm-1.2' }
+      run: script/uvm_compat_check.sh xezim uvm-1.2 pass
+    - name: uvm-2017-0.9 (known failing)
+      env: { UVM_HOME: '${{ runner.temp }}/uvm/uvm-2017-0.9' }
+      run: script/uvm_compat_check.sh xezim uvm-2017-0.9 fail
+    - name: uvm-2017-1.0
+      env: { UVM_HOME: '${{ runner.temp }}/uvm/uvm-2017-1.0' }
+      run: script/uvm_compat_check.sh xezim uvm-2017-1.0 pass
+    - name: uvm-2017-1.1
+      env: { UVM_HOME: '${{ runner.temp }}/uvm/uvm-2017-1.1' }
+      run: script/uvm_compat_check.sh xezim uvm-2017-1.1 pass
+    - name: uvm-2020-1.0
+      env: { UVM_HOME: '${{ runner.temp }}/uvm/uvm-2020-1.0' }
+      run: script/uvm_compat_check.sh xezim uvm-2020-1.0 pass
+    - name: uvm-2020-1.1
+      env: { UVM_HOME: '${{ runner.temp }}/uvm/uvm-2020-1.1' }
+      run: script/uvm_compat_check.sh xezim uvm-2020-1.1 pass
+    - name: uvm-2020-2.0
+      env: { UVM_HOME: '${{ runner.temp }}/uvm/uvm-2020-2.0' }
+      run: script/uvm_compat_check.sh xezim uvm-2020-2.0 pass
+    - name: uvm-2020-3.0
+      env: { UVM_HOME: '${{ runner.temp }}/uvm/uvm-2020-3.0' }
+      run: script/uvm_compat_check.sh xezim uvm-2020-3.0 pass
+    - name: uvm-2020-3.1
+      env: { UVM_HOME: '${{ runner.temp }}/uvm/uvm-2020-3.1' }
+      run: script/uvm_compat_check.sh xezim uvm-2020-3.1 pass
+    - name: uvm-2020-3.2
+      env: { UVM_HOME: '${{ runner.temp }}/uvm/uvm-2020-3.2' }
+      run: script/uvm_compat_check.sh xezim uvm-2020-3.2 pass

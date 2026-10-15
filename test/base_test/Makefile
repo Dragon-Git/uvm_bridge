@@ -94,13 +94,14 @@ run: check
 #   libpython  - Py* symbols (the extension deliberately does not link it)
 #   uvm_dpi    - UVM's DPI-C layer (uvm_hdl_* and friends)
 #   _svuvm     - the bridge itself
+	XEZIM_UVM_DIR="$(UVM_HOME)" \
 	PYTHONPATH="$(TEST_DIR):$$PYTHONPATH" \
 	$(XEZIM) --simulate -s top \
 	  --dpi-lib "$(LIBPYTHON)" \
 	  --dpi-lib "$(abspath $(UVM_DPI_SO))" \
 	  --dpi-lib "$(SVUVM_DPI_LIB)" \
 	  --max-time $(MAX_TIME) --error-exit \
-	  -I "$(UVM_HOME)/src" "$(UVM_HOME)/src/uvm_pkg.sv" \
+	  -uvm \
 	  "$(SVUVM_SV)" "$(SV_SOURCE)" \
 	  $(RUN_FLAGS) > $(LOG) 2>&1; \
 	rc=$$?; \
@@ -117,11 +118,21 @@ INCLUDE_DIRS    = +incdir+$(UVM_HOME)
 UVM_PKG         = $(UVM_HOME)/uvm_pkg.sv
 UVM_DPI         = $(UVM_HOME)/dpi/uvm_dpi.cc
 
+SVUVM_DIR       = $(shell $(PYTHON) -c "import svuvm, os; print(os.path.dirname(svuvm.__file__))" 2>/dev/null)
+SVUVM_SV        = $(SVUVM_DIR)/python_bridge_pkg.sv
+
 VERILATOR_FLAGS = -j $(NPROC) --vpi --binary \
                   -top top -Mdir $(BUILD_DIR) \
                   --output-groups $(NPROC) \
 				  -Wno-lint -Wno-style -Wno-SYMRSVDWORD -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND \
 				  -Wno-IGNOREDRETURN -Wno-CONSTRAINTIGN -Wno-ZERODLY -Wno-CASTCONST \
+
+# Same warnings off as the build, so a clean lint means the build would have
+# got past elaboration, plus the defines the build applies to the DPI layer.
+LINT_FLAGS      = -Wno-fatal -Wno-lint -Wno-style -Wno-SYMRSVDWORD \
+                  -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND -Wno-IGNOREDRETURN \
+                  -Wno-CONSTRAINTIGN -Wno-ZERODLY -Wno-CASTCONST \
+                  -DUVM_NO_MALLOC -DVERILATOR
 
 CXXFLAGS        = -CFLAGS "-I$(UVM_HOME)/dpi -I$(ROOT)/inc  -DVERILATOR -DUVM_NO_MALLOC"
 
@@ -136,6 +147,17 @@ $(BUILD_DIR):
 build: $(BUILD_DIR)
 	$(VERILATOR) $(VERILATOR_FLAGS) $(INCLUDE_DIRS) $(UVM_DPI) \
 	$(UVM_PKG) $(ASNEEDED_PRE) $(SVUVM_CONFIG) $(SV_SOURCE) $(CXXFLAGS) $(ASNEEDED_POST) $(LDFLAGS)
+
+# Elaboration only: no C++ is generated or compiled, so a clean run says the
+# bridge and the given UVM agree on their SystemVerilog surface. That is what
+# the UVM compatibility matrix wants from this simulator. A full build and run
+# is not available for most versions anyway - upstream UVM gains a Verilator
+# HDL backend only in 2020-3.2, and uvm_hdl.c #errors without one - so lint is
+# both the cheaper and the more widely applicable check.
+lint:
+	$(VERILATOR) --lint-only -top top $(LINT_FLAGS) \
+	  $(INCLUDE_DIRS) -I$(UVM_HOME)/dpi -I$(ROOT)/inc \
+	  $(UVM_PKG) $(SVUVM_SV) $(SV_SOURCE)
 
 
 # Verilator's DPI export cannot consume time, and a register access runs a
