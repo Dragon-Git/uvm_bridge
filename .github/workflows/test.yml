@@ -29,17 +29,17 @@ jobs:
         # errors" warnings and produce incorrect dev versions.
         fetch-depth: 0
 
+    # The action installs to a fresh prefix per run and, for both Linux and
+    # macOS, exports VERILATOR_ROOT for it and puts it on PATH. That is the
+    # variable svuvm.cpp reads and the one the generated Vtop.mk needs to find
+    # verilated.mk, so no separate pinning step is required.
     - name: Set up Verilator
-      uses: veryl-lang/setup-verilator@v2
+      uses: ktbarrett/setup-verilator@dev
+      with:
+        version: 'nightly'
 
-    - name: Pin Verilator to a stable path
-      if: runner.os == 'Linux'
-      run: |
-        VLT_ROOT="$(dirname "$(dirname "$(readlink -f "$(command -v verilator)")")")"
-        rm -rf "$HOME/vlt-root"
-        mv "$VLT_ROOT" "$HOME/vlt-root"
-        echo "VERILATOR_ROOT=$HOME/vlt-root" >> "$GITHUB_ENV"
-        echo "$HOME/vlt-root/bin" >> "$GITHUB_PATH"
+    - name: Show Verilator version
+      run: verilator --version
 
     - name: Cache ccache (verilator tests)
       uses: actions/cache@v6
