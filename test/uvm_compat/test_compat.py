@@ -27,9 +27,9 @@ SCRIPT = ROOT / "script" / "uvm_compat_check.sh"
 UVM_REPO = "https://github.com/chipsalliance/uvm-verilator.git"
 UVM_ROOT = Path(os.environ.get("UVM_COMPAT_UVM_ROOT") or "/tmp/uvm-compat")
 
-# tag, expected outcome. The xezim list is a subset of the verilator one: it
-# runs the base test, which needs a version with a Verilator HDL backend,
-# while every version can be linted.
+# tag, expected outcome. The xezim list is a subset of the verilator one: the
+# base test needs a UVM whose DPI source layout xezim's adapter can compile,
+# which means 1.2 or later, while every version can be linted.
 VERILATOR = [
     ("uvm-1.0p1", "fail"),
     ("uvm-1.1a", "pass"),
@@ -49,7 +49,7 @@ VERILATOR = [
 ]
 XEZIM = [
     ("uvm-1.2", "pass"),
-    ("uvm-2017-0.9", "fail"),
+    ("uvm-2017-0.9", "pass"),
     ("uvm-2017-1.0", "pass"),
     ("uvm-2017-1.1", "pass"),
     ("uvm-2020-1.0", "pass"),

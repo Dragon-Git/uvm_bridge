@@ -2,7 +2,7 @@
 
 `src/svuvm/python_bridge_pkg.sv` 对各 UVM 发行版的适配情况与已知边界。
 
-测试于 2026-10-15，xezim 0.11.1（main `1ec7955`）。UVM 源码取自 `chipsalliance/uvm-verilator` 的 tag。
+测试于 2026-10-16，xezim 0.11.1（main `0fd1b414`）。UVM 源码取自 `chipsalliance/uvm-verilator` 的 tag。
 
 ## 1. 结果
 
@@ -19,7 +19,7 @@
 | `uvm-1.1c` | — | ✗ 同上 |
 | `uvm-1.1d` | — | ✓ |
 | `uvm-1.2` | ✓ | ✓ |
-| `uvm-2017-0.9` | ✗ 模拟器求值缺陷（§3.2） | ✓ |
+| `uvm-2017-0.9` | ✓ | ✓ |
 | `uvm-2017-1.0` | ✓ | ✓ |
 | `uvm-2017-1.1` | ✓ | ✓ |
 | `uvm-2020-1.0` | ✓ | ✓ |
@@ -127,6 +127,8 @@ UVM_FATAL   @ 0: reporter [INVTST] Requested test from command line +UVM_TESTNAM
 ```
 
 单独任一件都正常（实测：绑定到普通类时裸引用正确，参数化类加括号亦正确），verilator 在该写法上也正确。1.2 起 `type_name` 改为静态常量变量、不再有这层间接，所以只有 0.9 受影响。
+
+**已修复**：xezim 上游 [issue #325](https://github.com/aionhw/xezim/issues/325)（2026-10-16 关闭）。修复分两处：`90d12edc` 让裸引用按参数化特化求值，`7856e944` 让类链内的无参静态函数名按调用处理（§13.5.1）；测试补于 `d87ca9f8`。本仓库的期望值随之由 fail 改为 pass——这条只在上游 main 上成立，跑在更旧的 xezim 上会红。
 
 ### 3.3 UVM 1.1b / 1.1c：自身的 redaction 宏无兜底
 
