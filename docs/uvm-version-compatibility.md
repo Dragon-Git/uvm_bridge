@@ -177,4 +177,4 @@ make -f test/base_test/Makefile lint UVM_HOME=/tmp/uvm-2020-3.2/src
 cp src/svuvm/python_bridge_pkg.sv "$(python -c 'import svuvm,os;print(os.path.dirname(svuvm.__file__))')/"
 ```
 
-CI 中的 `.github/workflows/test.yml`（`uvm-compat-*`）跑同一组版本，期望值随矩阵携带，只在与期望不符时失败。
+CI 中的 `.github/workflows/test.yml`（`uvm-compat-*`）跑同一组版本：期望值在 `test/uvm_compat/test_compat.py` 的表里，两条腿各用 `pytest -m lint` / `pytest -m run` 并行执行，只在与期望不符时失败——已知的失败保持安静，开始通过的版本也会被点名。

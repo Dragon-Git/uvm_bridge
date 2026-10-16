@@ -49,21 +49,28 @@ if [ "$mode" = lint ]; then
     rc=$?
     if [ $rc -eq 0 ]; then actual=pass; else actual=fail; fi
 else
-    # Both legs write into their own build directory, and the verilator one is
-    # the repository root rather than the test's. Clearing it between versions
-    # keeps a previous UVM's objects from being reused - easy to miss, because
-    # the sources live outside the checkout and so look unchanged.
-    rm -rf "$ROOT/build" "$ROOT/test/base_test/build"
-
-    # UVM_HOME goes on the command line, not through the environment: the
-    # Makefile assigns it with = rather than ?=, which an inherited value does
-    # not override. Passing it in the environment silently runs whatever
-    # XEZIM_PREFIX points at instead of the version under test.
+    # One build directory per version: pytest runs versions in parallel, and
+    # a shared one would let a worker's objects - or its clean - land in
+    # another's build. They go on the command line, which beats the Makefile's
+    # own =, and are cleared here so an earlier run of the same version cannot
+    # be reused; the UVM sources live outside the checkout and so look
+    # unchanged to make.
+    #
+    # UVM_HOME also goes on the command line, not through the environment, for
+    # the same reason: an inherited value does not override a =, and passing
+    # it in the environment silently runs whatever XEZIM_PREFIX points at
+    # instead of the version under test.
     if [ "$sim" = xezim ]; then
+        bdir="$ROOT/test/base_test/build.uvm-compat.$tag"
+        rm -rf "$bdir"
         make -f "$ROOT/test/base_test/Makefile" SIM=xezim run \
-            UVM_HOME="$UVM_HOME" ${XEZIM_PREFIX:+XEZIM_PREFIX="$XEZIM_PREFIX"} > "$log" 2>&1
+            UVM_HOME="$UVM_HOME" XEZIM_BUILD_DIR="$bdir" \
+            ${XEZIM_PREFIX:+XEZIM_PREFIX="$XEZIM_PREFIX"} > "$log" 2>&1
     else
-        make -f "$ROOT/test/base_test/Makefile" run UVM_HOME="$UVM_HOME" > "$log" 2>&1
+        bdir="build.uvm-compat.$tag"
+        rm -rf "$ROOT/$bdir"
+        make -f "$ROOT/test/base_test/Makefile" run \
+            UVM_HOME="$UVM_HOME" BUILD_DIR="$bdir" > "$log" 2>&1
     fi
     rc=$?
 

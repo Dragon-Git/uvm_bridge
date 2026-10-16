@@ -19,6 +19,7 @@ doc = ['sphinx']
 # Renode through pyrenode3.
 test = [
     'pytest',
+    'pytest-xdist',
     'coverage',
     'pytest-cov',
     'unicorn',
@@ -40,6 +41,13 @@ requires = [
     "setuptools_scm>=8.0, <11.0",
 ]
 build-backend = "scikit_build_core.build"
+
+[tool.pytest.ini_options]
+# The two CI legs select themselves: pytest -m lint, pytest -m run.
+markers = [
+    "lint: the verilator leg - elaborate only",
+    "run: the xezim leg - run the base test",
+]
 
 [tool.scikit-build]
 cmake.version = ">=3.15"
