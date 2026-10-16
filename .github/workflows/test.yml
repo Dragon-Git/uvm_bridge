@@ -15,7 +15,9 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
-        os: [ubuntu-latest, macos-26]
+        # runner.arch is part of every cache key below: amd64 and arm64 both
+        # report runner.os = Linux and must not share a ccache.
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-26]
     env:
       CCACHE_DIR: ${{ github.workspace }}/.ccache-vlt
       OBJCACHE: ccache
@@ -24,15 +26,10 @@ jobs:
     steps:
     - uses: actions/checkout@v7
       with:
-        # setuptools_scm needs full git history to resolve the version
-        # from tags; shallow clones trigger "is shallow and may cause
-        # errors" warnings and produce incorrect dev versions.
+        # setuptools_scm needs the tags to resolve the version.
         fetch-depth: 0
 
-    # The action installs to a fresh prefix per run and, for both Linux and
-    # macOS, exports VERILATOR_ROOT for it and puts it on PATH. That is the
-    # variable svuvm.cpp reads and the one the generated Vtop.mk needs to find
-    # verilated.mk, so no separate pinning step is required.
+    # Exports VERILATOR_ROOT, which svuvm.cpp and the generated Vtop.mk read.
     - name: Set up Verilator
       uses: ktbarrett/setup-verilator@dev
       with:
@@ -41,22 +38,35 @@ jobs:
     - name: Show Verilator version
       run: verilator --version
 
+    # The nightly's installed verilated.mk hardcodes "OBJCACHE = " - the
+    # packager rewrites ?= to = - so a makefile assignment beats the env var
+    # above and every Verilator C++ line ran bare. The grep fails loudly if
+    # the file's shape ever changes again.
+    - name: Point Verilator's OBJCACHE at ccache
+      run: |
+        mk="$VERILATOR_ROOT/include/verilated.mk"
+        case "$RUNNER_OS" in
+          macOS) sed -i '' 's/^OBJCACHE = .*/OBJCACHE = ccache/' "$mk" ;;
+          *)     sed -i     's/^OBJCACHE = .*/OBJCACHE = ccache/' "$mk" ;;
+        esac
+        grep -n '^OBJCACHE' "$mk"
+
     - name: Cache ccache (verilator tests)
       uses: actions/cache@v6
       with:
         path: ${{ github.workspace }}/.ccache-vlt
-        key: ccache-vlt-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('src/**', 'test/**', 'inc/**', 'pyproject.toml') }}
-        restore-keys: ccache-vlt-${{ runner.os }}-${{ matrix.python-version }}-
+        key: ccache-vlt-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}-${{ hashFiles('src/**', 'test/**', 'inc/**', 'pyproject.toml') }}
+        restore-keys: ccache-vlt-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}-
 
     - name: Cache ccache (wheel build)
       uses: actions/cache@v6
       with:
         path: ${{ github.workspace }}/.ccache-whl
-        key: ccache-whl-${{ runner.os }}-${{ matrix.python-version }}-${{ github.sha }}
-        restore-keys: ccache-whl-${{ runner.os }}-${{ matrix.python-version }}-
+        key: ccache-whl-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}-${{ github.sha }}
+        restore-keys: ccache-whl-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}-
 
     - name: Install dependencies on Ubuntu
-      if: matrix.os == 'ubuntu-latest'
+      if: startsWith(matrix.os, 'ubuntu-')
       run: |
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends ccache g++ make
@@ -87,29 +97,26 @@ jobs:
         CCACHE_DIR="${{ github.workspace }}/.ccache-whl" ccache -z
 
     - name: Install Python dependencies
-      # nanobind 3.0.0 (Aug 2026) raises ImportError at import
-      # time on Python < 3.10 because its stable ABI floor
-      # moved up to 3.10. pyproject.toml advertises
-      # nanobind>=2.4.0,<4.0.0 (per Dependabot PR #26) which
-      # pip happily resolves to 3.0.0 even on Python 3.9,
-      # causing the wheel build to fail. On 3.9 we constrain
-      # pip (in both the main and the isolated build env) to
-      # nanobind 2.4.x via a PEP 665-style constraints file
-      # written to a temp file. PIP_CONSTRAINT applies to
-      # every pip invocation in this step, including the
-      # build-time resolver that PEP 517's isolated build
-      # creates, so the sdist build cannot re-resolve
-      # nanobind to 3.0.0. On every other Python version
-      # PIP_CONSTRAINT is not set, so 3.0.0 is picked
-      # normally.
+      # No build isolation: under PEP 517 pip builds in a random
+      # /tmp/pip-build-env-*/, and that path lands in every compile command,
+      # so ccache's key changed on every run (12 of 13 calls missed). The
+      # requirements below mirror [build-system].requires in pyproject.toml.
+      #
+      # nanobind 3.0.0 raises ImportError on Python < 3.10, so 3.9 pins 2.4.x
+      # directly - there is no isolated environment left for a PIP_CONSTRAINT
+      # to reach. The old constraint file also named nanobind-backend, which
+      # is not a distribution: a constraint may do that, an install cannot.
       run: |
         python -m pip install --upgrade pip
         if [ "${{ matrix.python-version }}" = "3.9" ]; then
-          printf '%s\n%s\n' 'nanobind==2.4.0' 'nanobind-backend==2.4.0' > /tmp/nb39.txt
-          PIP_CONSTRAINT=/tmp/nb39.txt python -m pip install . -v
+          python -m pip install 'nanobind==2.4.0'
         else
-          python -m pip install . -v
+          python -m pip install 'nanobind>=2.4.0,<4.0.0'
         fi
+        python -m pip install 'scikit-build-core>=1.0.0,<2.0.0' \
+                              'pyslang>=11.0.0,<12.0.0' \
+                              'setuptools_scm>=8.0,<11.0'
+        python -m pip install --no-build-isolation -v .
         python -m pip install cocotb
 
     - name: Lint with ruff
@@ -130,244 +137,73 @@ jobs:
         echo "== wheel build =="
         CCACHE_DIR="${{ github.workspace }}/.ccache-whl" ccache -s
 
-  xezim-test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            xezim_asset: xezim-manylinux_2_34_x86_64-0.11.1.tar.gz
-          - os: macos-26
-            xezim_asset: xezim-macos-arm64-0.11.1.tar.gz
-    env:
-      XEZIM_VERSION: 0.11.1
-    steps:
-    - uses: actions/checkout@v7
-      with:
-        # setuptools_scm needs full git history to resolve the version
-        # from tags; shallow clones trigger "is shallow and may cause
-        # errors" warnings and produce incorrect dev versions.
-        fetch-depth: 0
-
-    - name: Set up Python 3.12
-      uses: actions/setup-python@v7
-      with:
-        python-version: "3.12"
-
-    - name: Install Python dependencies
-      run: |
-        python -m pip install --upgrade pip
-        # The test extra carries what the register tests need to build their
-        # inputs: peakrdl (RTL, C header, PyRAL model) and unicorn.
-        python -m pip install '.[test]' -v
-
-    # Built from main rather than taken from a release: the work this test
-    # needs is on main and is newer than 0.11.1. Switch back to the release
-    # tarball once a release contains it - the matrix `xezim_asset` entries
-    # are the record of what that would be.
-    #
-    # The build is shared with uvm-compat-build, which needs the same binary:
-    # same path, same key, so whichever job gets there first builds and the
-    # other restores it. Building xezim is the most expensive step in this
-    # workflow and was previously done once per job that needed it. The key
-    # carries the runner OS, because this job runs on two of them and their
-    # binaries are not interchangeable.
-    - name: Resolve the xezim revision
-      id: rev
-      run: |
-        sha=$(git ls-remote https://github.com/aionhw/xezim.git refs/heads/main | cut -f1)
-        test -n "$sha" || { echo "could not resolve xezim main"; exit 1; }
-        echo "sha=$sha" >> "$GITHUB_OUTPUT"
-        echo "xezim main is $sha"
-
-    - name: Restore the xezim build
-      id: xezim-cache
-      uses: actions/cache@v6
-      with:
-        path: ${{ runner.temp }}/xezim-prefix
-        key: xezim-${{ runner.os }}-${{ steps.rev.outputs.sha }}
-
-    - name: Build xezim from main
-      if: steps.xezim-cache.outputs.cache-hit != 'true'
-      env:
-        # cargo's libgit2 does not use the runner's git credential helper;
-        # shelling out to git does, which is what a public repo needs.
-        CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-      run: |
-        rustup set profile minimal
-        rustup toolchain install stable
-        rustup default stable
-        git clone --depth 1 https://github.com/aionhw/xezim.git "$RUNNER_TEMP/xezim-src"
-        ( cd "$RUNNER_TEMP/xezim-src" && cargo build --release )
-        mkdir -p "$RUNNER_TEMP/xezim-prefix/bin"
-        cp "$RUNNER_TEMP/xezim-src/target/release/xezim" "$RUNNER_TEMP/xezim-prefix/bin/"
-        cp -r "$RUNNER_TEMP/xezim-src/include" "$RUNNER_TEMP/xezim-prefix/"
-
-    # Saved here rather than by the post step of the restore above, so that
-    # what goes into the cache is the compiled binary alone. The UVM fork
-    # added below would otherwise be included when this job is the one that
-    # built, and the two jobs would then cache different things under one key.
-    - name: Save the xezim build
-      if: steps.xezim-cache.outputs.cache-hit != 'true'
-      uses: actions/cache/save@v6
-      with:
-        path: ${{ runner.temp }}/xezim-prefix
-        key: xezim-${{ runner.os }}-${{ steps.rev.outputs.sha }}
-
-    # The UVM fork the verilator leg also uses. Its src/dpi/uvm_dpi.h guards
-    # the glibc-only <malloc.h> with `ifndef UVM_NO_MALLOC, which both builds
-    # define; upstream Accellera does not, so on macOS the preprocessor
-    # stopped at "malloc.h file not found".
-    - name: Bundle the UVM fork
-      run: |
-        git clone --depth 1 https://github.com/Dragon-Git/uvm-verilator.git "$RUNNER_TEMP/uvm-verilator"
-        mkdir -p "$RUNNER_TEMP/xezim-prefix/share/uvm"
-        cp -r "$RUNNER_TEMP/uvm-verilator/src" "$RUNNER_TEMP/xezim-prefix/share/uvm/"
-        # An artifact does not carry the executable bit; a restored cache may not either.
-        chmod +x "$RUNNER_TEMP/xezim-prefix/bin/xezim"
-        echo "$RUNNER_TEMP/xezim-prefix/bin" >> "$GITHUB_PATH"
-        echo "XEZIM_PREFIX=$RUNNER_TEMP/xezim-prefix" >> "$GITHUB_ENV"
-        "$RUNNER_TEMP/xezim-prefix/bin/xezim" -V
-
-    - name: Run xezim test
-      run: |
-        make -f test/base_test/Makefile run SIM=xezim
-
-    - name: Generate pyral model and register block
-      run: |
-        mkdir -p test/pyral_test/gen test/pyral_test/rtl
-        make -f test/pyral_test/Makefile gen
-
-    - name: Run pyral register test
-      run: |
-        make -f test/pyral_test/Makefile run
-
-    - name: Run unicorn register test
-      # Same register block and same APB agent as the pyral test; what drives
-      # the bus is a bare-metal firmware under unicorn instead of the PyRAL
-      # model. The Makefile generates the RTL and the C header itself.
-      run: |
-        make -f test/unicorn_test/Makefile run
-
-    - name: Install Renode
-      # The multiplatform package would cover both runners, but not every
-      # release publishes it; the per-platform ones always are. pyrenode3
-      # needs the directory holding Renode's .NET assemblies: the tarball's
-      # top level on Linux, and the .app bundle's Contents/MacOS on macOS.
-      env:
-        RENODE_VERSION: 1.17.0
-      run: |
-        mkdir -p "$HOME/renode"
-        if [ "${{ runner.os }}" = "macOS" ]; then
-          curl -sSL -o /tmp/renode.dmg \
-            "https://github.com/renode/renode/releases/download/v$RENODE_VERSION/renode-$RENODE_VERSION.osx-arm64-portable.dmg"
-          mkdir -p /tmp/renode-mnt
-          hdiutil attach /tmp/renode.dmg -mountpoint /tmp/renode-mnt -nobrowse -quiet
-          cp -R /tmp/renode-mnt/Renode.app/Contents/MacOS/. "$HOME/renode"
-          hdiutil detach /tmp/renode-mnt -quiet
-        else
-          curl -sSL -o /tmp/renode.tar.gz \
-            "https://github.com/renode/renode/releases/download/v$RENODE_VERSION/renode-$RENODE_VERSION.linux-portable.tar.gz"
-          tar xzf /tmp/renode.tar.gz -C /tmp
-          cp -R "/tmp/renode_$RENODE_VERSION-portable/." "$HOME/renode"
-        fi
-        test -f "$HOME/renode/Renode.runtimeconfig.json"
-        echo "PYRENODE_PATH=$HOME/renode" >> "$GITHUB_ENV"
-
-    - name: Run Renode register test
-      # The same firmware as the unicorn test and the same UVM testbench as
-      # every other register test here; Renode runs the firmware, in a process
-      # of its own, instead of unicorn.
-      run: |
-        make -f test/renode_test/Makefile run
-  # UVM version compatibility, on both simulators.
+  # One build per architecture, as a job of its own rather than a matrix leg,
+  # so that each consumer needs() exactly one of them: `needs` on a matrix
+  # covers all of its cells, and the binaries are not interchangeable anyway.
   #
-  # The jobs above each run the bridge against one UVM: the fork the verilator
-  # leg needs, and whatever the xezim tarball bundles. These two cover the
-  # other axis - the same bridge against every UVM release the project
-  # supports - so that a change here, or upstream in xezim or Verilator, shows
-  # up as a version that stopped working.
-  #
-  # What the two legs check is not the same thing, because what they can check
-  # is not. xezim interprets, so it runs the base test against each version.
-  # Verilator is used for elaboration only - see the note on its job - so its
-  # cells are a lint of the bridge against each version.
-  #
-  # They are split for cost. Under xezim a base test is about 8 s, while a
-  # fresh job spends about 35 s installing dependencies; ten jobs would be ten
-  # times that setup to run eighty seconds of testing, so those versions are
-  # steps in one job. A lint is seconds rather than minutes but each cell still
-  # pays the checkout and the Verilator install, so keeping them parallel is
-  # what makes a failure point at its version without the others waiting.
-  #
-  # Building xezim is the one expensive step in the whole thing, so it is its
-  # own job and the xezim cells consume its artifact.
-  uvm-compat-build:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Resolve the xezim revision
-      id: rev
-      run: |
-        sha=$(git ls-remote https://github.com/aionhw/xezim.git refs/heads/main | cut -f1)
-        test -n "$sha" || { echo "could not resolve xezim main"; exit 1; }
-        echo "sha=$sha" >> "$GITHUB_OUTPUT"
-        echo "xezim main is $sha"
+  # Release assets, for when a release is new enough instead of main:
+  #   ubuntu-latest      xezim-manylinux_2_34_x86_64-0.11.1.tar.gz
+  #   ubuntu-24.04-arm   xezim-manylinux_2_34_aarch64-0.11.1.tar.gz
+  #   macos-26           xezim-macos-arm64-0.11.1.tar.gz
+  xezim-build-linux-x64:
+    name: xezim build (ubuntu-latest)
+    uses: ./.github/workflows/xezim-build.yml
+    with:
+      os: ubuntu-latest
 
-    # Keyed on the exact upstream revision, so an unchanged xezim is a hit and
-    # a moved one rebuilds. Nothing older than that can be reused. xezim-test
-    # uses the same path and key, so the two share one build.
-    - name: Restore the xezim build
-      id: cache
-      uses: actions/cache@v6
-      with:
-        path: ${{ runner.temp }}/xezim-prefix
-        key: xezim-${{ runner.os }}-${{ steps.rev.outputs.sha }}
+  xezim-build-linux-arm64:
+    name: xezim build (ubuntu-24.04-arm)
+    uses: ./.github/workflows/xezim-build.yml
+    with:
+      os: ubuntu-24.04-arm
 
-    - name: Build xezim
-      if: steps.cache.outputs.cache-hit != 'true'
-      env:
-        # cargo's libgit2 does not use the runner's git credential helper;
-        # shelling out to git does, which is what a public repo needs.
-        CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-      run: |
-        rustup set profile minimal
-        rustup toolchain install stable
-        rustup default stable
-        git clone --depth 1 https://github.com/aionhw/xezim.git "$RUNNER_TEMP/xezim-src"
-        ( cd "$RUNNER_TEMP/xezim-src" && cargo build --release )
-        mkdir -p "$RUNNER_TEMP/xezim-prefix/bin"
-        cp "$RUNNER_TEMP/xezim-src/target/release/xezim" "$RUNNER_TEMP/xezim-prefix/bin/"
-        cp -r "$RUNNER_TEMP/xezim-src/include" "$RUNNER_TEMP/xezim-prefix/"
+  xezim-build-macos:
+    name: xezim build (macos-26)
+    uses: ./.github/workflows/xezim-build.yml
+    with:
+      os: macos-26
 
-    - name: Upload the xezim build
-      uses: actions/upload-artifact@v7
-      with:
-        name: xezim-uvm-compat
-        path: ${{ runner.temp }}/xezim-prefix
-        retention-days: 1
+  xezim-test-linux-x64:
+    name: xezim-test (ubuntu-latest)
+    needs: xezim-build-linux-x64
+    uses: ./.github/workflows/xezim-tests.yml
+    with:
+      os: ubuntu-latest
 
+  xezim-test-linux-arm64:
+    name: xezim-test (ubuntu-24.04-arm)
+    needs: xezim-build-linux-arm64
+    uses: ./.github/workflows/xezim-tests.yml
+    with:
+      os: ubuntu-24.04-arm
+
+  xezim-test-macos:
+    name: xezim-test (macos-26)
+    needs: xezim-build-macos
+    uses: ./.github/workflows/xezim-tests.yml
+    with:
+      os: macos-26
+
+  # UVM version compatibility: the same bridge against every UVM release the
+  # project supports, so an upstream regression shows up as a version that
+  # stopped working. xezim interprets, so it runs the base test per version;
+  # Verilator is elaboration only (see its job), so its cells lint per
+  # version. Ten xezim jobs would be ten setups for eighty seconds of
+  # testing, so those versions are steps in one job; a lint is seconds, so its
+  # cells stay parallel and a failure points at its version.
   uvm-compat-verilator:
-    # Elaboration only, not a build and run. Upstream UVM gains a Verilator HDL
-    # backend only in 2020-3.2 - uvm_hdl.c #errors without one - so a full run
-    # is impossible for the earlier releases whatever the bridge does. Lint
-    # still compares the bridge's SystemVerilog surface against every version,
-    # which is the signal this matrix is after, and it takes seconds rather
-    # than the minutes a build does.
-    #
-    # No dependency on the xezim build: this leg does not use it, and waiting
-    # for it would serialise two unrelated things.
+    # Elaboration only: upstream UVM gains a Verilator backend in 2020-3.2, so
+    # earlier versions cannot build here at all. Lint still compares the
+    # bridge's SystemVerilog surface against every version.
     runs-on: ubuntu-latest
     strategy:
       # A version that fails says nothing about the others.
       fail-fast: false
       matrix:
         include:
-          # The three that fail do so for reasons outside this bridge, which
-          # docs/uvm-version-compatibility.md explains: 1.1b and 1.1c cannot
-          # elaborate under any non-vendor tool, and 1.0p1 lacks three APIs the
-          # bridge uses. They are cells rather than omissions so that the
-          # boundary is visible and moving.
+          # The three that fail do so outside this bridge
+          # (docs/uvm-version-compatibility.md); cells, not omissions, so the
+          # boundary stays visible.
           - { uvm: uvm-1.0p1,    expect: fail }
           - { uvm: uvm-1.1a,     expect: pass }
           - { uvm: uvm-1.1b,     expect: fail }
@@ -419,9 +255,8 @@ jobs:
       run: script/uvm_compat_check.sh verilator "${{ matrix.uvm }}" "${{ matrix.expect }}" lint
 
   uvm-compat-xezim:
-    needs: uvm-compat-build
-    # Ten versions, ten steps in one job. See the note above the build job for
-    # why these are not parallel cells like the Verilator ones.
+    needs: xezim-build-linux-x64
+    # Ten versions, ten steps in one job - see the note on the Verilator leg.
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
@@ -439,10 +274,11 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install '.[test]' -q
 
+    # Named after this job's own runner, i.e. the build job it needs.
     - name: Get the xezim build
       uses: actions/download-artifact@v8
       with:
-        name: xezim-uvm-compat
+        name: xezim-${{ runner.os }}-${{ runner.arch }}
         path: ${{ runner.temp }}/xezim-prefix
 
     - name: Make xezim runnable
@@ -466,10 +302,8 @@ jobs:
         wait
         ls "$RUNNER_TEMP/uvm"
 
-    # One step per version, so the run reads as a table and a failure points
-    # at the version that caused it. Each step checks its own result against
-    # the expectation passed to it, and is green when they agree - including
-    # the one known to fail.
+    # One step per version, so a failure points at its version; each step is
+    # green when its result matches the expectation, known fails included.
     # UVM_HOME is the tag directory here; this leg's Makefile appends /src.
     - name: uvm-1.2
       env: { UVM_HOME: '${{ runner.temp }}/uvm/uvm-1.2' }

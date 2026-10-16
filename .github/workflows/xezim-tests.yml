@@ -1,0 +1,114 @@
+# The xezim test suite, on one runner. Split out of test.yml so each
+# architecture can call it and depend on its own build job alone: `needs`
+# covers a whole job including all of its matrix cells.
+name: xezim tests
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        description: Runner label to run the suite on; the cell of its build job.
+        required: true
+        type: string
+
+jobs:
+  xezim-test:
+    runs-on: ${{ inputs.os }}
+    # The artifact is built from xezim main, which is newer than this release.
+    env:
+      XEZIM_VERSION: 0.11.1
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        # setuptools_scm needs the tags to resolve the version.
+        fetch-depth: 0
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v7
+      with:
+        python-version: "3.12"
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # The test extra carries what the register tests need to build their
+        # inputs: peakrdl (RTL, C header, PyRAL model) and unicorn.
+        python -m pip install '.[test]' -v
+
+    # Named after this job's own runner, i.e. the build job it needs.
+    - name: Get the xezim build
+      uses: actions/download-artifact@v8
+      with:
+        name: xezim-${{ runner.os }}-${{ runner.arch }}
+        path: ${{ runner.temp }}/xezim-prefix
+
+    # The UVM fork the verilator leg also uses: its uvm_dpi.h guards the
+    # glibc-only <malloc.h> with `ifndef UVM_NO_MALLOC, which both builds
+    # define and upstream Accellera does not, so on macOS the preprocessor
+    # stopped at "malloc.h file not found". Bundled per consumer so that the
+    # build job caches and uploads the binary alone.
+    - name: Bundle the UVM fork
+      run: |
+        git clone --depth 1 https://github.com/Dragon-Git/uvm-verilator.git "$RUNNER_TEMP/uvm-verilator"
+        mkdir -p "$RUNNER_TEMP/xezim-prefix/share/uvm"
+        cp -r "$RUNNER_TEMP/uvm-verilator/src" "$RUNNER_TEMP/xezim-prefix/share/uvm/"
+        # An artifact does not carry the executable bit.
+        chmod +x "$RUNNER_TEMP/xezim-prefix/bin/xezim"
+        echo "$RUNNER_TEMP/xezim-prefix/bin" >> "$GITHUB_PATH"
+        echo "XEZIM_PREFIX=$RUNNER_TEMP/xezim-prefix" >> "$GITHUB_ENV"
+        "$RUNNER_TEMP/xezim-prefix/bin/xezim" -V
+
+    - name: Run xezim test
+      run: |
+        make -f test/base_test/Makefile run SIM=xezim
+
+    - name: Generate pyral model and register block
+      run: |
+        mkdir -p test/pyral_test/gen test/pyral_test/rtl
+        make -f test/pyral_test/Makefile gen
+
+    - name: Run pyral register test
+      run: |
+        make -f test/pyral_test/Makefile run
+
+    - name: Run unicorn register test
+      # Same register block and same APB agent as the pyral test; what drives
+      # the bus is a bare-metal firmware under unicorn instead of the PyRAL
+      # model. The Makefile generates the RTL and the C header itself.
+      run: |
+        make -f test/unicorn_test/Makefile run
+
+    - name: Install Renode
+      # Per-platform packages rather than the multiplatform one, which not
+      # every release publishes: "linux-portable" on x86_64,
+      # "linux-arm64-portable" on arm64, both unpacking to the same top level.
+      env:
+        RENODE_VERSION: 1.17.0
+      run: |
+        mkdir -p "$HOME/renode"
+        if [ "${{ runner.os }}" = "macOS" ]; then
+          curl -sSL -o /tmp/renode.dmg \
+            "https://github.com/renode/renode/releases/download/v$RENODE_VERSION/renode-$RENODE_VERSION.osx-arm64-portable.dmg"
+          mkdir -p /tmp/renode-mnt
+          hdiutil attach /tmp/renode.dmg -mountpoint /tmp/renode-mnt -nobrowse -quiet
+          cp -R /tmp/renode-mnt/Renode.app/Contents/MacOS/. "$HOME/renode"
+          hdiutil detach /tmp/renode-mnt -quiet
+        else
+          if [ "$(uname -m)" = "x86_64" ]; then
+            renode_pkg="linux-portable"
+          else
+            renode_pkg="linux-arm64-portable"
+          fi
+          curl -sSL -o /tmp/renode.tar.gz \
+            "https://github.com/renode/renode/releases/download/v$RENODE_VERSION/renode-$RENODE_VERSION.$renode_pkg.tar.gz"
+          tar xzf /tmp/renode.tar.gz -C /tmp
+          cp -R "/tmp/renode_$RENODE_VERSION-portable/." "$HOME/renode"
+        fi
+        test -f "$HOME/renode/Renode.runtimeconfig.json"
+        echo "PYRENODE_PATH=$HOME/renode" >> "$GITHUB_ENV"
+
+    - name: Run Renode register test
+      # The same firmware as the unicorn test, run by Renode in a process of
+      # its own instead of in-process.
+      run: |
+        make -f test/renode_test/Makefile run

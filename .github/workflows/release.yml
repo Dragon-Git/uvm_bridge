@@ -98,7 +98,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-26]
+        # cibuildwheel builds the runner's own architecture, so this cell is
+        # what produces the linux aarch64 wheels.
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-26]
     runs-on: ${{matrix.os}}
 
     steps:

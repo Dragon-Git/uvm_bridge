@@ -1,0 +1,66 @@
+# Builds xezim from its main branch, once per architecture, and publishes the
+# result as a cache keyed on the exact upstream revision and as an artifact for
+# this run. One job per architecture, not a matrix leg of one: `needs` covers a
+# whole job including all of its cells, so a consumer can only wait for
+# exactly one build if each build is a job of its own.
+name: xezim build
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        description: Runner label to build on; the cell the consumers run on.
+        required: true
+        type: string
+
+jobs:
+  xezim-build:
+    runs-on: ${{ inputs.os }}
+    steps:
+    - name: Resolve the xezim revision
+      id: rev
+      run: |
+        sha=$(git ls-remote https://github.com/aionhw/xezim.git refs/heads/main | cut -f1)
+        test -n "$sha" || { echo "could not resolve xezim main"; exit 1; }
+        echo "sha=$sha" >> "$GITHUB_OUTPUT"
+        echo "xezim main is $sha"
+
+    - name: Restore the xezim build
+      id: cache
+      uses: actions/cache@v6
+      with:
+        path: ${{ runner.temp }}/xezim-prefix
+        key: xezim-${{ runner.os }}-${{ runner.arch }}-${{ steps.rev.outputs.sha }}
+
+    # Built from main rather than from a release: main is newer than 0.11.1.
+    - name: Build xezim from main
+      if: steps.cache.outputs.cache-hit != 'true'
+      env:
+        # cargo's libgit2 does not use the runner's git credential helper;
+        # shelling out to git does, which is what a public repo needs.
+        CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      run: |
+        rustup set profile minimal
+        rustup toolchain install stable
+        rustup default stable
+        git clone --depth 1 https://github.com/aionhw/xezim.git "$RUNNER_TEMP/xezim-src"
+        ( cd "$RUNNER_TEMP/xezim-src" && cargo build --release )
+        mkdir -p "$RUNNER_TEMP/xezim-prefix/bin"
+        cp "$RUNNER_TEMP/xezim-src/target/release/xezim" "$RUNNER_TEMP/xezim-prefix/bin/"
+        cp -r "$RUNNER_TEMP/xezim-src/include" "$RUNNER_TEMP/xezim-prefix/"
+
+    # Only when this job built it, and only the binary: the UVM fork is
+    # bundled by each consumer and kept out of the cache and the artifact.
+    - name: Save the xezim build
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ runner.temp }}/xezim-prefix
+        key: xezim-${{ runner.os }}-${{ runner.arch }}-${{ steps.rev.outputs.sha }}
+
+    - name: Upload the xezim build
+      uses: actions/upload-artifact@v7
+      with:
+        name: xezim-${{ runner.os }}-${{ runner.arch }}
+        path: ${{ runner.temp }}/xezim-prefix
+        retention-days: 1
