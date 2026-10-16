@@ -38,6 +38,17 @@ jobs:
     - name: Show Verilator version
       run: verilator --version
 
+    # The action unpacks into a randomly named directory, and that path is in
+    # every -I of every compile line, so it changed ccache's key on every run:
+    # with OBJCACHE wired the next run still missed 40 of 40. RUNNER_TEMP is
+    # the action's parent directory, so this is a rename, not a copy.
+    - name: Pin the Verilator prefix
+      run: |
+        dst="$RUNNER_TEMP/verilator"
+        mv "$(dirname "$(dirname "$VERILATOR_ROOT")")" "$dst"
+        echo "VERILATOR_ROOT=$dst/share/verilator" >> "$GITHUB_ENV"
+        echo "$dst/bin" >> "$GITHUB_PATH"
+
     # The nightly's installed verilated.mk hardcodes "OBJCACHE = " - the
     # packager rewrites ?= to = - so a makefile assignment beats the env var
     # above and every Verilator C++ line ran bare. The grep fails loudly if
