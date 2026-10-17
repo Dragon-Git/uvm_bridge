@@ -12,6 +12,11 @@ on:
         description: Runner label to build on; the cell the consumers run on.
         required: true
         type: string
+      sha:
+        description: Upstream revision to build; defaults to the head of main.
+        required: false
+        type: string
+        default: ''
 
 jobs:
   xezim-build:
@@ -19,11 +24,17 @@ jobs:
     steps:
     - name: Resolve the xezim revision
       id: rev
+      env:
+        REQUESTED: ${{ inputs.sha }}
       run: |
-        sha=$(git ls-remote https://github.com/aionhw/xezim.git refs/heads/main | cut -f1)
-        test -n "$sha" || { echo "could not resolve xezim main"; exit 1; }
+        if [ -n "$REQUESTED" ]; then
+          sha="$REQUESTED"
+        else
+          sha=$(git ls-remote https://github.com/aionhw/xezim.git refs/heads/main | cut -f1)
+        fi
+        test -n "$sha" || { echo "could not resolve a xezim revision"; exit 1; }
         echo "sha=$sha" >> "$GITHUB_OUTPUT"
-        echo "xezim main is $sha"
+        echo "xezim revision is $sha"
 
     - name: Restore the xezim build
       id: cache
