@@ -111,6 +111,16 @@ package python_bridge_pkg;
         process processes[string];
         static process_pool inst = get_process_pool;
 
+        // A fork...join_none child only starts after the task that created it
+        // returns, and an automatic local is gone by then: the child reads an
+        // empty queue and calls py_func() with an empty module name, which
+        // raises out of Python. What the child needs is therefore parked on the
+        // singleton first and picked up through a FIFO - children start in the
+        // order they were forked.
+        string queued[$];
+        string mod_of[string];
+        string fn_of[string];
+
         static function process_pool get_process_pool();
             if (inst == null) begin
                 inst = new();
@@ -128,12 +138,17 @@ package python_bridge_pkg;
             `endif // UVM_VERSION_POST_2017
             if (args.size() < 2) begin
                 `uvm_error("python_bridge_pkg", $sformatf("Invalid process name '%s'. Expected format: 'module.function'", name))
+                return;
             end
+            mod_of[name] = args[0];
+            fn_of[name]  = args[1];
+            queued.push_back(name);
             fork
                 begin
+                    string key = queued.pop_front();
                     p = process::self();
-                    processes[name] = p;
-                    py_func(args[0], args[1], dirname(`__FILE__));
+                    processes[key] = p;
+                    py_func(mod_of[key], fn_of[key], dirname(`__FILE__));
                 end
             join_none
         endtask
