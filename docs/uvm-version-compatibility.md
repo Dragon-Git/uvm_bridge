@@ -2,20 +2,22 @@
 
 `src/svuvm/python_bridge_pkg.sv` 对各 UVM 发行版的适配情况与已知边界。
 
-测试于 2026-10-16，xezim 0.11.1（main `0fd1b414`）。UVM 源码取自 `chipsalliance/uvm-verilator` 的 tag。
+测试于 2026-10-19，xezim 0.11.2（main `661ab48`）、Verilator nightly `54314c5`。UVM 源码取自
+`chipsalliance/uvm-verilator` 的 tag。表格的期望值以 `test/uvm_compat/test_compat.py` 为准，每次
+推送由 CI 逐版本校验。
 
 ## 1. 结果
 
 两个仿真器检查的东西不同：
 
 - **xezim** 解释执行，跑完整的 `base_test`（`test/base_test`）。
-- **verilator** 只做精化（`make -f test/base_test/Makefile lint`），不构建。原因是上游 UVM 到 2020-3.2 才提供 Verilator 的 HDL 后端，见 §3.5。
+- **verilator** 只做精化（`make -f test/base_test/Makefile lint`），不构建。原因是上游 UVM 到 2020-3.2 才提供 Verilator 的 HDL 后端，见 §3.3。
 
 | UVM | xezim（运行） | verilator（lint） |
 |-----|--------------|------------------|
-| `uvm-1.0p1` | — | ✗ 缺 1 个 API、3 处改名（§3.4） |
+| `uvm-1.0p1` | — | ✗ 缺 1 个 API、3 处改名（§3.2） |
 | `uvm-1.1a` | — | ✓ |
-| `uvm-1.1b` | — | ✗ UVM 自身缺陷（§3.3） |
+| `uvm-1.1b` | — | ✗ UVM 自身缺陷（§3.1） |
 | `uvm-1.1c` | — | ✗ 同上 |
 | `uvm-1.1d` | — | ✓ |
 | `uvm-1.2` | ✓ | ✓ |
@@ -93,48 +95,13 @@ hopper 单例由 `run_test()` 的 fork 在 `build_phase` 之前创建，因此�
 
 ## 3. 已知边界
 
-以下五项都不在桥接层内，无法通过修改 `python_bridge_pkg.sv` 解决。
+以下三项都不在桥接层内，无法通过修改 `python_bridge_pkg.sv` 解决。
 
-### 3.1 xezim：real 经 longint 返回被位重解释
-
-导出的 DPI 函数声明返回 `longint` 而表达式被求值为 real 时，xezim 返回 IEEE-754 位模式而非数值：
-
-```
-verilator : set_drain_time(100), get_drain_time = 100                  drain_time test success
-xezim     : set_drain_time(100), get_drain_time = 4636737291354636288  drain_time test failed
-```
-
-`4636737291354636288` = `0x4059000000000000`，即 double `100.0` 的位模式。
-
-因此 xezim 的每一次运行里 `drain_time` 断言都会失败，与 UVM 版本无关（15 个 tag 返回值逐位相同）。`get_drain_time` 不做类型转换来掩盖这一点。
-
-### 3.2 xezim：类型名求值为空，2017-0.9 无法运行
-
-`uvm-2017-0.9` 的 `uvm_registry_common::get_type_name()` 里有一处对静态函数的裸引用（不带括号），且其类参数绑定到**参数化**类：
-
-```systemverilog
-virtual function string get_type_name();
-  return Tregistry::type_name;   // Tregistry 绑定到 uvm_component_registry #(T,Tname)
-endfunction
-```
-
-两者同时成立时 xezim 求值为空串，于类型未按名字注册，`run_test()` 报：
-
-```
-UVM_WARNING @ 0: reporter [BDTYP] Cannot create a component of type 'base_test'
-                                  because it is not registered with the factory.
-UVM_FATAL   @ 0: reporter [INVTST] Requested test from command line +UVM_TESTNAME=base_test not found.
-```
-
-单独任一件都正常（实测：绑定到普通类时裸引用正确，参数化类加括号亦正确），verilator 在该写法上也正确。1.2 起 `type_name` 改为静态常量变量、不再有这层间接，所以只有 0.9 受影响。
-
-**已修复**：xezim 上游 [issue #325](https://github.com/aionhw/xezim/issues/325)（2026-10-16 关闭）。修复分两处：`90d12edc` 让裸引用按参数化特化求值，`7856e944` 让类链内的无参静态函数名按调用处理（§13.5.1）；测试补于 `d87ca9f8`。本仓库的期望值随之由 fail 改为 pass——这条只在上游 main 上成立，跑在更旧的 xezim 上会红。
-
-### 3.3 UVM 1.1b / 1.1c：自身的 redaction 宏无兜底
+### 3.1 UVM 1.1b / 1.1c：自身的 redaction 宏无兜底
 
 这两个版本的 `` `uvm_record_attribute `` 只在 `` `ifdef QUESTA `` 下定义，没有 `` `else ``，而它们自己的 `tlm2/uvm_tlm2_generic_payload.svh` 无条件使用（经 `` `uvm_record_field `` 展开）。在任何非 Questa 工具下都会产生 50 个语法错误。1.1d 补上了 `` `elsif VCS `` / `` `elsif INCA `` / `` `else ``（空定义），因此可用。
 
-### 3.4 UVM 1.0p1：4 处 API 差异
+### 3.2 UVM 1.0p1：4 处 API 差异
 
 | 桥接调用 | 1.0p1 |
 |---------|-------|
@@ -144,7 +111,7 @@ UVM_FATAL   @ 0: reporter [INVTST] Requested test from command line +UVM_TESTNAM
 
 前三处是改名，未加守卫（改它们不会让该格通过）。最后一个是真缺口：`get_current_phase_name` 依赖遍历 domain 的相位，而 1.0p1 的 `uvm_domain` 只有 `add()`、`schedule` 与 `get_domains()`，没有等价物，因此 1.0p1 未能通过 lint。
 
-### 3.5 verilator：上游 UVM 到 2020-3.2 才有 HDL 后端
+### 3.3 verilator：上游 UVM 到 2020-3.2 才有 HDL 后端
 
 上游 UVM 的 `uvm_hdl.c` 只认 VCS / QUESTA / XCELIUM，缺少后端时直接报错：
 

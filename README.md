@@ -10,9 +10,9 @@ English | [简体中文](README-zh.md)
 [![downloads](https://pepy.tech/badge/svuvm)](https://pepy.tech/project/svuvm)
 [![PyPI downloads](https://img.shields.io/pypi/dm/svuvm)](https://pypi.org/project/svuvm)
 [![Python 3.9–3.14](https://img.shields.io/badge/python-3.9%E2%80%933.14-blue)](https://pypi.org/project/svuvm)
-[![Platform](https://img.shields.io/badge/platform-Linux%20x86__64%20%7C%20macOS%20arm64-lightgrey)](https://pypi.org/project/svuvm)
-[![Verilator](https://img.shields.io/badge/verilator-5.x-brightgreen)](https://github.com/verilator/verilator)
-[![UVM](https://img.shields.io/badge/UVM-IEEE%201800.2--2020-informational)](https://github.com/Dragon-Git/uvm-verilator)
+[![Platform](https://img.shields.io/badge/platform-Linux%20x86__64%20%7C%20Linux%20arm64%20%7C%20macOS%20arm64-lightgrey)](https://pypi.org/project/svuvm)
+[![Simulators](https://img.shields.io/badge/simulators-Verilator%205.x%20%7C%20xezim%200.11.2%20%7C%20VCS-brightgreen)](docs/simulators.md)
+[![UVM](https://img.shields.io/badge/UVM-1.2%20%7C%202017%20%7C%202020-informational)](docs/uvm-version-compatibility.md)
 [![Stars](https://img.shields.io/github/stars/Dragon-Git/uvm_bridge)](https://github.com/Dragon-Git/uvm_bridge/stargazers)
 [![Issues](https://img.shields.io/github/issues/Dragon-Git/uvm_bridge)](https://github.com/Dragon-Git/uvm_bridge/issues)
 [![Open PRs](https://img.shields.io/github/issues-pr/Dragon-Git/uvm_bridge)](https://github.com/Dragon-Git/uvm_bridge/pulls)
@@ -31,6 +31,59 @@ Compared to mainstream Python-based hardware verification frameworks like cocotb
 - Can utilize the rich ecosystem of Python
 - Compatible with the standard UVM framework, can make full use of the commercial VIP ecosystem
 - Convenient for existing UVM users to migrate
+
+## Supported UVM versions
+
+Every version below is exercised in CI on every push; the per-version detail -
+what fails, and which API is missing when it does - is in
+[docs/uvm-version-compatibility.md](docs/uvm-version-compatibility.md).
+
+| UVM | Full run (xezim) | Elaboration only (Verilator) |
+| --- | --- | --- |
+| 1.2 | yes | yes |
+| IEEE 1800.2-2017 (0.9, 1.0, 1.1) | yes | yes |
+| IEEE 1800.2-2020 (1.0 … 3.2) | yes | yes |
+| 1.1a, 1.1d | – | yes |
+| 1.0p1, 1.1b, 1.1c | – | no |
+
+Verilator only elaborates: it lints the bridge against each version instead of
+building and running it, because upstream UVM gains a Verilator HDL backend at
+2020-3.2 and nothing earlier. 1.0p1 lacks three APIs the bridge uses; 1.1b and
+1.1c fail on defects in UVM itself. All three are upstream, and none is worked
+around here. The 1.0 and 1.1 releases cannot run under xezim at all - their DPI
+source layout predates 1.2, which the xezim adapter is written against.
+
+## Known limitations
+
+- **Verilator cannot cross the bus.** An exported DPI task may not consume
+  simulation time, so under `` `ifdef VERILATOR `` everything that can wait is
+  compiled out: `write_reg`, `read_reg`, `check_reg`, `mirror_reg`, the
+  background form of `start_seq`, `wait_on`, `wait_off`, `wait_trigger`,
+  `wait_ptrigger`, `barrier_wait`, `wait_unit`, `run_test_wrap`. Each returns
+  without an error and without doing anything, so a write that never happened
+  is silent until coverage says so. Bus access needs xezim or VCS.
+- **Register access needs the model registered first.** Those calls resolve the
+  register through the operator `reg_operator::set_top_reg_block()` installed;
+  without that call the operator is null.
+
+## Simulators
+
+`python -m svuvm.config` prints the three things a simulator needs - the bridge's SV
+package, the compiled `_svuvm.so`, and Python's linker flags - so wiring it in is one
+line added to the command you already have.
+
+| Simulator | Full API | Notes |
+| --- | --- | --- |
+| Verilator | no - anything that can wait is compiled out | add `-DVERILATOR`, and use the `Dragon-Git/uvm-verilator` fork for UVM |
+| xezim | yes | loads the bridge with `--dpi-lib` instead of linking |
+| VCS | yes | add the same line, do **not** define `VERILATOR`, and pick UVM 1.2 or later with `-ntb_opts uvm-1.2` (the bare `-ntb_opts uvm` gives an older bundled UVM) |
+
+All three paths need UVM 1.2 or later: the 1.0 and 1.1 releases predate the DPI source
+layout the adapter is written against. Under VCS you otherwise keep your own UVM setup and
+upstream Accellera UVM as-is - the fork is a Verilator workaround, not a requirement. Questa
+and Xcelium have no separate write-up: nothing in the bridge is conditioned out for them, so
+the VCS path applies, but they are untested. Per-simulator commands are in
+[docs/simulators.md](docs/simulators.md).
 
 ## Installation
 
@@ -99,13 +152,24 @@ def main():
 
 ```bash
 git clone https://github.com/Dragon-Git/uvm-verilator.git # Workaround version, verilator has not fully supported UVM yet
-mkdir build
-verilator -j $(nproc) --vpi --binary -top top -Mdir build --output-groups $(($(nproc))) \
-+incdir+$PWD/uvm-verilator/src $PWD/uvm-verilator/src/uvm_pkg.sv \
-$(python -m svuvm.config) $PWD/top.sv \
--Wno-lint -Wno-style -Wno-SYMRSVDWORD -Wno-IGNOREDRETURN -Wno-CONSTRAINTIGN -Wno-ZERODLY \
-$PWD/uvm-verilator/src/dpi/uvm_dpi.cc \
--CFLAGS "-I$PWD/uvm-verilator/src/dpi -I$PWD/inc -DVERILATOR" \
+mkdir -p build
 
-./build/Vtop +UVM_TESTNAME=example_test
+# svuvm.config prints its linker flag value in quotes, which a plain command
+# substitution does not re-parse; eval into an array and expand that instead.
+eval "SVUVM_ARGS=($(python -m svuvm.config))"
+
+verilator -j "$(nproc)" --vpi --binary -top top -Mdir build --output-groups "$(nproc)" \
++incdir+"$PWD/uvm-verilator/src" "$PWD/uvm-verilator/src/uvm_pkg.sv" \
+"${SVUVM_ARGS[@]}" "$PWD/top.sv" \
+-Wno-lint -Wno-style -Wno-SYMRSVDWORD -Wno-IGNOREDRETURN -Wno-CONSTRAINTIGN -Wno-ZERODLY \
+"$PWD/uvm-verilator/src/dpi/uvm_dpi.cc" \
+-CFLAGS "-I$PWD/uvm-verilator/src/dpi -I$PWD/inc -DVERILATOR"
+
+PYTHONPATH=$PWD ./build/Vtop +UVM_TESTNAME=example_test
 ```
+
+`PYTHONPATH` must point at the test module's directory: `py_func` imports the module named
+after the test type from there, and that directory does not otherwise reach `sys.path`.
+
+Other simulators (xezim, VCS) take the same `svuvm.config` output; per-simulator commands
+are in [docs/simulators.md](docs/simulators.md).

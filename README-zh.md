@@ -10,9 +10,9 @@
 [![downloads](https://pepy.tech/badge/svuvm)](https://pepy.tech/project/svuvm)
 [![PyPI downloads](https://img.shields.io/pypi/dm/svuvm)](https://pypi.org/project/svuvm)
 [![Python 3.9–3.14](https://img.shields.io/badge/python-3.9%E2%80%933.14-blue)](https://pypi.org/project/svuvm)
-[![Platform](https://img.shields.io/badge/platform-Linux%20x86__64%20%7C%20macOS%20arm64-lightgrey)](https://pypi.org/project/svuvm)
-[![Verilator](https://img.shields.io/badge/verilator-5.x-brightgreen)](https://github.com/verilator/verilator)
-[![UVM](https://img.shields.io/badge/UVM-IEEE%201800.2--2020-informational)](https://github.com/Dragon-Git/uvm-verilator)
+[![Platform](https://img.shields.io/badge/platform-Linux%20x86__64%20%7C%20Linux%20arm64%20%7C%20macOS%20arm64-lightgrey)](https://pypi.org/project/svuvm)
+[![Simulators](https://img.shields.io/badge/simulators-Verilator%205.x%20%7C%20xezim%200.11.2%20%7C%20VCS-brightgreen)](docs/simulators.md)
+[![UVM](https://img.shields.io/badge/UVM-1.2%20%7C%202017%20%7C%202020-informational)](docs/uvm-version-compatibility.md)
 [![Stars](https://img.shields.io/github/stars/Dragon-Git/uvm_bridge)](https://github.com/Dragon-Git/uvm_bridge/stargazers)
 [![Issues](https://img.shields.io/github/issues/Dragon-Git/uvm_bridge)](https://github.com/Dragon-Git/uvm_bridge/issues)
 [![Open PRs](https://img.shields.io/github/issues-pr/Dragon-Git/uvm_bridge)](https://github.com/Dragon-Git/uvm_bridge/pulls)
@@ -32,6 +32,51 @@ svuvm 是一款硬件验证框架, 通过该框架，用户可以在 Python 中�
 - 兼容标准UVM框架，可充分利用商业VIP生态
 - 方便现有uvm用户迁移
 
+## 支持的 UVM 版本
+
+下列版本在 CI 中每次推送都会实际跑一遍；逐版本的失败原因见
+[docs/uvm-version-compatibility.md](docs/uvm-version-compatibility.md)。
+
+| UVM | 完整运行（xezim） | 仅精化（Verilator） |
+| --- | --- | --- |
+| 1.2 | 是 | 是 |
+| IEEE 1800.2-2017（0.9、1.0、1.1） | 是 | 是 |
+| IEEE 1800.2-2020（1.0 … 3.2） | 是 | 是 |
+| 1.1a、1.1d | – | 是 |
+| 1.0p1、1.1b、1.1c | – | 否 |
+
+Verilator 那条路只做精化：它把桥接层与各版本做一次 lint，而不是构建后运行，因为上游 UVM
+到 2020-3.2 才提供 Verilator 的 HDL 后端。1.0p1 缺桥接层用到的三个 API，1.1b 和 1.1c 是 UVM
+自身的缺陷——三者都在上游，这里不做绕过。1.0 与 1.1 系列在 xezim 上完全跑不起来：它们的 DPI
+源文件布局早于 1.2，而 xezim 的适配层是按 1.2 写的。
+
+## 已知限制
+
+- **Verilator 过不了总线。** 导出的 DPI task 不允许消耗仿真时间，因此在 `` `ifdef VERILATOR ``
+  下所有可能等待的接口都被编译掉：`write_reg`、`read_reg`、`check_reg`、`mirror_reg`、
+  `start_seq` 的后台形式、`wait_on`、`wait_off`、`wait_trigger`、`wait_ptrigger`、
+  `barrier_wait`、`wait_unit`、`run_test_wrap`。它们不报错也不做事，一次没写成的寄存器操作
+  要等到覆盖率上不去才会被发现。要真的动总线，跑在 xezim 或 VCS 上。
+- **寄存器访问要先注册模型。** 上述接口通过 `reg_operator::set_top_reg_block()` 装进去的
+  operator 解析寄存器；没调那个函数时 operator 是空的。
+
+## 仿真器
+
+`python -m svuvm.config` 一次给出仿真器需要的三样东西——桥接的 SV 包、编译好的 `_svuvm.so`、
+Python 的链接参数——所以接入只需在你现有的命令里加一行。
+
+| 仿真器 | 完整 API | 说明 |
+| --- | --- | --- |
+| Verilator | 否，所有可能等待的接口被编译掉 | 加 `-DVERILATOR`，UVM 用 `Dragon-Git/uvm-verilator` fork |
+| xezim | 是 | 用 `--dpi-lib` 加载，不进链接 |
+| VCS | 是 | 加同一行，**不要**定义 `VERILATOR`，并用 `-ntb_opts uvm-1.2` 指定 1.2 及以上版本（裸 `-ntb_opts uvm` 指向内置的旧版本） |
+
+三条路径都要求 UVM 1.2 及以上：1.0 与 1.1 系列的 DPI 源文件布局早于 1.2，适配层无法在其上编译。
+VCS 下 UVM 用上游 Accellera 版本即可，你现有的 UVM 参数不用动——`uvm-verilator` 那个 fork 只是
+给 Verilator 绕路用的，不是必需。Questa 与 Xcelium 没有单独文档：桥接层没有针对它们的条件编译，
+VCS 的接法同样适用，但没有实测。各仿真器的具体命令见
+[docs/simulators.md](docs/simulators.md)。
+
 ## 安装
 
 ### 安装依赖:
@@ -44,7 +89,9 @@ pip install svuvm
 
 ## 编译
 
-需要在编译命令中添加` $(python -m svuvm.config)`
+需要在编译命令中添加 `$(python -m svuvm.config)`，它一次给出桥接的 SV 包、`_svuvm.so` 与 Python
+链接参数。运行仿真时还需把测试模块所在目录加进 `PYTHONPATH`——`py_func` 会按测试类型名导入同名
+`.py`，该目录不会自动出现在 `sys.path` 中。
 
 ## 快速参考
 - 创建组件: `svuvm.create_component_by_name("base_env", "uvm_test_top", "m_env")`
@@ -166,17 +213,25 @@ def main():
 ### 编译命令
 ```bash
 git clone https://github.com/Dragon-Git/uvm-verilator.git # Workaround 版本，verilator 还完全未支持uvm
-mkdir build
-verilator -j $(nproc) --vpi --binary -top top -Mdir build --output-groups $(($(nproc))) \
-+incdir+$PWD/uvm-verilator/src $PWD/uvm-verilator/src/uvm_pkg.sv \
-$(python -m svuvm.config) $PWD/top.sv \
--Wno-lint -Wno-style -Wno-SYMRSVDWORD -Wno-IGNOREDRETURN -Wno-CONSTRAINTIGN -Wno-ZERODLY \
-$PWD/uvm-verilator/src/dpi/uvm_dpi.cc \
--CFLAGS "-I$PWD/uvm-verilator/src/dpi -I$PWD/inc -DVERILATOR" \
+mkdir -p build
 
-./build/Vtop +UVM_TESTNAME=example_test
+# svuvm.config 的链接参数带引号，命令替换不会重新解析引号；
+# 用 eval 存入数组再展开。
+eval "SVUVM_ARGS=($(python -m svuvm.config))"
+
+verilator -j "$(nproc)" --vpi --binary -top top -Mdir build --output-groups "$(nproc)" \
++incdir+"$PWD/uvm-verilator/src" "$PWD/uvm-verilator/src/uvm_pkg.sv" \
+"${SVUVM_ARGS[@]}" "$PWD/top.sv" \
+-Wno-lint -Wno-style -Wno-SYMRSVDWORD -Wno-IGNOREDRETURN -Wno-CONSTRAINTIGN -Wno-ZERODLY \
+"$PWD/uvm-verilator/src/dpi/uvm_dpi.cc" \
+-CFLAGS "-I$PWD/uvm-verilator/src/dpi -I$PWD/inc -DVERILATOR"
+
+PYTHONPATH=$PWD ./build/Vtop +UVM_TESTNAME=example_test
 
 ```
+
+其余仿真器（xezim、VCS）使用同一段 `svuvm.config` 输出，逐仿真器的命令见
+[docs/simulators.md](docs/simulators.md)。
 
 ## API 函数
 
