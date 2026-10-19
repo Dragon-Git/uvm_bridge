@@ -102,7 +102,7 @@ check:
 	@test -n "$(SVUVM_DPI_LIB)" || { echo "ERROR: no _svuvm*.so under $(SVUVM_DIR)"; exit 1; }
 	@test -n "$(LIBPYTHON)" || { echo "ERROR: libpython not found"; exit 1; }
 	@test -n "$(RENODE_PATH)" || { echo "ERROR: PYRENODE_PATH is not set; point it at a Renode package"; exit 1; }
-	@$(RENODE_RUNNER) -c "import pyrenode3" 2>/dev/null || { echo "ERROR: pyrenode3 is not importable by $(RENODE_RUNNER); pip install '.[test]'"; exit 1; }
+	@$(RENODE_RUNNER) -c "import pyrenode3" 2>/dev/null || { echo "ERROR: pyrenode3 is not importable by $(RENODE_RUNNER); pip install . --group test"; exit 1; }
 
 run: fw check
 	@mkdir -p $(BUILD_DIR)

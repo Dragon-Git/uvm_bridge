@@ -95,7 +95,7 @@ check:
 	@test -f "$(HDR_DIR)/demo_regs.h" || { echo "ERROR: generated header missing; run 'make gen'"; exit 1; }
 	@test -n "$(SVUVM_DPI_LIB)" || { echo "ERROR: no _svuvm*.so under $(SVUVM_DIR)"; exit 1; }
 	@test -n "$(LIBPYTHON)" || { echo "ERROR: libpython not found"; exit 1; }
-	@$(PYTHON) -c "import unicorn" 2>/dev/null || { echo "ERROR: unicorn is not importable; pip install '.[test]'"; exit 1; }
+	@$(PYTHON) -c "import unicorn" 2>/dev/null || { echo "ERROR: unicorn is not importable; pip install . --group test"; exit 1; }
 
 run: fw check
 	@mkdir -p $(BUILD_DIR)

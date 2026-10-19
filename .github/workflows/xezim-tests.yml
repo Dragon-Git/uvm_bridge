@@ -33,7 +33,7 @@ jobs:
         python -m pip install --upgrade pip
         # The test extra carries what the register tests need to build their
         # inputs: peakrdl (RTL, C header, PyRAL model) and unicorn.
-        python -m pip install '.[test]' -v
+        python -m pip install . --group test -v
 
     # Named after this job's own runner, i.e. the build job it needs.
     - name: Get the xezim build

@@ -223,7 +223,7 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install '.[test]' -q
+        python -m pip install . --group test -q
 
     - name: Set up Verilator
       uses: ktbarrett/setup-verilator@dev
@@ -251,7 +251,7 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install '.[test]' -q
+        python -m pip install . --group test -q
 
     # Named after this job's own runner, i.e. the build job it needs.
     - name: Get the xezim build

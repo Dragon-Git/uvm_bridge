@@ -9,7 +9,16 @@ dependencies = []
 readme = "README.md"
 requires-python = ">= 3.9"
 
-[project.optional-dependencies]
+[dependency-groups]
+# Everything here is developer-only, and none of it is published: a dependency
+# group is not part of the package metadata, which is what lets `test` carry
+# pyrenode3. PyPI rejects a git URL in an extra - it got as far as v0.2.3 and
+# answered 400 "Can't have direct dependency: pyrenode3 @ git+..." - and the
+# same URL in a group is none of its business. Install one with
+# `pip install . --group test`, or all of them with `--group dev`.
+#
+# `build` is setuptools_scm, which resolves the version this package is dynamic
+# on; `doc` is the Sphinx toolchain for docs/; `lint` is ruff.
 build = ["setuptools_scm>=8.0, <11.0"]
 lint = ['ruff']
 doc = ['sphinx']
@@ -31,7 +40,12 @@ test = [
     'peakrdl-pyral[cli]',
     'peakrdl-pyral-runtime',
 ]
-dev = ['svuvm[build, lint, doc, test]']
+dev = [
+    {include-group = "build"},
+    {include-group = "lint"},
+    {include-group = "doc"},
+    {include-group = "test"},
+]
 
 [build-system]
 requires = [
