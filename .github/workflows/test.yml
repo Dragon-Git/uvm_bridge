@@ -233,6 +233,88 @@ jobs:
     - name: Lint the bridge against every supported UVM
       run: pytest -n auto -m lint -v test/uvm_compat
 
+  # The base test and the cocotb test on Windows. Both are built and run
+  # through the CMakeLists the Windows work added, since there is no make
+  # there; the UVM source comes from the same fork the other legs use, and
+  # Verilator is compiled from source - there is no Windows build of the
+  # nightly to install.
+  windows-test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v7
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install CMake and Ninja
+      run: |
+        python -m pip install cmake ninja
+
+    - name: Add MSVC to PATH
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Cache verilator (Windows)
+      uses: actions/cache@v6
+      env:
+        cache-name: cache-verilator-windows
+      with:
+        path: D:\a\verilator
+        key: verilator-windows-v10-stack-${{ env.cache-name }}
+
+    - name: Cache winflexbison (Windows)
+      uses: actions/cache@v6
+      env:
+        cache-name: cache-winflexbison
+      with:
+        path: D:\a\winflexbison
+        key: winflexbison-v2.5.25-${{ env.cache-name }}
+
+    - name: Install Verilator from source
+      shell: pwsh
+      run: |
+        ./script/install_verilator_windows.ps1
+        "VERILATOR_ROOT=D:\a\verilator\install" >> $env:GITHUB_ENV
+        "D:\a\verilator\install\bin" >> $env:GITHUB_PATH
+
+    - name: Clone verilator-uvm repository
+      run: |
+        git clone https://github.com/Dragon-Git/uvm-verilator.git
+        cd uvm-verilator
+        git checkout patch
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install . --group test -q
+
+    - name: Verify package installation
+      run: |
+        python -c "import svuvm; print('svuvm imported successfully')"
+
+    - name: Build base test
+      run: |
+        cmake -S test/base_test -B build_base_test -G Ninja
+        cmake --build build_base_test --target build
+
+    - name: Run base test
+      run: |
+        cmake --build build_base_test --target run
+
+    - name: Build cocotb test
+      run: |
+        cmake -S test/cocotb_test -B build_cocotb_test -G Ninja
+        cmake --build build_cocotb_test --target build
+
+    - name: Run cocotb test
+      run: |
+        cmake --build build_cocotb_test --target run
+
   # The same table, run instead of linted, against the xezim build.
   uvm-compat-xezim:
     needs: xezim-build-linux-x64
