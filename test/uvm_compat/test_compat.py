@@ -1,15 +1,15 @@
 """The UVM version compatibility matrix, as pytest.
 
 Two legs, one table. The verilator leg lints (see the lint target in
-test/base_test/Makefile) because upstream UVM only gains a Verilator backend
-in 2020-3.2; the xezim leg runs the base test against each version. The mode
-is what each marker selects, and it decides both the command and the UVM_HOME
-shape the Makefile wants.
+test/base_test/Makefile) because upstream UVM only gains a Verilator backend in
+2020-3.2, so earlier versions cannot be built at all; the xezim leg runs the base
+test against each version.
 
 Every combination carries the outcome it has today, measured rather than
-assumed, and script/uvm_compat_check.sh compares the two: the test passes when
-they agree, so a known gap stays quiet and either kind of change - a version
-that starts failing, or one that starts passing - turns the job red.
+assumed, and the test passes when the two agree. That makes this a "nothing
+changed" check rather than an "everything passes" one, which is what a
+compatibility matrix is for: a known gap stays quiet, and either kind of change
+- a version that starts failing, or one that starts passing - turns the job red.
 
     pytest -m lint -n auto test/uvm_compat   # the verilator leg
     pytest -m run  -n auto test/uvm_compat   # the xezim leg
@@ -23,9 +23,14 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "script" / "uvm_compat_check.sh"
+MAKEFILE = ROOT / "test" / "base_test" / "Makefile"
 UVM_REPO = "https://github.com/chipsalliance/uvm-verilator.git"
 UVM_ROOT = Path(os.environ.get("UVM_COMPAT_UVM_ROOT") or "/tmp/uvm-compat")
+LOG_DIR = Path(os.environ.get("RUNNER_TEMP") or "/tmp")
+
+# Written by base_test.py on its last line; xezim also stops silently at
+# --max-time, so a zero exit alone does not mean the test ran to the end.
+FINISHED = "所有新增API测试完成"
 
 # tag, expected outcome. The xezim list is a subset of the verilator one: the
 # base test needs a UVM whose DPI source layout xezim's adapter can compile,
@@ -71,14 +76,13 @@ def _checkout(tag):
     shutil.rmtree(staging, ignore_errors=True)
     try:
         subprocess.run(
-            ["git", "clone", "--quiet", "--depth", "1", "--branch", tag,
-             UVM_REPO, str(staging)],
+            ["git", "clone", "--quiet", "--depth", "1", "--branch", tag, UVM_REPO, str(staging)],
             check=True,
             capture_output=True,
             text=True,
         )
         # Another worker may have been cloning the same tag in parallel; both
-        # clones are of the same content, so losing one is harmless.
+        # clones hold the same content, so losing one is harmless.
         try:
             os.replace(staging, dest)
         except OSError:
@@ -89,24 +93,82 @@ def _checkout(tag):
     return dest
 
 
+def _make(sim, mode, tag, home, log):
+    """Run one make invocation into its own log; return (exit code, log text).
+
+    The build directory is per version because pytest runs versions in
+    parallel: a shared one would let a worker's objects - or its clean - land
+    in another's build. Both it and UVM_HOME go on the command line rather
+    than through the environment, because the Makefile assigns them with `=`,
+    which an inherited value does not override; passing UVM_HOME in the
+    environment would silently run whatever XEZIM_PREFIX points at instead of
+    the version under test. The directory is cleared first so an earlier run
+    of the same version cannot be reused - the UVM sources live outside the
+    checkout and so look unchanged to make.
+    """
+    args = ["-f", str(MAKEFILE)]
+    if mode == "lint":
+        # Elaborate only: uvm_hdl.c #errors without a Verilator backend, so a
+        # build is impossible before 2020-3.2. Lint still compares the
+        # bridge's SystemVerilog surface, which is the signal this matrix is
+        # after, and it takes seconds.
+        args += ["lint", f"UVM_HOME={home}"]
+        build = None
+    elif mode == "run" and sim == "xezim":
+        build = ROOT / "test" / "base_test" / f"build.uvm-compat.{tag}"
+        args += ["SIM=xezim", "run", f"UVM_HOME={home}", f"XEZIM_BUILD_DIR={build}",
+                 f"XEZIM_PREFIX={os.environ['XEZIM_PREFIX']}"]
+    elif mode == "run":
+        build = ROOT / f"build.uvm-compat.{tag}"
+        args += ["run", f"UVM_HOME={home}", f"BUILD_DIR={build}"]
+    else:
+        pytest.fail(f"unknown combination {sim}/{mode}", pytrace=False)
+
+    if build is not None:
+        shutil.rmtree(build, ignore_errors=True)
+    with log.open("w") as fh:
+        rc = subprocess.call(["make", *args], cwd=ROOT, stdout=fh, stderr=subprocess.STDOUT)
+    return rc, log.read_text(errors="replace")
+
+
 def _check(sim, tag, expect, mode):
-    # Before anything expensive: a leg without its toolchain must fail, not
-    # skip - otherwise a broken workflow goes quietly green.
-    if mode == "run" and not os.environ.get("XEZIM_PREFIX"):
+    if mode == "run" and not os.environ.get("XEZIM_PREFIX") and sim == "xezim":
+        # A leg without its toolchain must fail rather than skip: a broken
+        # workflow has to be visible.
         pytest.fail("XEZIM_PREFIX is unset - the xezim leg needs its build", pytrace=False)
+
     root = _checkout(tag)
-    # The two Makefiles want different shapes: the verilator leg is given the
-    # src directory itself, the xezim one its parent, which it appends /src to.
+    # The two legs point UVM_HOME at different things: the verilator Makefile
+    # is given the src directory itself, the xezim one its parent, which it
+    # appends /src to.
     home = root / "src" if mode == "lint" else root
-    result = subprocess.run(
-        [str(SCRIPT), sim, tag, expect, mode],
-        cwd=ROOT,
-        env={**os.environ, "UVM_HOME": str(home)},
-        capture_output=True,
-        text=True,
-        check=False,  # the assertion below is the check
+
+    log = LOG_DIR / f"uvm-compat.{tag}.{sim}.{mode}.log"
+    rc, text = _make(sim, mode, tag, home, log)
+
+    # A run counts only when the test reached its last line; lint is a build
+    # that either elaborates or does not.
+    passed = rc == 0 and (mode == "lint" or FINISHED in text)
+    actual = "pass" if passed else "fail"
+
+    if actual == expect:
+        if actual == "fail":
+            head = [ln for ln in text.splitlines() if ln.startswith(("%Error", "UVM_FATAL @"))][:3]
+            print(f"{sim} / {tag} ({mode}): known gap, unchanged" + ("".join(f"\n  {ln}" for ln in head)))
+        return
+
+    tail = "\n".join(text.splitlines()[-40:])
+    if expect == "pass":
+        pytest.fail(
+            f"{sim} / {tag} ({mode}) regressed: expected to pass, make exited {rc}.\n"
+            f"--- last 40 lines of {log} ---\n{tail}",
+            pytrace=False,
+        )
+    pytest.fail(
+        f"{sim} / {tag} ({mode}) now passes: update EXPECTED in {Path(__file__).name}.\n"
+        f"--- last 40 lines of {log} ---\n{tail}",
+        pytrace=False,
     )
-    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.lint
