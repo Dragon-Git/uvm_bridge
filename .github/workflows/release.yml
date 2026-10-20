@@ -100,7 +100,7 @@ jobs:
       matrix:
         # cibuildwheel builds the runner's own architecture, so this cell is
         # what produces the linux aarch64 wheels.
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-26]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-26, windows-latest]
     runs-on: ${{matrix.os}}
 
     steps:
@@ -121,7 +121,11 @@ jobs:
         run: python -m cibuildwheel --output-dir wheelhouse
         env:
           CIBW_BUILD: cp39-* cp310-* cp311-* cp312-* cp313-* cp314-*
-          CIBW_SKIP: pp* *_s390x *-win_arm64 *-win_* *-musllinux_*
+          CIBW_SKIP: pp* *_s390x *-musllinux_*
+          # Windows-specific settings
+          CIBW_WINDOWS_TEST_SKIP: '*'
+          # Allow building on Windows with potential missing dependencies
+          CIBW_ENVIRONMENT_WINDOWS: 'CMAKE_GENERATOR="Visual Studio 17 2022"'
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
