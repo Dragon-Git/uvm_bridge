@@ -8,7 +8,7 @@ if (-not (Test-Path $WorkDir)) {
     New-Item -ItemType Directory -Path $WorkDir -Force | Out-Null
 }
 
-# Locate the MSVC developer environment up front; editbin/dumpbin below need it
+# Locate the MSVC developer environment up front; the build below needs it
 # on both the cached and freshly-built paths.
 $vsInstallPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -all -products * -latest -property installationPath
 $vsInstallPath = $vsInstallPath.Trim()
@@ -20,6 +20,14 @@ if (-not (Test-Path $vcvarsPath)) {
 }
 Write-Host "Using vcvars: $vcvarsPath"
 
+# Verilator recurses deeply over the AST and MSVC's default 1 MB stack overflows
+# on large designs (e.g. uvm_pkg.sv), surfacing as an access violation. On Linux
+# the verilator Perl wrapper runs `ulimit -s unlimited`; there is no such step
+# on Windows, so the stack reserve goes to the linker. It has to be a
+# link-time flag: patching the PE header afterwards corrupts the binary.
+$stackReserve = 536870912  # 512 MB
+$linkerFlags = "/STACK:$stackReserve"
+
 # A Release build installs bin\verilator_bin.exe, a Debug one
 # bin\verilator_bin_dbg.exe. Check for both: a marker that names the one
 # this script does not produce is never found, and Verilator is rebuilt on
@@ -30,9 +38,6 @@ if (-not (Test-Path $installMarker)) {
 }
 if (Test-Path $installMarker) {
     Write-Host "Verilator already built, skipping compile/install steps"
-    # Skip Set-VerilatorStack on cache hit -- the binary was already patched by
-    # editbin during the original build.  Running editbin a second time on a
-    # cached binary corrupts the PE header ("inappropriate file type or format").
     $env:VERILATOR_ROOT = $InstallDir
     $env:PATH = "$InstallDir\bin;$env:PATH"
     exit 0
@@ -77,7 +82,7 @@ if (-not (Test-Path $buildDir)) {
 Set-Location $buildDir
 
 Write-Host "Configuring verilator with CMake + Ninja (Release)..."
-& cmd /c """$vcvarsPath"" && cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=""$InstallDir"" -DFLEX_EXECUTABLE=""$WinFlexBisonDir\flex.exe"" -DBISON_EXECUTABLE=""$WinFlexBisonDir\bison.exe"""
+& cmd /c """$vcvarsPath"" && cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=""$InstallDir"" -DCMAKE_EXE_LINKER_FLAGS=""$linkerFlags"" -DFLEX_EXECUTABLE=""$WinFlexBisonDir\flex.exe"" -DBISON_EXECUTABLE=""$WinFlexBisonDir\bison.exe"""
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "cmake configuration failed"
