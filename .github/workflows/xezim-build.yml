@@ -32,6 +32,41 @@ jobs:
         path: ${{ runner.temp }}/xezim-prefix
         key: xezim-${{ runner.os }}-${{ runner.arch }}-${{ steps.rev.outputs.sha }}
 
+    # xezim's .cargo/config.toml (upstream 1ee759ca) pins CC/CXX/AR/RANLIB to
+    # clang and the LLVM archive tools. The bare llvm-ar/llvm-ranlib names are
+    # not present on every runner, so install the same toolchain as upstream's
+    # setup-llvm action. That action cannot be reused with `uses: ./...` here:
+    # a local path resolves against this repository, not the cloned source.
+    - name: Set up Clang and LLVM
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: "1"
+      run: |
+        set -euo pipefail
+        case "$RUNNER_OS" in
+          Linux)
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends clang llvm
+            ;;
+          macOS)
+            if ! brew list --versions llvm >/dev/null 2>&1; then
+              brew install llvm
+            fi
+            LLVM_PREFIX=$(brew --prefix llvm)
+            echo "$LLVM_PREFIX/bin" >> "$GITHUB_PATH"
+            export PATH="$LLVM_PREFIX/bin:$PATH"
+            ;;
+          *)
+            echo "Unsupported runner: $RUNNER_OS"
+            exit 1
+            ;;
+        esac
+        clang --version
+        clang++ --version
+        llvm-ar --version
+        llvm-ranlib --version
+
     # Built from main rather than from a release: main is newer than 0.11.1.
     - name: Build xezim from main
       if: steps.cache.outputs.cache-hit != 'true'
