@@ -100,6 +100,13 @@ template <typename Func> auto dpi_func_wrap(Func func) {
   using FuncType = std::remove_pointer_t<FuncPointerType>;
   return std::function<FuncType>([func](auto &&...args) {
     svSetScope(svGetScopeFromName("python_bridge_pkg"));
+    // A suspendable DPI export task hands control back to the Verilator
+    // scheduler (VlDpiCall::stopWorker) and blocks this worker until the SV
+    // task finishes. While the scheduler is running it may start another
+    // imported task on a different worker, which needs the GIL to enter
+    // Python. Release the GIL across the DPI call so those workers cannot
+    // deadlock on it; it is re-acquired before nanobind converts the result.
+    nb::gil_scoped_release no_gil;
     return func(std::forward<decltype(args)>(args)...);
   });
 }
@@ -1376,12 +1383,34 @@ NB_MODULE(_svuvm, m) {
 
 extern "C" {
 
-__attribute__((visibility("default"))) void
+// Both Python entry points return int on the C side. For py_task this is
+// mandated by IEEE 1800-2023 35.5.4 (the DPI disable-protocol status, see
+// below). py_func is an import *function*, for which IEEE allows void or a
+// value; we choose int so the two entry points share one ABI and the SV
+// declaration can state it explicitly. Neither entry point is ever disabled,
+// so the status is always 0 (normal completion).
+__attribute__((visibility("default"))) int
 py_func(const char *mod_name, const char *func_name, const char *mod_paths) {
 
   if (!Py_IsInitialized()) {
     Py_Initialize();
   }
+
+  // Whoever initialized CPython - this bridge or an embedder such as cocotb -
+  // the thread that first gets here may still own the GIL: Py_Initialize()
+  // leaves it held, and an embedder can do the same. With Verilator --timing
+  // a DPI import task runs on a worker thread while the main thread waits in
+  // VlDpiCall::handoffWorker(); if that thread keeps the GIL, the worker
+  // blocks forever in PyGILState_Ensure() and the simulation deadlocks.
+  // gil_scoped_acquire is a no-op on a thread that already holds the GIL (its
+  // destructor will not release it), so drop the initial GIL once here and
+  // let every call re-acquire it explicitly. The function-local static makes
+  // this a single, thread-safe, one-time normalization.
+  static const bool s_gil_normalized = [] {
+    if (PyGILState_Check()) PyEval_SaveThread();
+    return true;
+  }();
+  (void)s_gil_normalized;
 
   nb::gil_scoped_acquire gil;
 
@@ -1420,7 +1449,7 @@ py_func(const char *mod_name, const char *func_name, const char *mod_paths) {
   PyImport_ImportModule("svuvm");
   if (PyErr_Occurred()) {
     PyErr_Print();
-    return;
+    return 0;
   }
 
   nb::module_ sys = nb::module_::import_("sys");
@@ -1435,7 +1464,7 @@ py_func(const char *mod_name, const char *func_name, const char *mod_paths) {
   FILE *maps = fopen("/proc/self/maps", "r");
   if (!maps) {
     perror("Failed to open /proc/self/maps");
-    return;
+    return 0;
   }
 
   char self_addr_str[20];
@@ -1503,11 +1532,21 @@ py_func(const char *mod_name, const char *func_name, const char *mod_paths) {
   } catch (nb::python_error &e) {
     e.discard_as_unraisable(__func__);
   }
+  return 0;
 }
 
-__attribute__((visibility("default"))) void
+// IEEE 1800-2023 35.5.4: an imported task's foreign-language implementation
+// always returns int, matching the `extern int py_task(...)` prototype Verilator
+// generates. That int is not a task result (SV tasks have no return value;
+// outputs are passed by pointer) but the DPI disable-protocol status: 0 means
+// the task completed normally, non-zero means it was disabled. Verilator
+// enforces the int return with a static_assert in verilated_dpi.h.
+// With --timing this import task runs on a worker thread, so Python reached
+// from here may call suspendable exports. It forwards py_func's status; the
+// bridge never disables either entry point, so that is always 0.
+__attribute__((visibility("default"))) int
 py_task(const char *mod_name, const char *func_name, const char *mod_paths) {
-  py_func(mod_name, func_name, mod_paths);
+  return py_func(mod_name, func_name, mod_paths);
 }
 
 } // extern "C"

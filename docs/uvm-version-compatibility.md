@@ -1,6 +1,6 @@
 # UVM 版本兼容
 
-`src/svuvm/python_bridge_pkg.sv` 对各 UVM 发行版的适配情况与已知边界。
+`src/svuvm/python_bridge_pkg.sv` 对各 UVM 发行版的适配情况与版本差异。
 
 测试于 2026-10-19，xezim 0.11.2（main `661ab48`）、Verilator nightly `54314c5`。UVM 源码取自
 `chipsalliance/uvm-verilator` 的 tag。表格的期望值以 `test/uvm_compat/test_compat.py` 为准，每次
@@ -11,7 +11,7 @@
 两个仿真器检查的东西不同：
 
 - **xezim** 解释执行，跑完整的 `base_test`（`test/base_test`）。
-- **verilator** 只做精化（`make -f test/base_test/Makefile lint`），不构建。原因是上游 UVM 到 2020-3.2 才提供 Verilator 的 HDL 后端，见 §3.3。
+- **verilator** 只做精化（`make -f test/base_test/Makefile lint`），不构建，以便用同一套检查覆盖所有 UVM 版本：上游 UVM 到 2020-3.2 才提供 Verilator 的 HDL 后端，见 §3.3；完整构建运行由 `test/base_test` 的 Verilator 作业覆盖。
 
 | UVM | xezim（运行） | verilator（lint） |
 |-----|--------------|------------------|
@@ -93,9 +93,9 @@ hopper 单例由 `run_test()` 的 fork 在 `build_phase` 之前创建，因此�
 
 两个都是**否定判断**（定义了 `UVM_VERSION_1_0` / `_1_1` / `_1_2` 即在 2017 之前……）。正向判断不可行：`UVM_POST_VERSION_1_1` 在 2020-1.0 与 2020-1.1 里未定义。
 
-## 3. 已知边界
+## 3. 上游 UVM 的版本差异
 
-以下三项都不在桥接层内，无法通过修改 `python_bridge_pkg.sv` 解决。
+以下三项都来自上游 UVM 版本自身，与桥接层无关。
 
 ### 3.1 UVM 1.1b / 1.1c：自身的 redaction 宏无兜底
 

@@ -83,14 +83,17 @@ package python_bridge_pkg;
             `endif // UVM_VERSION_POST_2020_1_1
         endfunction
 
+        // Function phases must use py_func (an import function). Python code
+        // reached from here cannot call suspendable exports - see the note at
+        // the py_func/py_task declarations below.
         virtual function void build_phase(uvm_phase phase);
             super.build_phase(phase);
-            py_func(get_type_name(), phase.get_name(), dirname(`__FILE__));
+            void'(py_func(get_type_name(), phase.get_name(), dirname(`__FILE__)));
         endfunction
 
         virtual function void connect_phase(uvm_phase phase);
             super.connect_phase(phase);
-            py_func(get_type_name(), phase.get_name(), dirname(`__FILE__));
+            void'(py_func(get_type_name(), phase.get_name(), dirname(`__FILE__)));
         endfunction
 
         virtual task main_phase(uvm_phase phase);
@@ -148,7 +151,7 @@ package python_bridge_pkg;
                     string key = queued.pop_front();
                     p = process::self();
                     processes[key] = p;
-                    py_func(mod_of[key], fn_of[key], dirname(`__FILE__));
+                    py_task(mod_of[key], fn_of[key], dirname(`__FILE__));
                 end
             join_none
         endtask
@@ -597,43 +600,26 @@ package python_bridge_pkg;
 
     // Wrapper for wait_on
     task automatic wait_on(string ev_name, bit delta = 0);
-        uvm_event ev;
-        ev = uvm_event_pool::get_global(ev_name);
-        `ifndef VERILATOR
+        uvm_event ev = uvm_event_pool::get_global(ev_name);
         ev.wait_on(delta);
-        `else
-        $display("Verilator do not support %s now", ev_name);
-        `endif //VERILATOR
     endtask
 
     // Wrapper for wait_off
     task automatic wait_off(string ev_name, bit delta = 0);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
-        `ifndef VERILATOR
         ev.wait_off(delta);
-        `else
-        $display("Verilator do not support %s now", ev_name);
-        `endif //VERILATOR
     endtask
 
     // Wrapper for wait_trigger
     task automatic wait_trigger(string ev_name);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
-        `ifndef VERILATOR
         ev.wait_trigger();
-        `else
-        $display("Verilator do not support %s now", ev_name);
-        `endif //VERILATOR
     endtask
 
     // Wrapper for wait_ptrigger
     task automatic wait_ptrigger(string ev_name);
         uvm_event ev = uvm_event_pool::get_global(ev_name);
-        `ifndef VERILATOR
         ev.wait_ptrigger();
-        `else
-        $display("Verilator do not support %s now", ev_name);
-        `endif //VERILATOR
     endtask
 
     // Wrapper for wait_trigger_data
@@ -976,7 +962,6 @@ package python_bridge_pkg;
         if (rand_en)  begin
             item.randomize();
         end
-    `ifndef VERILATOR
         if (background)  begin: bg
             fork: start_seq__bg_thread
                 begin
@@ -994,7 +979,6 @@ package python_bridge_pkg;
                 seq.start(sqr);
             end
         end
-    `endif //VERILATOR
     endtask:start_seq
 
     function automatic int is_sequencer_busy(string sqr_name);
@@ -1053,9 +1037,7 @@ package python_bridge_pkg;
 
     task automatic barrier_wait(string name);
         uvm_barrier b = uvm_barrier_pool::get_global(name);
-       `ifndef VERILATOR
         b.wait_for();
-       `endif //VERILATOR
     endtask
 
     function automatic void barrier_reset(string name, int wakeup=0);
@@ -1365,29 +1347,21 @@ package python_bridge_pkg;
     endclass:reg_operator
 
     task automatic write_reg(string name, int data);
-       `ifndef VERILATOR
         reg_operator::inst.write_reg(name, data);
-        `endif //VERILATOR
     endtask:write_reg
 
     task automatic read_reg(string name, output int data);
-        `ifndef VERILATOR
         reg_operator::inst.read_reg(name, data);
-        `endif //VERILATOR
     endtask:read_reg
 
     task automatic check_reg(string name, int data=0, bit predict=0);
-        `ifndef VERILATOR
         reg_operator::inst.check_reg(name, data, predict);
-        `endif //VERILATOR
     endtask:check_reg
 
     task automatic mirror_reg(string name, int check, output int data);
         uvm_reg rg = reg_operator::inst.get_reg(name);
         uvm_status_e status;
-       `ifndef VERILATOR
         rg.mirror(status, check ? UVM_CHECK : UVM_NO_CHECK);
-        `endif //VERILATOR
         data = rg.get_mirrored_value();
     endtask
 
@@ -1549,26 +1523,39 @@ package python_bridge_pkg;
 
     // custom task
     task automatic wait_unit(int n);
-    `ifndef VERILATOR
         #n;
-    `endif //VERILATOR
         $display("=== time: %d ===", $time);
     endtask:wait_unit
 
     task automatic run_test_wrap(string test_name="");
-    `ifndef VERILATOR
         run_test(test_name);
-    `endif //VERILATOR
     endtask:run_test_wrap
 
     import "DPI-C" pure function string dirname(string file_path);
+    // Kept under `ifndef VERILATOR` on purpose: Verilator maps the SV string
+    // return to `extern "C" const char* getenv(const char*)`, which conflicts
+    // with libc's `char* getenv(const char*)` from <stdlib.h>. Other simulators
+    // link this DPI call straight to libc.
     `ifndef VERILATOR
     import "DPI-C" function string getenv(string name);
     `endif //VERILATOR
-    import "DPI-C" context function py_func(string mod_name, string func_name = "main", string mod_paths = "");
+
+    // Python entry points. py_func is a DPI import *function* - the only form
+    // UVM's function phases (build_phase/connect_phase) may call. py_task is a
+    // DPI import *task*: any Python callback that can reach a suspendable
+    // export (register bus, uvm_event waits, barrier_wait, start_seq,
+    // wait_unit, run_test_wrap) must be entered through it.
+    //
+    // IEEE 1800-2023 35.8 forbids calling a time-consuming exported task from
+    // an imported function context. Verilator with suspendable DPI exports
+    // (PR #8863, merged 2026-11-12 - a nightly containing it, or a later
+    // stable release) runs imported tasks on worker threads when built with
+    // --timing, and aborts with "DPI exported task called from function
+    // context" if the call comes through an import function instead.
+    import "DPI-C" context function int py_func(string mod_name, string func_name = "main", string mod_paths = "");
     import "DPI-C" context task py_task(string mod_name, string func_name = "main", string mod_paths = "");
     task call_py_func(string mod_name, string func_name = "main", string mod_paths = "");
-        py_func(mod_name, func_name, mod_paths);
+        void'(py_func(mod_name, func_name, mod_paths));
     endtask:call_py_func
 
     // EXPORT_DPIC_BEGIN

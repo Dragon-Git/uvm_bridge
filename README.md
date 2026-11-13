@@ -38,7 +38,7 @@ Every version below is exercised in CI on every push; the per-version detail -
 what fails, and which API is missing when it does - is in
 [docs/uvm-version-compatibility.md](docs/uvm-version-compatibility.md).
 
-| UVM | Full run (xezim) | Elaboration only (Verilator) |
+| UVM | Full run (xezim) | Lint (Verilator) |
 | --- | --- | --- |
 | 1.2 | yes | yes |
 | IEEE 1800.2-2017 (0.9, 1.0, 1.1) | yes | yes |
@@ -46,25 +46,12 @@ what fails, and which API is missing when it does - is in
 | 1.1a, 1.1d | – | yes |
 | 1.0p1, 1.1b, 1.1c | – | no |
 
-Verilator only elaborates: it lints the bridge against each version instead of
-building and running it, because upstream UVM gains a Verilator HDL backend at
-2020-3.2 and nothing earlier. 1.0p1 lacks three APIs the bridge uses; 1.1b and
-1.1c fail on defects in UVM itself. All three are upstream, and none is worked
-around here. The 1.0 and 1.1 releases cannot run under xezim at all - their DPI
+The version matrix lints the bridge against each UVM release on Verilator rather than
+building and running it, because upstream UVM gains a Verilator HDL backend only at
+2020-3.2; the regular Verilator test job does build and run. 1.0p1 lacks three APIs the
+bridge uses; 1.1b and 1.1c fail on defects in UVM itself. All three are upstream, and none
+is worked around here. The 1.0 and 1.1 releases cannot run under xezim at all - their DPI
 source layout predates 1.2, which the xezim adapter is written against.
-
-## Known limitations
-
-- **Verilator cannot cross the bus.** An exported DPI task may not consume
-  simulation time, so under `` `ifdef VERILATOR `` everything that can wait is
-  compiled out: `write_reg`, `read_reg`, `check_reg`, `mirror_reg`, the
-  background form of `start_seq`, `wait_on`, `wait_off`, `wait_trigger`,
-  `wait_ptrigger`, `barrier_wait`, `wait_unit`, `run_test_wrap`. Each returns
-  without an error and without doing anything, so a write that never happened
-  is silent until coverage says so. Bus access needs xezim or VCS.
-- **Register access needs the model registered first.** Those calls resolve the
-  register through the operator `reg_operator::set_top_reg_block()` installed;
-  without that call the operator is null.
 
 ## Simulators
 
@@ -74,16 +61,23 @@ line added to the command you already have.
 
 | Simulator | Full API | Notes |
 | --- | --- | --- |
-| Verilator | no - anything that can wait is compiled out | add `-DVERILATOR`, and use the `Dragon-Git/uvm-verilator` fork for UVM |
+| Verilator | yes | a build with suspendable DPI exports ([PR #8863](https://github.com/verilator/verilator/pull/8863), merged 2026-11-12) - a nightly containing it, or any later stable release; add `-DVERILATOR` and use the `Dragon-Git/uvm-verilator` fork for UVM |
 | xezim | yes | loads the bridge with `--dpi-lib` instead of linking |
 | VCS | yes | add the same line, do **not** define `VERILATOR`, and pick UVM 1.2 or later with `-ntb_opts uvm-1.2` (the bare `-ntb_opts uvm` gives an older bundled UVM) |
 
 All three paths need UVM 1.2 or later: the 1.0 and 1.1 releases predate the DPI source
 layout the adapter is written against. Under VCS you otherwise keep your own UVM setup and
-upstream Accellera UVM as-is - the fork is a Verilator workaround, not a requirement. Questa
-and Xcelium have no separate write-up: nothing in the bridge is conditioned out for them, so
-the VCS path applies, but they are untested. Per-simulator commands are in
-[docs/simulators.md](docs/simulators.md).
+upstream Accellera UVM as-is - the fork only supplies UVM's Verilator HDL backend. Questa
+and Xcelium need no separate write-up: nothing in the bridge is conditioned out for them, so
+the VCS path applies. CI exercises the Verilator and xezim paths. Per-simulator commands are
+in [docs/simulators.md](docs/simulators.md).
+
+Verilator needs a build that includes suspendable DPI exports. Exported tasks may then wait
+or delay, which is what lets `write_reg`, `read_reg`, `check_reg`, `mirror_reg`, `start_seq`,
+the `wait_*` family, `barrier_wait`, `wait_unit` and `run_test_wrap` run on Verilator with the
+full API. The feature landed in [PR #8863](https://github.com/verilator/verilator/pull/8863)
+on 2026-11-12: use a nightly containing it, or any stable release published after it.
+5.054 and earlier do not have it.
 
 ## Installation
 
@@ -113,6 +107,25 @@ The compilation command needs to add `$(python -m svuvm.config)`
 - Print error: svuvm.uvm_error("msg")
   
 ## Usage Example
+
+### Python entry points
+
+Both entries import the Python module named after the test type and call `func_name` in it.
+Pick by the UVM phase:
+
+| SV entry | DPI declaration | Phase | Python APIs |
+| --- | --- | --- | --- |
+| `py_func(name, func_name="main", mod_paths="")` | import `function int` | `build_phase`, `connect_phase` (function phases) | zero-time only |
+| `py_task(name, func_name="main", mod_paths="")` | import `task` | `main_phase`, `run_phase`, `process_pool` | full API: registers, event waits, `start_seq`, `barrier_wait`, `wait_unit` |
+
+IEEE 1800-2023 35.8 does not allow a time-consuming exported task in an import function
+context, so keep `build_phase`/`connect_phase` callbacks zero-time. `py_task` forwards to
+`py_func` on the C side; both return `int` (always 0). When calling `py_func` as a statement,
+write `void'(py_func(...))` to discard the result. `call_py_func` is deprecated and still
+uses `py_func`. Register calls resolve through the model installed by
+`set_top_reg_block_by_path()` (a.k.a. `reg_operator::set_top_reg_block()`), so register it
+before the first access. See [docs/simulators.md](docs/simulators.md) for the ABI details.
+
 ### Start Python function in SV
 ```systemverilog
 // top.sv
@@ -127,7 +140,7 @@ module top ();
 
         virtual task main_phase(uvm_phase phase);
             phase.raise_objection(this);
-            py_func(get_type_name(), "main", dirname(`__FILE__));
+            py_task(get_type_name(), "main", dirname(`__FILE__));
             phase.drop_objection(this);
         endtask
     endclass
@@ -151,7 +164,9 @@ def main():
 ### Compilation command
 
 ```bash
-git clone https://github.com/Dragon-Git/uvm-verilator.git # Workaround version, verilator has not fully supported UVM yet
+# Requires Verilator with suspendable DPI exports (PR #8863, 2026-11-12):
+# a nightly containing it, or a stable release published after it.
+git clone https://github.com/Dragon-Git/uvm-verilator.git # UVM with a Verilator HDL backend
 mkdir -p build
 
 # svuvm.config prints its linker flag value in quotes, which a plain command
@@ -168,8 +183,8 @@ verilator -j "$(nproc)" --vpi --binary -top top -Mdir build --output-groups "$(n
 PYTHONPATH=$PWD ./build/Vtop +UVM_TESTNAME=example_test
 ```
 
-`PYTHONPATH` must point at the test module's directory: `py_func` imports the module named
-after the test type from there, and that directory does not otherwise reach `sys.path`.
+`PYTHONPATH` must point at the test module's directory: that directory does not otherwise
+reach `sys.path`, and the bridge imports the module named after the test type from there.
 
 Other simulators (xezim, VCS) take the same `svuvm.config` output; per-simulator commands
 are in [docs/simulators.md](docs/simulators.md).

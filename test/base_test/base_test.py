@@ -1,14 +1,6 @@
 import itertools
-import os
 
 from svuvm import _svuvm as svuvm
-
-# A register access drives the bus through a sequence, and an exported task
-# cannot consume time on verilator - python_bridge_pkg compiles write_reg /
-# read_reg out under `ifdef VERILATOR` for that reason, and the verilator leg
-# of test/base_test/Makefile passes REG_BUS_ACCESS=0. What needs the bus is
-# skipped here; the rest of the register-model test runs on both.
-REG_BUS_ACCESS = os.environ.get("REG_BUS_ACCESS", "1") != "0"
 
 
 def cb_test(data):
@@ -443,42 +435,37 @@ def main():
         block_sprint = svuvm.reg_block_sprint("")
         svuvm.vpi.vpi_printf(f"  reg_block_sprint length: {len(block_sprint) if block_sprint else 0}\n")
 
-        # Bus checks. A register access runs a sequence, and an exported task
-        # cannot consume time on Verilator, so a Python-driven access cannot
-        # reach the bus there: python_bridge_pkg compiles write_reg/read_reg
-        # out under `ifdef VERILATOR` and the Makefile's verilator leg passes
-        # REG_BUS_ACCESS=0. Those calls would be silent no-ops, so the checks
-        # are skipped rather than asserting on nothing.
-        if REG_BUS_ACCESS:
-            for i, name in enumerate(regs):
-                value = 0x1000_0000 + i
-                svuvm.write_reg(name, value)
-                read_back = svuvm.read_reg(name)
-                mirrored = svuvm.get_reg_mirrored_value(name)
-                svuvm.vpi.vpi_printf(
-                    f"  {name}: write=0x{value:08x} read=0x{read_back:08x} mirror=0x{mirrored:08x}\n"
+        # Bus checks: a register access runs a sequence on the bus. All
+        # simulators support this now, so the assertions always run.
+        for i, name in enumerate(regs):
+            value = 0x1000_0000 + i
+            svuvm.write_reg(name, value)
+            read_back = svuvm.read_reg(name)
+            mirrored = svuvm.get_reg_mirrored_value(name)
+            svuvm.vpi.vpi_printf(
+                f"  {name}: write=0x{value:08x} read=0x{read_back:08x} mirror=0x{mirrored:08x}\n"
+            )
+            if read_back != value:
+                svuvm.uvm_error(
+                    f"register model: {name} read back 0x{read_back:08x}, expected 0x{value:08x}"
                 )
-                if read_back != value:
-                    svuvm.uvm_error(
-                        f"register model: {name} read back 0x{read_back:08x}, expected 0x{value:08x}"
-                    )
-                # The map has auto_predict on, so a bus write updates the mirror.
-                if mirrored != value:
-                    svuvm.uvm_error(
-                        f"register model: {name} mirror is 0x{mirrored:08x}, expected 0x{value:08x}"
-                    )
+            # The map has auto_predict on, so a bus write updates the mirror.
+            if mirrored != value:
+                svuvm.uvm_error(
+                    f"register model: {name} mirror is 0x{mirrored:08x}, expected 0x{value:08x}"
+                )
 
-            # Field write: the value must land in the field's own bits.
-            if fields:
-                svuvm.write_field_by_name(first_reg, fields[0], 0x1234)
-                f_val = svuvm.read_field_by_name(first_reg, fields[0])
-                svuvm.vpi.vpi_printf(
-                    f"  write_field_by_name({first_reg}.{fields[0]}, 0x1234) -> read 0x{f_val:x}\n"
+        # Field write: the value must land in the field's own bits.
+        if fields:
+            svuvm.write_field_by_name(first_reg, fields[0], 0x1234)
+            f_val = svuvm.read_field_by_name(first_reg, fields[0])
+            svuvm.vpi.vpi_printf(
+                f"  write_field_by_name({first_reg}.{fields[0]}, 0x1234) -> read 0x{f_val:x}\n"
+            )
+            if f_val != 0x1234:
+                svuvm.uvm_error(
+                    f"register model: field {first_reg}.{fields[0]} read 0x{f_val:x}, expected 0x1234"
                 )
-                if f_val != 0x1234:
-                    svuvm.uvm_error(
-                        f"register model: field {first_reg}.{fields[0]} read 0x{f_val:x}, expected 0x1234"
-                    )
 
         svuvm.uvm_info("register model test success", svuvm.UVM_LOW)
 

@@ -1,12 +1,13 @@
 # 仿真器接入
 
 桥接层与仿真器无关。`python_bridge_pkg.sv` 只使用标准 DPI-C 的 `import` / `export`，`inc/` 下是
-通用的 VPI 与 svdpi 头文件，不针对任何工具做条件编译。三条接入路径的差别仅在于桥接层以何种方式
-进入构建：Verilator 与 VCS 在编译期纳入，xezim 在运行期加载。
+通用的 VPI 与 svdpi 头文件；除 `getenv` 的一处符号冲突处理外（见 Verilator 一节），不针对仿真器
+裁剪功能。三条接入路径的差别仅在于桥接层以何种方式进入构建：Verilator 与 VCS 在编译期纳入，
+xezim 在运行期加载。
 
 | 仿真器 | 完整 API | CI 覆盖 |
 |--------|---------|---------|
-| Verilator | 否，会消耗仿真时间的 task 被编译掉 | 每次推送 |
+| Verilator | 是 | 每次推送 |
 | xezim | 是 | 每次推送 |
 | VCS | 是 | 无（无 license） |
 
@@ -56,7 +57,7 @@ shell 解析整行，此时引号仍按常规规则处理。
 
 ### 测试模块的可见性
 
-测试模块所在目录必须在 `PYTHONPATH` 上。`py_func` 以测试类型名导入同名的 `.py`，而该目录不会
+测试模块所在目录必须在 `PYTHONPATH` 上。桥接层以测试类型名导入同名的 `.py`，而该目录不会
 自动进入 `sys.path`；缺失时的表现为
 
 ```
@@ -83,24 +84,63 @@ verilator -j "$(nproc)" --vpi --binary -top top -Mdir build \
 PYTHONPATH=$PWD ./build/Vtop +UVM_TESTNAME=example_test
 ```
 
-两处需要注意。
+四处需要注意。
+
+**Verilator 需要包含 suspendable DPI export 的版本。** 该功能由上游
+[PR #8863](https://github.com/verilator/verilator/pull/8863) 于 2026-11-12 合入：启用
+timing 后（`--binary` 隐含该选项），Verilator 把 DPI **import task** 放到工作线程上执行，
+export task 遇到延时或事件时把控制权交还仿真线程，时间推进后再恢复。可用含该功能的 nightly，
+也可使用该功能合入之后发布的正式版本；判断依据是导出的 task 里能否出现延时控制——5.054 及更早的
+版本会给出 `%Error-UNSUPPORTED: Timing controls inside DPI-exported tasks`。本仓库 CI 目前用
+`ktbarrett/setup-verilator@dev` 的 `nightly`；含该功能的正式版本发布后可直接改用正式版本。
+
+**只有 cocotb 需要显式写出 `--timing`。** `--binary` 隐含 `--timing`（可用 `--no-timing`
+关闭），所以 `test/base_test/Makefile` 的 build、`compile.sh` 和 README 的编译命令都不用写；
+`lint` 走 `--lint-only`，实测带或不带 `--timing` 结果完全相同，也不需要。cocotb 用
+`--cc --exe --build`（没有 `--binary`），少了 `--timing` 会报 `%Error-NEEDTIMINGOPT`
+（UVM 的 `#force_time`、`process::self()` 等），因此 `test/cocotb_test/Makefile` 保留该选项。
+
+**按 phase 选择 Python 入口。** IEEE 1800-2023 35.8 不允许在 DPI import **function**
+的上下文中调用耗时的 export task，Verilator 会在运行时以
+`DPI exported task called from function context` 报错中止。桥接层为此提供两个入口：
+
+| 入口 | DPI 声明 | C 侧返回 | 使用位置 | 可否调用耗时接口 |
+| --- | --- | --- | --- | --- |
+| `py_func` | `import function int` | `int`（恒 0） | `build_phase` / `connect_phase`（UVM 的 function phase） | 否 |
+| `py_task` | `import task` | `int`（恒 0） | `main_phase`、`process_pool` | 是 |
+
+`call_py_func` 已计划弃用，仍经 `py_func` 进入，因此只能用零时间接口；不再为它扩展耗时能力。
+
+按 IEEE 1800-2023 35.5.4，import **task** 在 SV 侧声明时不写返回类型，但它的外部语言实现
+**必须返回 `int`**：这个 `int` 不是 task 的结果（SV task 没有返回值，输出经指针参数传出），而是
+DPI disable protocol 的完成状态（0 正常完成，非 0 表示被调用方 `disable`）。含该特性的
+Verilator 在 `verilated_dpi.h` 用 `static_assert` 强制检查该返回类型。import **function** 则允许 `void`
+或任意值；本桥把两个入口在 C 侧统一为 `int`，因此 `py_func` 的 SV 声明显式写成
+`function int py_func(...)`，Verilator 生成 `extern int py_func(...)`，与 `py_task` 的
+`extern int py_task(...)` ABI 一致。桥从不 disable 这两个入口，状态恒为 0（`py_task` 直接
+透传 `py_func` 的返回值）。SV 侧把 `py_func` 当语句调用时必须写 `void'(py_func(...))` 显式
+丢弃返回值，避免 `IGNOREDRETURN`（IEEE 1800-2023 13.4.1）；本仓库的 Makefile 另以
+`-Wno-IGNOREDRETURN` 兜底，但显式写法对其他仿真器和更严格的 lint 配置更稳妥。
+
+`main_phase` 的 Python 回调（默认 `main`）经 `py_task` 进入，寄存器访问、事件等待、
+`barrier_wait`、`start_seq`、`wait_unit` 均在其中可用；`build` / `connect` 回调仍只能使用
+零时间的配置类接口。这是 UVM function phase 的 SV 语义，桥接层按此提供两个入口。
+工作线程上还要处理 CPython 的 GIL：`svuvm.cpp` 在首次进入 `py_func`
+时把主线程持有的 GIL 释放一次（不论解释器由桥本身还是由 cocotb 这类嵌入方初始化），并在
+每次 DPI 调用期间再次释放。否则一个 worker 在 export task 里让出调度权时，另一个 worker
+会卡在 `PyGILState_Ensure()` 上，与等待它的主线程形成死锁。
 
 **UVM 源码必须使用带 Verilator 后端的版本。** 上游 UVM 自 2020-3.2 起才提供 Verilator 的 HDL
 后端，更早的版本在 `uvm_hdl.c` 中因缺少后端直接报错。上例取上游 2020-3.2；
-`Dragon-Git/uvm-verilator` fork 在此基础上额外支持更早的版本。
-
-**`-DVERILATOR` 会关闭一组接口。** 导出的 DPI task 不允许消耗仿真时间，桥接层据此在
-`` `ifdef VERILATOR `` 下编译掉下列接口：
-
-`write_reg`、`read_reg`、`check_reg`、`mirror_reg`、`start_seq` 的后台形式、`wait_on`、
-`wait_off`、`wait_trigger`、`wait_ptrigger`、`barrier_wait`、`wait_unit`、`run_test_wrap`。
-
-这些调用既不报错也不执行任何动作，一次未生效的寄存器操作只有在覆盖率未达标时才会暴露。需要
-总线访问时应改用 xezim 或 VCS。
+`Dragon-Git/uvm-verilator` fork 在此基础上额外支持更早的版本。`-CFLAGS` 里的 `-DVERILATOR`
+是给这层 UVM DPI 代码用的；桥接层的 SV 包不再裁剪任何功能，仅保留一处与符号冲突有关的
+条件编译：`import "DPI-C" function string getenv` 在 Verilator 下会生成
+`const char* getenv(const char*)`，与 `<stdlib.h>` 里 libc 的 `char* getenv(const char*)`
+冲突，因此仍在 `` `ifndef VERILATOR `` 下；其他仿真器把它直接链到 libc。
 
 ## xezim
 
-xezim 以解释方式执行，无需预编译，也不受上述时间限制约束。有两项运行期要求：
+xezim 以解释方式执行，无需预编译。有两项运行期要求：
 
 - UVM 源码树通过 `XEZIM_UVM_DIR` 指定，取含 `src/` 的根目录；`-uvm` 选项依赖该变量。
 - `_svuvm.so` 未链接 libpython，而 xezim 以 `RTLD_NOW` 加载它时 `--dpi-lib` 无法保证 libpython
@@ -130,7 +170,7 @@ PYTHONPATH=$PWD XEZIM_UVM_DIR=$PWD/uvm-verilator xezim --simulate -s top \
 ## VCS
 
 VCS 在编译期纳入桥接层，与 Verilator 同类，但选项上有一处关键差异：**不要定义 `VERILATOR`**。
-该宏只用于在 Verilator 下规避时间限制，定义后总线访问会一并被关闭。
+该宏属于 UVM 的 Verilator HDL 后端，VCS 侧不需要它。
 
 **UVM 版本必须显式指定，且不低于 1.2。** `-ntb_opts uvm` 引入的是 VCS 内置的 UVM，版本随 VCS
 发行版本而定，早于桥接层支持的 1.2，不可使用。应显式写出 1.2 及以上的版本，例如
@@ -164,5 +204,5 @@ PYTHONPATH=$PWD ./simv +UVM_TESTNAME=example_test
 ## 其他仿真器
 
 Questa 与 Xcelium 暂无单独说明。桥接层未针对它们做任何条件编译，接入方式与 VCS 一致：同一段
-`svuvm.config` 输出、不定义 `VERILATOR`、显式指定 UVM 1.2 及以上版本、按需给出 timescale。这两条
-路径未经验证，建议先在最小环境中确认。
+`svuvm.config` 输出、不定义 `VERILATOR`、显式指定 UVM 1.2 及以上版本、按需给出 timescale；
+CI 覆盖情况见开头表格。

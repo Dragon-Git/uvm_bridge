@@ -37,7 +37,7 @@ svuvm 是一款硬件验证框架, 通过该框架，用户可以在 Python 中�
 下列版本在 CI 中每次推送都会实际跑一遍；逐版本的失败原因见
 [docs/uvm-version-compatibility.md](docs/uvm-version-compatibility.md)。
 
-| UVM | 完整运行（xezim） | 仅精化（Verilator） |
+| UVM | 完整运行（xezim） | 版本矩阵 lint（Verilator） |
 | --- | --- | --- |
 | 1.2 | 是 | 是 |
 | IEEE 1800.2-2017（0.9、1.0、1.1） | 是 | 是 |
@@ -45,20 +45,10 @@ svuvm 是一款硬件验证框架, 通过该框架，用户可以在 Python 中�
 | 1.1a、1.1d | – | 是 |
 | 1.0p1、1.1b、1.1c | – | 否 |
 
-Verilator 那条路只做精化：它把桥接层与各版本做一次 lint，而不是构建后运行，因为上游 UVM
-到 2020-3.2 才提供 Verilator 的 HDL 后端。1.0p1 缺桥接层用到的三个 API，1.1b 和 1.1c 是 UVM
-自身的缺陷——三者都在上游，这里不做绕过。1.0 与 1.1 系列在 xezim 上完全跑不起来：它们的 DPI
-源文件布局早于 1.2，而 xezim 的适配层是按 1.2 写的。
-
-## 已知限制
-
-- **Verilator 过不了总线。** 导出的 DPI task 不允许消耗仿真时间，因此在 `` `ifdef VERILATOR ``
-  下所有可能等待的接口都被编译掉：`write_reg`、`read_reg`、`check_reg`、`mirror_reg`、
-  `start_seq` 的后台形式、`wait_on`、`wait_off`、`wait_trigger`、`wait_ptrigger`、
-  `barrier_wait`、`wait_unit`、`run_test_wrap`。它们不报错也不做事，一次没写成的寄存器操作
-  要等到覆盖率上不去才会被发现。要真的动总线，跑在 xezim 或 VCS 上。
-- **寄存器访问要先注册模型。** 上述接口通过 `reg_operator::set_top_reg_block()` 装进去的
-  operator 解析寄存器；没调那个函数时 operator 是空的。
+版本矩阵里 Verilator 那条腿只做 lint，不构建运行，以便用同一套检查覆盖所有 UVM 版本：上游 UVM
+到 2020-3.2 才提供 Verilator 的 HDL 后端；常规的 Verilator 测试作业会完整构建并运行。1.0p1 缺
+桥接层用到的三个 API，1.1b 和 1.1c 是 UVM 自身的缺陷——三者都在上游，这里不做绕过。1.0 与 1.1
+系列在 xezim 上完全跑不起来：它们的 DPI 源文件布局早于 1.2，而 xezim 的适配层是按 1.2 写的。
 
 ## 仿真器
 
@@ -67,15 +57,21 @@ Python 的链接参数——所以接入只需在你现有的命令里加一行�
 
 | 仿真器 | 完整 API | 说明 |
 | --- | --- | --- |
-| Verilator | 否，所有可能等待的接口被编译掉 | 加 `-DVERILATOR`，UVM 用 `Dragon-Git/uvm-verilator` fork |
+| Verilator | 是 | 需要含 suspendable DPI export 的版本（[PR #8863](https://github.com/verilator/verilator/pull/8863)，2026-11-12 合入）：可用含该功能的 nightly，或之后发布的正式版本；加 `-DVERILATOR`，UVM 用 `Dragon-Git/uvm-verilator` fork |
 | xezim | 是 | 用 `--dpi-lib` 加载，不进链接 |
 | VCS | 是 | 加同一行，**不要**定义 `VERILATOR`，并用 `-ntb_opts uvm-1.2` 指定 1.2 及以上版本（裸 `-ntb_opts uvm` 指向内置的旧版本） |
 
 三条路径都要求 UVM 1.2 及以上：1.0 与 1.1 系列的 DPI 源文件布局早于 1.2，适配层无法在其上编译。
 VCS 下 UVM 用上游 Accellera 版本即可，你现有的 UVM 参数不用动——`uvm-verilator` 那个 fork 只是
-给 Verilator 绕路用的，不是必需。Questa 与 Xcelium 没有单独文档：桥接层没有针对它们的条件编译，
-VCS 的接法同样适用，但没有实测。各仿真器的具体命令见
+为 Verilator 提供 UVM 的 HDL 后端。Questa 与 Xcelium 没有单独文档：桥接层没有针对它们的条件编译，
+VCS 的接法同样适用。CI 覆盖 Verilator 与 xezim 两条路径。各仿真器的具体命令见
 [docs/simulators.md](docs/simulators.md)。
+
+Verilator 需要包含 suspendable DPI export 的版本：导出的 task 因而可以等待或延时，
+`write_reg`、`read_reg`、`check_reg`、`mirror_reg`、`start_seq`、各 `wait_*`、`barrier_wait`、
+`wait_unit`、`run_test_wrap` 在 Verilator 上都可用完整 API。该特性由
+[PR #8863](https://github.com/verilator/verilator/pull/8863) 于 2026-11-12 合入，可用含它的
+nightly，也可用之后发布的正式版本；5.054 及更早版本不含该特性。
 
 ## 安装
 
@@ -90,7 +86,7 @@ pip install svuvm
 ## 编译
 
 需要在编译命令中添加 `$(python -m svuvm.config)`，它一次给出桥接的 SV 包、`_svuvm.so` 与 Python
-链接参数。运行仿真时还需把测试模块所在目录加进 `PYTHONPATH`——`py_func` 会按测试类型名导入同名
+链接参数。运行仿真时还需把测试模块所在目录加进 `PYTHONPATH`——桥接层会按测试类型名导入同名
 `.py`，该目录不会自动出现在 `sys.path` 中。
 
 ## 快速参考
@@ -129,6 +125,22 @@ pip install svuvm
 
 ## 使用示例
 
+### Python 入口
+
+两个入口都会导入与测试类型同名的 Python 模块，并调用其中的 `func_name`。按所在 UVM phase 选择：
+
+| SV 入口 | DPI 声明 | 使用位置 | 可用 API |
+| --- | --- | --- | --- |
+| `py_func(name, func_name="main", mod_paths="")` | import `function int` | `build_phase`、`connect_phase`（function phase） | 仅零时间接口 |
+| `py_task(name, func_name="main", mod_paths="")` | import `task` | `main_phase`、`run_phase`、`process_pool` | 完整 API：寄存器、事件等待、`start_seq`、`barrier_wait`、`wait_unit` |
+
+IEEE 1800-2023 35.8 不允许在 import function 的上下文里调用耗时的 export task，因此
+`build_phase` / `connect_phase` 的回调只用零时间接口。`py_task` 在 C 侧直接透传 `py_func`，
+两者都返回 `int`（恒 0）。把 `py_func` 当语句调用时要写 `void'(py_func(...))` 显式丢弃返回值。
+`call_py_func` 已计划弃用，仍走 `py_func`。寄存器接口通过
+`set_top_reg_block_by_path()`（即 `reg_operator::set_top_reg_block()`）装入的模型解析，
+首次访问前先注册。ABI 细节见 [docs/simulators.md](docs/simulators.md)。
+
 ### 在sv中启动python函数
 ```systemverilog
 // top.sv
@@ -143,7 +155,7 @@ module top ();
 
         virtual task main_phase(uvm_phase phase);
             phase.raise_objection(this);
-            py_func(get_type_name(), "main", dirname(`__FILE__));
+            py_task(get_type_name(), "main", dirname(`__FILE__));
             phase.drop_objection(this);
         endtask
     endclass
@@ -212,7 +224,9 @@ def main():
 ```
 ### 编译命令
 ```bash
-git clone https://github.com/Dragon-Git/uvm-verilator.git # Workaround 版本，verilator 还完全未支持uvm
+# 需要含 suspendable DPI export（PR #8863，2026-11-12）的 Verilator：
+# 可用含该功能的 nightly，或之后发布的正式版本。
+git clone https://github.com/Dragon-Git/uvm-verilator.git # 带 Verilator HDL 后端的 UVM
 mkdir -p build
 
 # svuvm.config 的链接参数带引号，命令替换不会重新解析引号；

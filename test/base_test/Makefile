@@ -150,26 +150,22 @@ build: $(BUILD_DIR)
 
 # Elaboration only: no C++ is generated or compiled, so a clean run says the
 # bridge and the given UVM agree on their SystemVerilog surface. That is what
-# the UVM compatibility matrix wants from this simulator. A full build and run
-# is not available for most versions anyway - upstream UVM gains a Verilator
-# HDL backend only in 2020-3.2, and uvm_hdl.c #errors without one - so lint is
-# both the cheaper and the more widely applicable check.
+# the UVM compatibility matrix wants from this simulator, since upstream UVM
+# gains a Verilator HDL backend only in 2020-3.2 and uvm_hdl.c #errors without
+# one. The `run` target below does a full build and run on the supported UVM.
 lint:
 	$(VERILATOR) --lint-only -top top $(LINT_FLAGS) \
 	  $(INCLUDE_DIRS) -I$(UVM_HOME)/dpi -I$(ROOT)/inc \
 	  $(UVM_PKG) $(SVUVM_SV) $(SV_SOURCE)
 
 
-# Verilator's DPI export cannot consume time, and a register access runs a
-# sequence on the bus, so python_bridge_pkg compiles write_reg/read_reg out
-# under `ifdef VERILATOR`: a Python-driven register access cannot reach the
-# bus on that simulator. The Python side is told (REG_BUS_ACCESS=0) and
-# confines the register-model test to what needs no bus - names, addresses,
-# reset, predict, the field list.
+# A Verilator with suspendable DPI exports (PR #8863; a nightly containing
+# it, or a stable release published after it) lets Python-driven register
+# access cross the bus, so the full register-model test runs here as on
+# xezim/VCS.
 run: build
 	DYLD_LIBRARY_PATH=$(shell pip show pip | grep Location | awk '{print $$2}')/svuvm \
 	PYTHONPATH=$(TEST_DIR) \
-	REG_BUS_ACCESS=0 \
 	./$(BUILD_DIR)/Vtop $(RUN_FLAGS)
 
 endif

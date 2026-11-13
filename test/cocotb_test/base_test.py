@@ -82,14 +82,14 @@ def main():
     string_value = svuvm.get_config_string("", "", "string_value")
     svuvm.vpi.vpi_printf(f"string_value: {string_value}\n")
 
+    # Register access used to be exercised here with names "0"/"1"/"2" and no
+    # register block ever installed. Under old Verilator the calls were
+    # compiled out, so this passed silently; now that suspendable exports work
+    # they would hit a null reg_operator and raise UVM_FATAL. Real bus coverage
+    # lives in test/pyral_test and the register-model section of base_test.py.
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
-    svuvm.vpi.vpi_printf("*        TEST reg opretor \n")
+    svuvm.vpi.vpi_printf("*        TEST reg opretor (skipped: no reg block) \n")
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
-    data = 0xDEADBEEF
-    for i in range(3):
-        svuvm.write_reg(str(i), i)
-        data = svuvm.read_reg(str(i))
-        svuvm.vpi.vpi_printf(f"read data: {data}\n")
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.vpi.vpi_printf("*        TEST vpi io \n")

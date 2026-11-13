@@ -35,6 +35,8 @@ COCOTB_PYGPI_ENTRY = $(shell $(PYTHON) -m cocotb_tools.config --pygpi-entry-poin
 # inherited by the Vtop child as a plain env var.
 export GPI_USERS    = $(COCOTB_LIBPYTHON);$(COCOTB_PYGPI_ENTRY)
 
+# --cc --exe --build has no --binary, so it does not imply --timing; UVM's
+# #force_time / process::self() need it explicitly (NEEDTIMINGOPT otherwise).
 VERILATOR_FLAGS = -j $(NPROC) --vpi   -cc --exe --build --timing \
                   -top top -Mdir $(BUILD_DIR) \
                   --output-groups $(NPROC) \
