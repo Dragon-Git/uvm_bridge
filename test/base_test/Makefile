@@ -6,11 +6,11 @@
 #   SIM=xezim               - interpret with xezim (no build step), UVM from
 #                             xezim's bundled copy; our DPI side (_svuvm.so,
 #                             which embeds CPython) is loaded via --dpi-lib.
-#                             Pass criteria: exit 0 AND the Python test's
-#                             final marker in the log (xezim stops silently
-#                             at --max-time, and base_test.py intentionally
-#                             raises UVM_ERROR/UVM_FATAL, so grepping the
-#                             UVM_ERROR count does not work here).
+#
+# Pass criteria on both simulators: exit 0 AND the completion marker that
+# base_test.py prints only when every check passed. Grep for the marker, not
+# the UVM_ERROR count: base_test.py intentionally raises UVM_ERROR/UVM_FATAL,
+# and xezim stops silently at --max-time.
 
 SIM             ?= verilator
 PYTHON          = python
@@ -166,7 +166,11 @@ lint:
 run: build
 	DYLD_LIBRARY_PATH=$(shell pip show pip | grep Location | awk '{print $$2}')/svuvm \
 	PYTHONPATH=$(TEST_DIR) \
-	./$(BUILD_DIR)/Vtop $(RUN_FLAGS)
+	./$(BUILD_DIR)/Vtop $(RUN_FLAGS) > $(BUILD_DIR)/verilator.log 2>&1; \
+	rc=$$?; \
+	cat $(BUILD_DIR)/verilator.log; \
+	if [ $$rc -ne 0 ]; then echo "verilator exited with $$rc"; exit $$rc; fi; \
+	grep -q "所有新增API测试完成" $(BUILD_DIR)/verilator.log || { echo "ERROR: Python test did not pass all checks"; exit 1; }
 
 endif
 
