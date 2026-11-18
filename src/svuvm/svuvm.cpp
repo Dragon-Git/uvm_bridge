@@ -1516,18 +1516,27 @@ py_func(const char *mod_name, const char *func_name, const char *mod_paths) {
     path.attr("append")(mod_paths);
   }
   nb::print(path);
-  nb::module_ py_seq_mod = nb::module_::import_(mod_name);
-  // Guard the user-Python call so an unhandled exception in the
-  // user's regression / test code does not propagate as a
-  // nanobind::python_error across this extern "C" DPI boundary
-  // (uncaught exceptions there hit std::terminate and core dump
-  // the simulator with no useful diagnostic). nb::python_error
-  // is non-const, so we catch by reference and pass it to
-  // discard_as_unraisable, which prints the full Python
-  // traceback via PyErr_Print() semantics and consumes the
-  // error state cleanly. Any non-nb exception is a bug -- we
-  // re-raise so it is not silently lost.
+
+  // Defensive: an empty module name normally means a caller lost its
+  // arguments (e.g. a forked SV child that had popped an empty queue).
+  // import_("") raises ValueError, and an exception escaping this extern "C"
+  // DPI entry reaches std::terminate and core-dumps the simulator. Skip the
+  // call with a diagnostic instead.
+  if (mod_name == nullptr || mod_name[0] == '\0') {
+    std::cerr << "py_func: empty module name, skipping Python call" << std::endl;
+    return 0;
+  }
+
+  // Guard both the import and the user-Python call so an unhandled exception
+  // cannot propagate as a nanobind::python_error across this extern "C" DPI
+  // boundary (uncaught exceptions there hit std::terminate and core dump the
+  // simulator with no useful diagnostic). nb::python_error is non-const, so
+  // catch by reference and pass it to discard_as_unraisable, which prints the
+  // full Python traceback via PyErr_Print() semantics and consumes the error
+  // state cleanly. Any non-nb exception is a bug -- we re-raise so it is not
+  // silently lost.
   try {
+    nb::module_ py_seq_mod = nb::module_::import_(mod_name);
     py_seq_mod.attr(func_name)();
   } catch (nb::python_error &e) {
     e.discard_as_unraisable(__func__);

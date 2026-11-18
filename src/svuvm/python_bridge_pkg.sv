@@ -114,15 +114,23 @@ package python_bridge_pkg;
         process processes[string];
         static process_pool inst = get_process_pool;
 
-        // A fork...join_none child only starts after the task that created it
-        // returns, and an automatic local is gone by then: the child reads an
-        // empty queue and calls py_func() with an empty module name, which
-        // raises out of Python. What the child needs is therefore parked on the
-        // singleton first and picked up through a FIFO - children start in the
-        // order they were forked.
-        string queued[$];
-        string mod_of[string];
-        string fn_of[string];
+        // A fork...join_none child may start while, or after, the task that
+        // created it returns. Never hand it arguments through shared mutable
+        // state (a queue the child pops, or a singleton lookup keyed by a
+        // value the child reads back): the pop order is not a stable contract
+        // across simulators, and a child that pops an empty queue ends up
+        // calling py_task() with an empty module name.
+        //
+        // Bind the arguments by value instead. A task call binds its actual
+        // arguments to a fresh frame when the fork statement executes, while
+        // the caller is still alive, so every child owns an immutable copy of
+        // its own name/module/function and can neither observe another child's
+        // slot nor read an empty one. process::self() is taken inside the
+        // child so the recorded handle is the child's, not the caller's.
+        task run_child(string key, string mod_name, string fn_name);
+            processes[key] = process::self();
+            py_task(mod_name, fn_name, dirname(`__FILE__));
+        endtask
 
         static function process_pool get_process_pool();
             if (inst == null) begin
@@ -133,7 +141,7 @@ package python_bridge_pkg;
 
         task run(string name);
             string args[$];
-            automatic process p;
+            string mod_name, fn_name;
             `ifdef UVM_VERSION_POST_2017
             uvm_string_split(name, ".", args);
             `else
@@ -143,16 +151,13 @@ package python_bridge_pkg;
                 `uvm_error("python_bridge_pkg", $sformatf("Invalid process name '%s'. Expected format: 'module.function'", name))
                 return;
             end
-            mod_of[name] = args[0];
-            fn_of[name]  = args[1];
-            queued.push_back(name);
+            // Copy out of the queue into plain locals BEFORE the fork. The
+            // child binds these by value; passing an array element directly
+            // as a fork-line argument is simulator-dependent.
+            mod_name = args[0];
+            fn_name  = args[1];
             fork
-                begin
-                    string key = queued.pop_front();
-                    p = process::self();
-                    processes[key] = p;
-                    py_task(mod_of[key], fn_of[key], dirname(`__FILE__));
-                end
+                run_child(name, mod_name, fn_name);
             join_none
         endtask
 
