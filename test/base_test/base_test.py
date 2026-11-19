@@ -1105,6 +1105,13 @@ def test_vpi_assertion_control():
         "vpiAssertionEnableFailAction": 636,
         "vpiAssertionDisableVacuousAction": 637,
         "vpiAssertionEnableNonvacuousAction": 638,
+        # system-wide pass/fail/vacuous action controls
+        "vpiAssertionSysEnablePassAction": 639,
+        "vpiAssertionSysEnableFailAction": 640,
+        "vpiAssertionSysDisablePassAction": 641,
+        "vpiAssertionSysDisableFailAction": 642,
+        "vpiAssertionSysEnableNonvacuousAction": 643,
+        "vpiAssertionSysDisableVacuousAction": 644,
     }
     for name, value in opcodes.items():
         got = getattr(v, name, None)
@@ -1155,6 +1162,14 @@ def test_vpi_coverage_get():
         "vpiAssertVacuousSuccessCovered": 773,
         "vpiAssertDisableCovered": 774,
         "vpiAssertKillCovered": 777,
+        # coverage counters / aliases (40.4)
+        "vpiCoveredMax": 766,
+        "vpiCoverMax": 766,
+        # FSM-specific coverage status and handle types (40.4)
+        "vpiFsmStates": 775,
+        "vpiFsmStateExpression": 776,
+        "vpiFsm": 758,
+        "vpiFsmHandle": 759,
     }
     for name, value in props.items():
         got = getattr(v, name, None)
@@ -1227,6 +1242,129 @@ def test_vpi_coverage_control():
         if rc is _SKIPPED:
             continue
         check(isinstance(rc, int), f"vpi_control({name}) returns int", f"got {rc!r}")
+
+
+def test_vpi_assertion_callback_reasons():
+    """IEEE 1800-2023 39.4: every cbAssertion* callback reason constant.
+
+    vpi_register_assertion_cb() is not bound in the Python bridge, so the real
+    assertion callbacks cannot be registered from here. Check the full reason
+    opcode set (per-assertion and system-wide) so the binding surface is
+    covered; registering an assertion callback is out of scope for this test.
+    """
+    v = svuvm.vpi
+    reasons = {
+        # per-assertion callback reasons
+        "cbAssertionStart": 606,
+        "cbAssertionSuccess": 607,
+        "cbAssertionFailure": 608,
+        "cbAssertionVacuousSuccess": 657,
+        "cbAssertionDisabledEvaluation": 658,
+        "cbAssertionStepSuccess": 609,
+        "cbAssertionStepFailure": 610,
+        "cbAssertionLock": 661,
+        "cbAssertionUnlock": 662,
+        "cbAssertionDisable": 611,
+        "cbAssertionEnable": 612,
+        "cbAssertionReset": 613,
+        "cbAssertionKill": 614,
+        "cbAssertionEnablePassAction": 645,
+        "cbAssertionEnableFailAction": 646,
+        "cbAssertionDisablePassAction": 647,
+        "cbAssertionDisableFailAction": 648,
+        "cbAssertionEnableNonvacuousAction": 649,
+        "cbAssertionDisableVacuousAction": 650,
+        # assertion system callback reasons
+        "cbAssertionSysInitialized": 615,
+        "cbAssertionSysOn": 616,
+        "cbAssertionSysOff": 617,
+        "cbAssertionSysKill": 631,
+        "cbAssertionSysLock": 659,
+        "cbAssertionSysUnlock": 660,
+        "cbAssertionSysEnd": 618,
+        "cbAssertionSysReset": 619,
+        "cbAssertionSysEnablePassAction": 651,
+        "cbAssertionSysEnableFailAction": 652,
+        "cbAssertionSysDisablePassAction": 653,
+        "cbAssertionSysDisableFailAction": 654,
+        "cbAssertionSysEnableNonvacuousAction": 655,
+        "cbAssertionSysDisableVacuousAction": 656,
+    }
+    for name, value in reasons.items():
+        got = getattr(v, name, None)
+        check(got == value, f"{name} reason (IEEE 1800 39.4)",
+              f"got {got!r}, expected {value}")
+
+
+def test_vpi_assert_cover_object_types():
+    """IEEE 1800-2023 39/40: assertion/cover object types and VPI traversal.
+
+    Check the object-type constants used with vpi_get(vpiType) / vpi_iterate,
+    then try to enumerate assertion objects from the top scope and read their
+    name/fullName. Verilator lowers SVA/covergroups to C++ and may not expose
+    them through VPI, so handle-dependent reads are best-effort: the constant
+    checks always run, traversal/reads skip when no handle is available.
+    """
+    v = svuvm.vpi
+    obj_types = {
+        "vpiAssert": 686,
+        "vpiCover": 688,
+        "vpiImmediateAssert": 665,
+        "vpiImmediateAssume": 694,
+        "vpiImmediateCover": 695,
+        "vpiIsCoverSequence": 659,
+        "vpiConcurrentAssertion": 740,
+        "vpiAssertion": 744,
+    }
+    for name, value in obj_types.items():
+        got = getattr(v, name, None)
+        check(got == value, f"{name} object type (IEEE 1800 39/40)",
+              f"got {got!r}, expected {value}")
+
+    top = v.vpi_handle_by_name("top")
+    if top is None:
+        skip("vpi_iterate assertion object types", "no handle for top")
+        return
+    for tname in ("vpiAssertion", "vpiConcurrentAssertion", "vpiAssert",
+                  "vpiCover", "vpiImmediateAssert"):
+        type_code = getattr(v, tname)
+        it = try_api_ex(f"vpi_iterate({tname}, top)",
+                        lambda tc=type_code: v.vpi_iterate(tc, top),
+                        verilator_unsafe=True)
+        if it is _SKIPPED or it is None:
+            continue
+        found = 0
+        for _ in range(16):
+            item = try_api_ex(f"vpi_scan({tname})", lambda i=it: v.vpi_scan(i))
+            if item is _SKIPPED or item is None:
+                break
+            found += 1
+            for prop in ("vpiName", "vpiFullName"):
+                prop_code = getattr(v, prop)
+                name = try_api_ex(
+                    f"vpi_get_str({prop}, {tname} item)",
+                    lambda it2=item, p=prop_code: v.vpi_get_str(p, it2),
+                    verilator_unsafe=True,
+                )
+                if name is _SKIPPED:
+                    continue
+                check(name is None or isinstance(name, str),
+                      f"vpi_get_str({prop}, {tname} item) type", f"got {name!r}")
+        if found:
+            check(True, f"vpi_iterate({tname}) yielded objects", f"found {found}")
+
+    # Direct handle reads on the assertion/covergroup injected in top.sv.
+    for path in ("top.ap_vpi_probe", "top.cg_vpi_probe_inst"):
+        h = try_api_ex(f"handle {path}", lambda p=path: v.vpi_handle_by_name(p))
+        if h is _SKIPPED or h is None:
+            continue
+        nm = try_api_ex(f"vpi_get_str(vpiFullName, {path})",
+                        lambda hh=h: v.vpi_get_str(v.vpiFullName, hh),
+                        verilator_unsafe=True)
+        if nm is _SKIPPED:
+            continue
+        check(nm is None or isinstance(nm, str),
+              f"vpi_get_str(vpiFullName, {path}) type", f"got {nm!r}")
 
 
 def test_process_pool():
@@ -1554,6 +1692,8 @@ TESTS = [
     ("vpi_assertion_control", test_vpi_assertion_control),
     ("vpi_coverage_get", test_vpi_coverage_get),
     ("vpi_coverage_control", test_vpi_coverage_control),
+    ("vpi_assertion_callback_reasons", test_vpi_assertion_callback_reasons),
+    ("vpi_assert_cover_object_types", test_vpi_assert_cover_object_types),
     ("process_pool", test_process_pool),
     ("phase_objection", test_phase_objection),
     ("component_topology", test_component_topology),
