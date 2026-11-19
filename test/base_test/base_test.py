@@ -62,15 +62,28 @@ def _product():
 _SKIPPED = object()
 
 
-def try_api_ex(label, fn, verilator_unsafe=False):
+def try_api_ex(label, fn, verilator_unsafe=False, xezim_unsafe=False):
     """Run an optional VPI call, returning a sentinel when it was skipped.
 
     ``try_api`` maps the sentinel back to None for older callers; new tests use
     ``try_api_ex`` so they can tell "skipped" apart from a legitimate None
     return value (e.g. a callback registration that failed).
+
+    Both simulators print an internal ``[VPI] ...`` diagnostic for some calls
+    but still return a value, so a Python try/except cannot see the failure and
+    an ``isinstance(rc, int)`` check would pass while the log records an error:
+    * ``verilator_unsafe``: Verilator implements the call with VL_VPI_UNIMP_()
+      and aborts the whole simulation; skip it there.
+    * ``xezim_unsafe``: xezim does not support the operation / handle class and
+      prints ``[VPI] ... not supported`` (or similar); skip it there. The
+      standard opcode constants are still verified by the caller.
     """
-    if verilator_unsafe and "verilator" in _product().lower():
+    product = _product().lower()
+    if verilator_unsafe and "verilator" in product:
         skip(label, "unimplemented VPI function aborts on Verilator")
+        return _SKIPPED
+    if xezim_unsafe and "xezim" in product:
+        skip(label, "VPI call unsupported by xezim (would log a [VPI] diagnostic)")
         return _SKIPPED
     try:
         return fn()
@@ -79,17 +92,19 @@ def try_api_ex(label, fn, verilator_unsafe=False):
         return _SKIPPED
 
 
-def try_api(label, fn, verilator_unsafe=False):
+def try_api(label, fn, verilator_unsafe=False, xezim_unsafe=False):
     """Run an optional/best-effort VPI call.
 
     Returns the call result, or None after recording a skip. ``verilator_unsafe``
     marks VPI functions that Verilator implements with VL_VPI_UNIMP_() (or that
     reject the given handle): they abort the whole simulation rather than
     returning a checkable value, and Python try/except cannot intercept that.
-    Such calls are skipped by name on Verilator; xezim either implements them
-    or returns None / raises a catchable Python exception, so they run there.
+    ``xezim_unsafe`` marks calls xezim rejects with a ``[VPI]`` diagnostic but
+    still returns from. Either way the call is skipped on the simulator that
+    cannot honour it, and run on the other.
     """
-    result = try_api_ex(label, fn, verilator_unsafe=verilator_unsafe)
+    result = try_api_ex(label, fn, verilator_unsafe=verilator_unsafe,
+                        xezim_unsafe=xezim_unsafe)
     return None if result is _SKIPPED else result
 
 
@@ -677,7 +692,8 @@ def test_vpi_hierarchy():
     # relation many simulators implement, and may still return None.
     try_api("vpi_handle_multi",
             lambda: v.vpi_handle_multi(v.vpiInterModPath, obj, obj)
-            if obj is not None else None, verilator_unsafe=True)
+            if obj is not None else None,
+            verilator_unsafe=True, xezim_unsafe=True)
 
 
 def test_vpi_handle_management():
@@ -689,9 +705,9 @@ def test_vpi_handle_management():
         return
 
     try_api("vpi_get_userdata", lambda: v.vpi_get_userdata(obj),
-            verilator_unsafe=True)
+            verilator_unsafe=True, xezim_unsafe=True)
     try_api("vpi_put_userdata", lambda: v.vpi_put_userdata(obj, obj),
-            verilator_unsafe=True)
+            verilator_unsafe=True, xezim_unsafe=True)
     # vpi_free_object and vpi_release_handle are deprecated / no-ops on some
     # backends; use a fresh handle so any invalidation cannot affect later tests.
     spare = v.vpi_handle_by_name("top.test_wire")
@@ -719,9 +735,9 @@ def test_vpi_delays():
     if delay is None:
         return
     try_api("vpi_get_delays", lambda: v.vpi_get_delays(obj, delay),
-            verilator_unsafe=True)
+            verilator_unsafe=True, xezim_unsafe=True)
     try_api("vpi_put_delays", lambda: v.vpi_put_delays(obj, delay),
-            verilator_unsafe=True)
+            verilator_unsafe=True, xezim_unsafe=True)
 
 
 def test_vpi_cb_info_and_systf():
@@ -758,7 +774,8 @@ def test_vpi_cb_info_and_systf():
         info = v.VpiSystfData()
         v.vpi_get_systf_info(h, info)
         check(info.tfname != "", "vpi_get_systf_info tfname", f"got {info.tfname!r}")
-    try_api("vpi_register_systf/get_systf_info", systf, verilator_unsafe=True)
+    try_api("vpi_register_systf/get_systf_info", systf,
+            verilator_unsafe=True, xezim_unsafe=True)
 
 
 def test_vpi_control_operations():
@@ -799,7 +816,7 @@ def test_vpi_control_operations():
     rc = try_api_ex(
         "vpi_control(vpiSetInteractiveScope, top)",
         lambda: v.vpi_control(v.vpiSetInteractiveScope, top),
-        verilator_unsafe=True,
+        verilator_unsafe=True, xezim_unsafe=True,
     )
     if rc is not _SKIPPED:
         check(isinstance(rc, int), "vpi_control returns an integer status",
@@ -807,10 +824,15 @@ def test_vpi_control_operations():
 
 
 def test_vpi_get_time_formats():
-    """vpi_get_time() with object/NULL handle and both standard time formats."""
+    """vpi_get_time() with a real scope handle and both standard time formats.
+
+    IEEE allows a NULL object handle (global time), but the Python binding
+    declares ``object`` as non-optional, so only the real-handle form is
+    callable here; the NULL form would just raise TypeError on every backend.
+    """
     v = svuvm.vpi
     top = v.vpi_handle_by_name("top")
-    for label, obj in (("top", top), ("null", None)):
+    for label, obj in (("top", top),):
         for fmt_name in ("vpiSimTime", "vpiScaledRealTime"):
             fmt = getattr(v, fmt_name)
 
@@ -822,7 +844,7 @@ def test_vpi_get_time_formats():
             # Verilator handles vpiSimTime with a real object handle (proven by
             # test_vpi_callback); the scaled-real and NULL-handle forms are not
             # uniformly implemented, so gate those by name.
-            unsafe = fmt_name != "vpiSimTime" or obj is None
+            unsafe = fmt_name != "vpiSimTime"
             t = try_api_ex(f"vpi_get_time({label}, {fmt_name})", read_time,
                            verilator_unsafe=unsafe)
             if t is _SKIPPED:
@@ -913,7 +935,7 @@ def test_vpi_data_control():
     rc = try_api_ex(
         "vpi_put_data",
         lambda: v.vpi_put_data(0, payload, len(payload)),
-        verilator_unsafe=True,
+        verilator_unsafe=True, xezim_unsafe=True,
     )
     if rc is not _SKIPPED:
         check(isinstance(rc, int), "vpi_put_data returns an integer status",
@@ -923,7 +945,7 @@ def test_vpi_data_control():
     got = try_api_ex(
         "vpi_get_data",
         lambda: v.vpi_get_data(0, buffer, len(buffer)),
-        verilator_unsafe=True,
+        verilator_unsafe=True, xezim_unsafe=True,
     )
     if got is not _SKIPPED:
         check(isinstance(got, int), "vpi_get_data returns a byte count",
@@ -935,13 +957,13 @@ def test_vpi_data_control():
         return
     put = try_api_ex("vpi_put_userdata(handle)",
                      lambda: v.vpi_put_userdata(obj, obj),
-                     verilator_unsafe=True)
+                     verilator_unsafe=True, xezim_unsafe=True)
     if put is not _SKIPPED:
         check(isinstance(put, int), "vpi_put_userdata returns an integer status",
               f"got {put!r}")
         get = try_api_ex("vpi_get_userdata(handle)",
                          lambda: v.vpi_get_userdata(obj),
-                         verilator_unsafe=True)
+                         verilator_unsafe=True, xezim_unsafe=True)
         if get is not _SKIPPED and put != 0:
             check(get is not None, "vpi_get_userdata sees stored userdata",
                   f"got {get!r}")
@@ -1016,9 +1038,10 @@ def test_vpi_property_matrix():
 def test_vpi_value_array_control():
     """vpi_get_value_array/vpi_put_value_array entry points.
 
-    The binding exposes index_p as a raw pointer; use a zero-length transfer
-    with a NULL index pointer so no simulator can dereference it. Completing
-    the call (or a recorded skip on Verilator) is the assertion here.
+    The binding declares index_p as an int (not optional), so a NULL index
+    raises TypeError on every backend. Use index 0 with a zero-length transfer
+    (num=0), which no simulator dereferences. Completing the call (or a
+    recorded skip on Verilator) is the assertion here.
     """
     v = svuvm.vpi
     obj = v.vpi_handle_by_name("top.dpi_vec_test")
@@ -1030,10 +1053,12 @@ def test_vpi_value_array_control():
           "empty VpiArrayValue for zero-length transfer",
           f"{arr.format}/{arr.flags}")
     for name, fn in (
-        ("vpi_get_value_array", lambda: v.vpi_get_value_array(obj, arr, None, 0)),
-        ("vpi_put_value_array", lambda: v.vpi_put_value_array(obj, arr, None, 0)),
+        ("vpi_get_value_array", lambda: v.vpi_get_value_array(obj, arr, 0, 0)),
+        ("vpi_put_value_array", lambda: v.vpi_put_value_array(obj, arr, 0, 0)),
     ):
-        try_api_ex(name, fn, verilator_unsafe=True)
+        # xezim rejects a non-unpacked-array object with a [VPI] diagnostic
+        # even for a zero-length transfer; skip it there.
+        try_api_ex(name, fn, verilator_unsafe=True, xezim_unsafe=True)
 
 
 def test_vpi_delay_variants():
@@ -1129,6 +1154,7 @@ def test_vpi_assertion_control():
         rc = try_api_ex(
             f"vpi_control({name}, top)",
             lambda name=name: v.vpi_control(getattr(v, name), scope),
+            xezim_unsafe=True,
         )
         if rc is _SKIPPED:
             continue
@@ -1233,11 +1259,13 @@ def test_vpi_coverage_control():
             rc = try_api_ex(
                 f"vpi_control({name}, top)",
                 lambda name=name: v.vpi_control(getattr(v, name), scope),
+                xezim_unsafe=True,
             )
         else:
             rc = try_api_ex(
                 f"vpi_control({name}, vpiAssertCoverage, top)",
                 lambda name=name: v.vpi_control(getattr(v, name), cov_type, scope),
+                xezim_unsafe=True,
             )
         if rc is _SKIPPED:
             continue

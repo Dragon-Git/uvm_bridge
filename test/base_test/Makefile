@@ -107,7 +107,8 @@ run: check
 	rc=$$?; \
 	cat $(LOG); \
 	if [ $$rc -ne 0 ]; then echo "xezim exited with $$rc"; exit $$rc; fi; \
-	grep -q "所有新增API测试完成" $(LOG) || { echo "ERROR: Python test did not run to completion (max-time cap?)"; exit 1; }
+	grep -q "所有新增API测试完成" $(LOG) || { echo "ERROR: Python test did not run to completion (max-time cap?)"; exit 1; }; \
+	if grep -q '^\[VPI\]' $(LOG); then echo "ERROR: simulator emitted [VPI] diagnostics:"; grep '^\[VPI\]' $(LOG); exit 1; fi
 
 else
 
@@ -170,7 +171,8 @@ run: build
 	rc=$$?; \
 	cat $(BUILD_DIR)/verilator.log; \
 	if [ $$rc -ne 0 ]; then echo "verilator exited with $$rc"; exit $$rc; fi; \
-	grep -q "所有新增API测试完成" $(BUILD_DIR)/verilator.log || { echo "ERROR: Python test did not pass all checks"; exit 1; }
+	grep -q "所有新增API测试完成" $(BUILD_DIR)/verilator.log || { echo "ERROR: Python test did not pass all checks"; exit 1; }; \
+	if grep -q '^\[VPI\]' $(BUILD_DIR)/verilator.log; then echo "ERROR: simulator emitted [VPI] diagnostics:"; grep '^\[VPI\]' $(BUILD_DIR)/verilator.log; exit 1; fi
 
 endif
 
