@@ -243,7 +243,18 @@ module top ();
     logic clk/*verilator public_flat*/ = 1'b0;
     always #5 clk = ~clk;
 
-    
+    // --- VPI assertion / coverage test objects (IEEE 1800 ch.39/40) -------
+    // A named concurrent assertion and a covergroup with one coverpoint give
+    // the VPI tests real objects to look up by hierarchical name. Verilator
+    // compiles SVA/covergroup to C++ and may not expose them through VPI; the
+    // Python tests probe visibility and skip when a handle is unavailable.
+    ap_vpi_probe: assert property (@(posedge clk) ^dpi_vec_test !== 1'bx);
+
+    covergroup cg_vpi_probe @(posedge clk);
+        cp_vpi_probe: coverpoint dpi_vec_test[1:0];
+    endgroup
+    cg_vpi_probe cg_vpi_probe_inst = new();
+
     initial begin 
         string test;
         byte test1 [];

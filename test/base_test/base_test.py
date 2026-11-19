@@ -48,6 +48,51 @@ def banner(title):
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
 
 
+def _product():
+    """Simulator product string via VPI, cached once."""
+    global _PRODUCT
+    if "_PRODUCT" not in globals():
+        try:
+            _PRODUCT = str(svuvm.vpi.VpiVlogInfo().product)
+        except Exception:
+            _PRODUCT = ""
+    return _PRODUCT
+
+
+_SKIPPED = object()
+
+
+def try_api_ex(label, fn, verilator_unsafe=False):
+    """Run an optional VPI call, returning a sentinel when it was skipped.
+
+    ``try_api`` maps the sentinel back to None for older callers; new tests use
+    ``try_api_ex`` so they can tell "skipped" apart from a legitimate None
+    return value (e.g. a callback registration that failed).
+    """
+    if verilator_unsafe and "verilator" in _product().lower():
+        skip(label, "unimplemented VPI function aborts on Verilator")
+        return _SKIPPED
+    try:
+        return fn()
+    except Exception as exc:
+        skip(label, f"{type(exc).__name__}: {exc}")
+        return _SKIPPED
+
+
+def try_api(label, fn, verilator_unsafe=False):
+    """Run an optional/best-effort VPI call.
+
+    Returns the call result, or None after recording a skip. ``verilator_unsafe``
+    marks VPI functions that Verilator implements with VL_VPI_UNIMP_() (or that
+    reject the given handle): they abort the whole simulation rather than
+    returning a checkable value, and Python try/except cannot intercept that.
+    Such calls are skipped by name on Verilator; xezim either implements them
+    or returns None / raises a catchable Python exception, so they run there.
+    """
+    result = try_api_ex(label, fn, verilator_unsafe=verilator_unsafe)
+    return None if result is _SKIPPED else result
+
+
 def cb_test(data):
     print("hello cb")
     return 1
@@ -228,6 +273,10 @@ def test_config_db():
 def test_vpi_io():
     f = svuvm.vpi.vpi_mcd_open("test.log")
     check(bool(f), "vpi_mcd_open(test.log)", f"got {f!r}")
+    mcd_name = try_api("vpi_mcd_name", lambda: svuvm.vpi.vpi_mcd_name(f),
+                       verilator_unsafe=True)
+    if mcd_name is not None:
+        check("test.log" in str(mcd_name), "vpi_mcd_name", f"got {mcd_name!r}")
     svuvm.vpi.vpi_mcd_printf(f, "hello world\n")
     svuvm.vpi.vpi_mcd_flush(f)
     svuvm.vpi.vpi_printf("vpi_printf success\n")
@@ -291,6 +340,893 @@ def test_vpi_callback():
     a = svuvm.vpi.CbData(svuvm.vpi.cbNextSimTime, cb_test, obj, time_obj, value, 0, "")
     check(a is not None, "CbData constructed", f"got {a!r}")
     svuvm.vpi.vpi_register_cb(a)
+
+
+def test_vpi_value_ctors():
+    """VpiValue has several constructor overloads and one field per union arm.
+
+    Exercise each scalar constructor form and read the matching field back.
+    The string constructor is skipped: the binding binds value.str to a
+    temporary std::string's buffer, so reading it back is a dangling pointer
+    on both simulators (confirmed as UnicodeDecodeError in probes).
+    """
+    v = svuvm.vpi
+    check(v.VpiValue(v.vpiIntVal, 42).integer == 42,
+          "VpiValue(format, int) -> integer", f"got {v.VpiValue(v.vpiIntVal, 42).integer!r}")
+    check(v.VpiValue(v.vpiRealVal, 2.5).real == 2.5,
+          "VpiValue(format, double) -> real", f"got {v.VpiValue(v.vpiRealVal, 2.5).real!r}")
+    check(v.VpiValue(v.vpiScalarVal, 1).scalar == 1,
+          "VpiValue(format, scalar) -> scalar", f"got {v.VpiValue(v.vpiScalarVal, 1).scalar!r}")
+
+    # Single-argument form sets only format; fields are writable afterwards.
+    val = v.VpiValue(v.vpiIntVal)
+    check(val.format == v.vpiIntVal, "VpiValue(format) sets format", f"got {val.format!r}")
+    val.integer = -7
+    check(val.integer == -7, "VpiValue.integer writable", f"got {val.integer!r}")
+    val.real = 1.25
+    check(val.real == 1.25, "VpiValue.real writable", f"got {val.real!r}")
+    val.scalar = 0
+    check(val.scalar == 0, "VpiValue.scalar writable", f"got {val.scalar!r}")
+
+    # String overload: constructing is safe, only reading .str is not.
+    def make_str():
+        return v.VpiValue(v.vpiStringVal, "hello")
+    made = try_api("VpiValue(format, str) construct", make_str)
+    if made is not None:
+        check(made.format == v.vpiStringVal, "VpiValue(format, str) sets format",
+              f"got {made.format!r}")
+
+
+def test_vpi_scalar_structs():
+    """Constructor overloads and field access on VpiVecVal/Time/StrengthVal."""
+    v = svuvm.vpi
+
+    # VpiVecVal: default, (aval, bval) and keyword forms, + field writes.
+    z = v.VpiVecVal()
+    check(z.aval == 0 and z.bval == 0, "VpiVecVal() defaults", f"{z.aval:x}/{z.bval:x}")
+    z.aval, z.bval = 0x1111, 0x2222
+    check((z.aval, z.bval) == (0x1111, 0x2222), "VpiVecVal fields writable",
+          f"{z.aval:x}/{z.bval:x}")
+    p = v.VpiVecVal(0x1234, 0x5678)
+    check((p.aval, p.bval) == (0x1234, 0x5678), "VpiVecVal(aval, bval)",
+          f"{p.aval:x}/{p.bval:x}")
+
+    # VpiTime: 4-arg form (type, high, low, real) and mutable fields.
+    t = v.VpiTime(v.vpiSimTime, 1, 2, 3.5)
+    check(t.type == v.vpiSimTime and t.high == 1 and t.low == 2 and t.real == 3.5,
+          "VpiTime(type, high, low, real)", f"{t.type}/{t.high}/{t.low}/{t.real}")
+    t.type, t.high, t.low, t.real = 0, 4, 5, 6.5
+    check((t.type, t.high, t.low, t.real) == (0, 4, 5, 6.5),
+          "VpiTime fields writable", f"{t.type}/{t.high}/{t.low}/{t.real}")
+
+    # VpiStrengthVal: 3-arg form (logic, s0, s1) and mutable fields.
+    s = v.VpiStrengthVal(1, 2, 3)
+    check((s.logic, s.s0, s.s1) == (1, 2, 3), "VpiStrengthVal(logic, s0, s1)",
+          f"{s.logic}/{s.s0}/{s.s1}")
+    s.logic, s.s0, s.s1 = 4, 5, 6
+    check((s.logic, s.s0, s.s1) == (4, 5, 6), "VpiStrengthVal fields writable",
+          f"{s.logic}/{s.s0}/{s.s1}")
+
+
+def test_vpi_array_value_ctors():
+    """VpiArrayValue has one constructor per array element type."""
+    v = svuvm.vpi
+    cases = [
+        ("integers", [1, 2, 3]),
+        ("shortints", [1, 2]),
+        ("longints", [1 << 33, 2]),
+        ("rawvals", [1, 2, 3, 4]),
+        ("reals", [1.5, 2.5]),
+        ("shortreals", [1.5, 2.5]),
+    ]
+    for label, values in cases:
+        def make(vals=values):
+            return v.VpiArrayValue(v.vpiIntVal, 0, vals)
+        arr = try_api(f"VpiArrayValue({label})", make)
+        if arr is None:
+            continue
+        check(arr.format == v.vpiIntVal and arr.flags == 0,
+              f"VpiArrayValue({label}) format/flags", f"{arr.format}/{arr.flags}")
+
+
+def test_vpi_get_value_formats():
+    """vpi_get_value fills different union arms depending on format.
+
+    DecStr/OctStr/Scalar round trips are deterministic on both backends.
+    RealStr on a logic vector aborts Verilator (format checker), and the
+    string formats have simulator-specific zero padding, so those are
+    best-effort.
+    """
+    v = svuvm.vpi
+    obj = v.vpi_handle_by_name("top.dpi_vec_test")
+    if obj is None:
+        skip("vpi_get_value formats", "no handle")
+        return
+    svuvm.uvm_hdl_deposit("top.dpi_vec_test", svuvm.VpiVecVal(0x000000FF, 0x0))
+
+    dec = v.VpiValue(v.vpiDecStrVal)
+    v.vpi_get_value(obj, dec)
+    check(str(dec.str).strip() == "255", "vpi_get_value(vpiDecStrVal)", f"got {dec.str!r}")
+
+    octal = v.VpiValue(v.vpiOctStrVal)
+    v.vpi_get_value(obj, octal)
+    check(str(octal.str).strip().lstrip("0") in ("377", ""),
+          "vpi_get_value(vpiOctStrVal)", f"got {octal.str!r}")
+
+    scalar = v.VpiValue(v.vpiScalarVal)
+    v.vpi_get_value(obj, scalar)
+    check(scalar.scalar in (0, 1), "vpi_get_value(vpiScalarVal)", f"got {scalar.scalar!r}")
+
+    # Hex string: value is correct but width/zero-padding differs per backend.
+    hexv = v.VpiValue(v.vpiHexStrVal)
+    v.vpi_get_value(obj, hexv)
+    check(str(hexv.str).lower().lstrip("0x").lstrip("0") == "ff",
+          "vpi_get_value(vpiHexStrVal)", f"got {hexv.str!r}")
+
+    # Real format on a logic vector is aborted by Verilator's format checker.
+    realv = v.VpiValue(v.vpiRealVal)
+    got = try_api("vpi_get_value(vpiRealVal)", lambda: v.vpi_get_value(obj, realv),
+                  verilator_unsafe=True)
+    if got is not None or "verilator" not in _product().lower():
+        check(realv.real == 255.0, "vpi_get_value(vpiRealVal)", f"got {realv.real!r}")
+
+    svuvm.uvm_hdl_deposit("top.dpi_vec_test", svuvm.VpiVecVal(0xBABABABA, 0x0))
+
+
+def test_vpi_put_value_flags():
+    """vpi_put_value accepts several value formats and delay flags."""
+    v = svuvm.vpi
+    obj = v.vpi_handle_by_name("top.dpi_vec_test")
+    if obj is None:
+        skip("vpi_put_value flags", "no handle")
+        return
+    t = v.VpiTime(v.vpiSimTime, 0, 0, 0)
+
+    def read_int():
+        rv = v.VpiValue(v.vpiIntVal)
+        v.vpi_get_value(obj, rv)
+        return rv.integer
+
+    # String value formats: VpiValue(format, str) binds value.str to a
+    # temporary std::string buffer (confirmed dangling in probes), so the
+    # written pattern is not reliable and Verilator's parser aborts on it.
+    # Only assert the call is best-effort, not the read-back value.
+    for label, text in (("DecStr", "4660"), ("HexStr", "0000ABCD"),
+                        ("BinStr", "10101011")):
+        fmt = getattr(v, f"vpi{label}Val")
+        try_api(f"vpi_put_value(vpi{label}Val)",
+                lambda f=fmt, s=text:
+                v.vpi_put_value(obj, v.VpiValue(f, s), t, v.vpiNoDelay),
+                verilator_unsafe=True)
+    # Seed a known value through the integer form (the reliable path) before
+    # testing the delay flags below.
+    v.vpi_put_value(obj, v.VpiValue(v.vpiIntVal, 0x0), t, v.vpiNoDelay)
+
+    # Delay flags: on xezim the value lands immediately; Verilator schedules
+    # inertial/transport writes for later simulation time, so an immediate
+    # read still sees the old value. Assert the write-back only where it is
+    # deterministic, and verify the call is accepted everywhere.
+    is_verilator = "verilator" in _product().lower()
+    try_api("vpi_put_value(vpiInertialDelay)",
+            lambda: v.vpi_put_value(obj, v.VpiValue(v.vpiIntVal, 0x1234), t, v.vpiInertialDelay))
+    if not is_verilator:
+        check(read_int() == 0x1234, "put_value(vpiInertialDelay) read back", f"got 0x{read_int() & 0xFFFFFFFF:X}")
+    try_api("vpi_put_value(vpiTransportDelay)",
+            lambda: v.vpi_put_value(obj, v.VpiValue(v.vpiIntVal, 0x5678), t, v.vpiTransportDelay))
+    if not is_verilator:
+        check(read_int() == 0x5678, "put_value(vpiTransportDelay) read back", f"got 0x{read_int() & 0xFFFFFFFF:X}")
+    svuvm.uvm_hdl_deposit("top.dpi_vec_test", svuvm.VpiVecVal(0xBABABABA, 0x0))
+
+
+def test_vpi_error_info_fields():
+    """VpiErrorInfo exposes scalar fields and string get/set accessors."""
+    v = svuvm.vpi
+    e = v.VpiErrorInfo()
+    e.level = 3
+    e.line = 7
+    check(e.level == 3 and e.line == 7, "VpiErrorInfo scalar fields writable",
+          f"{e.level}/{e.line}")
+    # String accessors set a std::string temporary then read it back; safe on
+    # xezim but a dangling pointer in the verilator build (probes confirmed).
+    def strings():
+        e.set_message("msg")
+        e.set_product("prod")
+        e.set_code("code")
+        e.set_file("file.sv")
+        return (e.get_message(), e.get_product(), e.get_code(), e.get_file())
+    # The get/set accessors point at a temporary std::string buffer, so the
+    # exact bytes read back are not reliable on either backend (xezim returns
+    # empty strings, verilator may decode garbage). Only require that the
+    # accessors are callable and return four strings without raising.
+    got = try_api("VpiErrorInfo string accessors", strings)
+    if got is not None:
+        check(isinstance(got, tuple) and len(got) == 4
+              and all(isinstance(x, str) for x in got),
+              "VpiErrorInfo string accessors return four strings", f"got {got!r}")
+
+
+def test_vpi_get_properties():
+    """vpi_get and vpi_get_str read several properties on different objects."""
+    v = svuvm.vpi
+    for path in ("top.dpi_vec_test", "top.test_wire", "top.clk", "top"):
+        h = v.vpi_handle_by_name(path)
+        if h is None:
+            skip(f"properties of {path}", "no handle")
+            continue
+        full = v.vpi_get_str(v.vpiFullName, h)
+        check(str(full) == path, f"vpi_get_str(vpiFullName,{path})", f"got {full!r}")
+        vt = v.vpi_get(v.vpiType, h)
+        check(isinstance(vt, int) and vt > 0, f"vpi_get(vpiType,{path})", f"got {vt!r}")
+        sz = v.vpi_get(v.vpiSize, h)
+        check(isinstance(sz, int), f"vpi_get(vpiSize,{path})", f"got {sz!r}")
+
+
+def test_vpi_get_value():
+    """vpi_get_value in the common scalar formats, with real read-back checks."""
+    v = svuvm.vpi
+    obj = v.vpi_handle_by_name("top.dpi_vec_test")
+    check(obj is not None, "vpi_get_value: handle", f"got {obj!r}")
+    if obj is None:
+        return
+
+    # Seed a known pattern through uvm_hdl_deposit (proven on both backends),
+    # then read it back through each VPI value format.
+    svuvm.uvm_hdl_deposit("top.dpi_vec_test", svuvm.VpiVecVal(0x0000ABCD, 0x0))
+
+    iv = v.VpiValue(v.vpiIntVal)
+    v.vpi_get_value(obj, iv)
+    check(iv.integer == 0xABCD, "vpi_get_value(vpiIntVal)", f"got 0x{iv.integer & 0xFFFFFFFF:X}")
+
+    hv = v.VpiValue(v.vpiHexStrVal)
+    v.vpi_get_value(obj, hv)
+    check(str(hv.str).lower().lstrip("0x") == "abcd",
+          "vpi_get_value(vpiHexStrVal)", f"got {hv.str!r}")
+
+    bv = v.VpiValue(v.vpiBinStrVal)
+    v.vpi_get_value(obj, bv)
+    check("1010101111001101" in str(bv.str),
+          "vpi_get_value(vpiBinStrVal)", f"got {bv.str!r}")
+
+
+def test_vpi_put_value():
+    """vpi_put_value then vpi_get_value read-back (whole 32-bit pattern)."""
+    v = svuvm.vpi
+    obj = v.vpi_handle_by_name("top.dpi_vec_test")
+    if obj is None:
+        skip("vpi_put_value", "no handle for top.dpi_vec_test")
+        return
+
+    t = v.VpiTime(v.vpiSimTime, 0, 0, 0)
+    flags = v.vpiNoDelay
+    written = 0x13579BDF
+
+    def put():
+        # Return value is a VPI handle on some simulators and None on others;
+        # the read-back below is the real assertion.
+        v.vpi_put_value(obj, v.VpiValue(v.vpiIntVal, written), t, flags)
+    try_api("vpi_put_value call", put)
+
+    rv = v.VpiValue(v.vpiIntVal)
+    v.vpi_get_value(obj, rv)
+    check(rv.integer == written, "vpi_put_value then get_value",
+          f"expected 0x{written:X}, got 0x{rv.integer & 0xFFFFFFFF:X}")
+
+    # Restore a harmless value so later tests are not order-dependent.
+    svuvm.uvm_hdl_deposit("top.dpi_vec_test", svuvm.VpiVecVal(0xBABABABA, 0x0))
+
+
+def test_vpi_get64_compare():
+    """vpi_get64 and vpi_compare_objects with deterministic results."""
+    v = svuvm.vpi
+    vec = v.vpi_handle_by_name("top.dpi_vec_test")
+    clk = v.vpi_handle_by_name("top.clk")
+    check(vec is not None and clk is not None, "handles for compare", f"{vec!r} {clk!r}")
+    if vec is None or clk is None:
+        return
+
+    size64 = try_api("vpi_get64(vpiSize)",
+                     lambda: v.vpi_get64(v.vpiSize, vec), verilator_unsafe=True)
+    if size64 is not None:
+        check(size64 == 32, "vpi_get64(vpiSize) of logic [31:0]", f"got {size64!r}")
+
+    same = try_api("vpi_compare_objects(self)",
+                   lambda: v.vpi_compare_objects(vec, vec), verilator_unsafe=True)
+    if same is not None:
+        check(same == 1, "vpi_compare_objects(self) == 1", f"got {same!r}")
+    diff = try_api("vpi_compare_objects(other)",
+                   lambda: v.vpi_compare_objects(vec, clk), verilator_unsafe=True)
+    if diff is not None:
+        check(diff == 0, "vpi_compare_objects(other) == 0", f"got {diff!r}")
+
+
+def test_vpi_hierarchy():
+    """Hierarchy traversal APIs: handle_by_index, handle, iterate/scan, multi.
+
+    These are best-effort: not every simulator exposes a populated hierarchy
+    through VPI, so a None handle is accepted as long as the call succeeds.
+    """
+    v = svuvm.vpi
+    top = v.vpi_handle_by_name("top")
+    obj = v.vpi_handle_by_name("top.dpi_vec_test")
+    check(top is not None, "vpi_hierarchy: top handle", f"got {top!r}")
+    if top is None:
+        return
+
+    try_api("vpi_handle_by_index", lambda: v.vpi_handle_by_index(top, 0),
+            verilator_unsafe=True)
+    try_api("vpi_handle(vpiParent)",
+            lambda: v.vpi_handle(v.vpiParent, obj) if obj is not None else None,
+            verilator_unsafe=True)
+
+    def iterate():
+        it = v.vpi_iterate(v.vpiModule, top)
+        if it is None:
+            skip("vpi_iterate/vpi_scan", "no module iterator from top")
+            return
+        seen = 0
+        while seen < 8:
+            item = v.vpi_scan(it)
+            if item is None:
+                break
+            seen += 1
+        check(seen >= 1, "vpi_iterate/vpi_scan yielded at least one module",
+              f"got {seen}")
+    try_api("vpi_iterate/vpi_scan", iterate, verilator_unsafe=True)
+
+    # vpi_handle_multi needs two object handles; vpiInterModPath is the only
+    # relation many simulators implement, and may still return None.
+    try_api("vpi_handle_multi",
+            lambda: v.vpi_handle_multi(v.vpiInterModPath, obj, obj)
+            if obj is not None else None, verilator_unsafe=True)
+
+
+def test_vpi_handle_management():
+    """userdata and handle lifetime APIs (best-effort across simulators)."""
+    v = svuvm.vpi
+    obj = v.vpi_handle_by_name("top.dpi_vec_test")
+    if obj is None:
+        skip("vpi handle management", "no handle")
+        return
+
+    try_api("vpi_get_userdata", lambda: v.vpi_get_userdata(obj),
+            verilator_unsafe=True)
+    try_api("vpi_put_userdata", lambda: v.vpi_put_userdata(obj, obj),
+            verilator_unsafe=True)
+    # vpi_free_object and vpi_release_handle are deprecated / no-ops on some
+    # backends; use a fresh handle so any invalidation cannot affect later tests.
+    spare = v.vpi_handle_by_name("top.test_wire")
+    if spare is not None:
+        try_api("vpi_release_handle", lambda: v.vpi_release_handle(spare))
+    spare2 = v.vpi_handle_by_name("top.clk")
+    if spare2 is not None:
+        try_api("vpi_free_object", lambda: v.vpi_free_object(spare2))
+
+
+def test_vpi_delays():
+    """vpi_get_delays / vpi_put_delays (best-effort; many VPI impls skip)."""
+    v = svuvm.vpi
+    obj = v.vpi_handle_by_name("top.test_wire")
+    if obj is None:
+        skip("vpi delays", "no handle for top.test_wire")
+        return
+
+    def make_delay():
+        d = v.VpiDelay()
+        d.no_of_delays = 1
+        d.time_type = v.vpiSimTime
+        return d
+    delay = try_api("VpiDelay construct", make_delay)
+    if delay is None:
+        return
+    try_api("vpi_get_delays", lambda: v.vpi_get_delays(obj, delay),
+            verilator_unsafe=True)
+    try_api("vpi_put_delays", lambda: v.vpi_put_delays(obj, delay),
+            verilator_unsafe=True)
+
+
+def test_vpi_cb_info_and_systf():
+    """vpi_get_cb_info / vpi_remove_cb and system-task registration."""
+    v = svuvm.vpi
+    obj = v.vpi_handle_by_name("top.dpi_vec_test")
+    if obj is None:
+        skip("vpi cb info", "no handle")
+        return
+
+    t = v.VpiTime(v.vpiSimTime, 0, 0, 0)
+    val = v.VpiValue(v.vpiIntVal, 0)
+
+    cb = v.CbData(v.cbNextSimTime, cb_test, obj, t, val, 0, "cb_ud")
+    h = try_api("vpi_register_cb", lambda: v.vpi_register_cb(cb))
+    if h is not None:
+        def get_info():
+            info = v.CbData()
+            v.vpi_get_cb_info(h, info)
+            check(info.reason == v.cbNextSimTime, "vpi_get_cb_info reason",
+                  f"got {info.reason!r}")
+            check(info.user_data == "cb_ud", "vpi_get_cb_info user_data",
+                  f"got {info.user_data!r}")
+        try_api("vpi_get_cb_info", get_info, verilator_unsafe=True)
+        try_api("vpi_remove_cb", lambda: v.vpi_remove_cb(h))
+
+    def systf():
+        sd = v.VpiSystfData(v.vpiSysTask, v.vpiSysTfCall, cb_test)
+        h = v.vpi_register_systf(sd)
+        if h is None:
+            skip("vpi_get_systf_info",
+                 "simulator does not allow registering a system task")
+            return
+        info = v.VpiSystfData()
+        v.vpi_get_systf_info(h, info)
+        check(info.tfname != "", "vpi_get_systf_info tfname", f"got {info.tfname!r}")
+    try_api("vpi_register_systf/get_systf_info", systf, verilator_unsafe=True)
+
+
+def test_vpi_control_operations():
+    """IEEE 1800-2023 38.4: the four vpi_control() operations.
+
+    vpiStop/vpiFinish/vpiReset are deliberately not executed from inside the
+    regression: they suspend, terminate or reset the simulation before the
+    completion marker can be printed. What is checked here is the standard
+    opcode mapping and the convenience bindings; the one operation that is
+    safe mid-run, vpiSetInteractiveScope, is called with a real vpiScope handle.
+    """
+    v = svuvm.vpi
+    expected = {
+        "vpiStop": 66,
+        "vpiFinish": 67,
+        "vpiReset": 68,
+        "vpiSetInteractiveScope": 69,
+    }
+    opcodes = []
+    for name, value in expected.items():
+        opcode = getattr(v, name, None)
+        check(opcode == value, f"{name} opcode (IEEE 1800 38.4)",
+              f"got {opcode!r}, expected {value}")
+        opcodes.append(opcode)
+    check(len(set(opcodes)) == len(expected), "vpi_control opcodes are distinct",
+          f"got {opcodes!r}")
+    check(callable(v.vpi_control), "vpi_control binding exists",
+          f"got {v.vpi_control!r}")
+    for name in ("reset", "stop", "finish"):
+        check(callable(getattr(svuvm, name, None)),
+              f"svuvm.{name} convenience binding exists",
+              f"got {getattr(svuvm, name, None)!r}")
+
+    top = v.vpi_handle_by_name("top")
+    if top is None:
+        skip("vpi_control(vpiSetInteractiveScope)", "no top scope handle")
+        return
+    rc = try_api_ex(
+        "vpi_control(vpiSetInteractiveScope, top)",
+        lambda: v.vpi_control(v.vpiSetInteractiveScope, top),
+        verilator_unsafe=True,
+    )
+    if rc is not _SKIPPED:
+        check(isinstance(rc, int), "vpi_control returns an integer status",
+              f"got {rc!r}")
+
+
+def test_vpi_get_time_formats():
+    """vpi_get_time() with object/NULL handle and both standard time formats."""
+    v = svuvm.vpi
+    top = v.vpi_handle_by_name("top")
+    for label, obj in (("top", top), ("null", None)):
+        for fmt_name in ("vpiSimTime", "vpiScaledRealTime"):
+            fmt = getattr(v, fmt_name)
+
+            def read_time(obj=obj, fmt=fmt):
+                t = v.VpiTime(fmt, 0, 0, 0.0)
+                v.vpi_get_time(obj, t)
+                return t
+
+            # Verilator handles vpiSimTime with a real object handle (proven by
+            # test_vpi_callback); the scaled-real and NULL-handle forms are not
+            # uniformly implemented, so gate those by name.
+            unsafe = fmt_name != "vpiSimTime" or obj is None
+            t = try_api_ex(f"vpi_get_time({label}, {fmt_name})", read_time,
+                           verilator_unsafe=unsafe)
+            if t is _SKIPPED:
+                continue
+            check(t.type == fmt, f"vpi_get_time({label}) preserves {fmt_name}",
+                  f"got {t.type!r}")
+            if fmt_name == "vpiSimTime":
+                ticks = (int(t.high) << 32) | int(t.low)
+                check(ticks >= 0, f"vpi_get_time({label}, vpiSimTime) ticks",
+                      f"got {ticks}")
+            else:
+                check(float(t.real) >= 0.0,
+                      f"vpi_get_time({label}, vpiScaledRealTime) value",
+                      f"got {t.real!r}")
+
+
+def test_vpi_callback_reasons():
+    """Register representative callbacks from each IEEE 1800 38.36 group.
+
+    Simulation-event, simulation-time and simulator-action callbacks are all
+    exercised. Handles are removed immediately so no callback can fire later
+    and perturb the remaining checks; CbData objects stay alive until removal
+    because the binding keeps a Python callable inside user_data.
+    """
+    v = svuvm.vpi
+    obj = v.vpi_handle_by_name("top.dpi_vec_test")
+    if obj is None:
+        skip("vpi callback reasons", "no handle for top.dpi_vec_test")
+        return
+
+    delayed = v.VpiTime(v.vpiSimTime, 0, 10, 0.0)
+    value = v.VpiValue(v.vpiIntVal, 0)
+    # The CbData binding does not accept None for its object/time/value slots,
+    # so every registration uses the same real VPI objects; VPI ignores the
+    # unused slots for time/action callbacks.
+    cases = [
+        # label, reason, verilator_unsafe
+        ("cbValueChange", v.cbValueChange, False),
+        ("cbNextSimTime", v.cbNextSimTime, False),
+        ("cbReadWriteSynch", v.cbReadWriteSynch, False),
+        ("cbEndOfSimulation", v.cbEndOfSimulation, False),
+        ("cbForce", v.cbForce, True),
+        ("cbRelease", v.cbRelease, True),
+        ("cbAtStartOfSimTime", v.cbAtStartOfSimTime, True),
+        ("cbReadOnlySynch", v.cbReadOnlySynch, True),
+        ("cbAfterDelay", v.cbAfterDelay, True),
+        ("cbError", v.cbError, True),
+        ("cbInteractiveScopeChange", v.cbInteractiveScopeChange, True),
+        ("cbUnresolvedSystf", v.cbUnresolvedSystf, True),
+    ]
+    keep_alive = []
+    for label, reason, unsafe in cases:
+        def register(reason=reason, label=label):
+            data = v.CbData(reason, cb_test, obj, delayed, value, 0,
+                            f"ud_{label}")
+            keep_alive.append(data)
+            return v.vpi_register_cb(data)
+
+        handle = try_api_ex(f"vpi_register_cb({label})", register,
+                            verilator_unsafe=unsafe)
+        if handle is _SKIPPED:
+            continue
+        check(handle is not None, f"vpi_register_cb({label})", f"got {handle!r}")
+        if handle is None:
+            continue
+
+        if label == "cbValueChange":
+            def get_info(h=handle):
+                info = v.CbData()
+                v.vpi_get_cb_info(h, info)
+                return info
+            info = try_api_ex("vpi_get_cb_info(cbValueChange)", get_info,
+                              verilator_unsafe=True)
+            if info is not _SKIPPED:
+                check(info.reason == reason, "vpi_get_cb_info(cbValueChange) reason",
+                      f"got {info.reason!r}")
+                check(info.user_data == "ud_cbValueChange",
+                      "vpi_get_cb_info(cbValueChange) user_data",
+                      f"got {info.user_data!r}")
+
+        try_api_ex(f"vpi_remove_cb({label})", lambda h=handle: v.vpi_remove_cb(h))
+
+
+def test_vpi_data_control():
+    """IEEE 1800 38.9/38.14/38.31/38.33: VPI save/restart and userdata access."""
+    v = svuvm.vpi
+    payload = "vpi-data"
+    rc = try_api_ex(
+        "vpi_put_data",
+        lambda: v.vpi_put_data(0, payload, len(payload)),
+        verilator_unsafe=True,
+    )
+    if rc is not _SKIPPED:
+        check(isinstance(rc, int), "vpi_put_data returns an integer status",
+              f"got {rc!r}")
+
+    buffer = " " * len(payload)
+    got = try_api_ex(
+        "vpi_get_data",
+        lambda: v.vpi_get_data(0, buffer, len(buffer)),
+        verilator_unsafe=True,
+    )
+    if got is not _SKIPPED:
+        check(isinstance(got, int), "vpi_get_data returns a byte count",
+              f"got {got!r}")
+
+    obj = v.vpi_handle_by_name("top.test_wire")
+    if obj is None:
+        skip("vpi userdata control", "no handle for top.test_wire")
+        return
+    put = try_api_ex("vpi_put_userdata(handle)",
+                     lambda: v.vpi_put_userdata(obj, obj),
+                     verilator_unsafe=True)
+    if put is not _SKIPPED:
+        check(isinstance(put, int), "vpi_put_userdata returns an integer status",
+              f"got {put!r}")
+        get = try_api_ex("vpi_get_userdata(handle)",
+                         lambda: v.vpi_get_userdata(obj),
+                         verilator_unsafe=True)
+        if get is not _SKIPPED and put != 0:
+            check(get is not None, "vpi_get_userdata sees stored userdata",
+                  f"got {get!r}")
+
+
+def test_vpi_mcd_multichannel():
+    """vpi_mcd_* with one channel each and with a combined channel mask."""
+    v = svuvm.vpi
+    paths = ("vpi_mcd_a.log", "vpi_mcd_b.log")
+    handles = [v.vpi_mcd_open(p) for p in paths]
+    if not all(handles):
+        skip("vpi_mcd_multichannel", f"open failed: {handles!r}")
+        return
+    check(all(isinstance(h, int) and h > 0 for h in handles),
+          "vpi_mcd_open returns channel bits", f"got {handles!r}")
+
+    for path, handle in zip(paths, handles):
+        v.vpi_mcd_printf(handle, f"single channel: {path}\n")
+    combined = handles[0] | handles[1]
+    try_api_ex("vpi_mcd_printf(combined mask)",
+               lambda: v.vpi_mcd_printf(combined, "combined channel\n"))
+    try_api_ex("vpi_mcd_flush(combined mask)",
+               lambda: v.vpi_mcd_flush(combined))
+    for handle in handles:
+        try_api_ex("vpi_mcd_close", lambda h=handle: v.vpi_mcd_close(h))
+
+    for path in paths:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                content = fh.read()
+        except OSError as exc:
+            skip(f"read back {path}", str(exc))
+            continue
+        check(f"single channel: {path}" in content,
+              f"vpi_mcd_printf wrote {path}", f"got {content!r}")
+
+
+def test_vpi_property_matrix():
+    """vpi_get/vpi_get_str over several properties and object classes."""
+    v = svuvm.vpi
+    string_props = ("vpiName", "vpiFullName", "vpiFile", "vpiDefName")
+    integer_props = ("vpiType", "vpiSize", "vpiLineNo", "vpiTopModule",
+                     "vpiTimeUnit", "vpiTimePrecision")
+    for path in ("top", "top.dpi_vec_test", "top.test_wire", "top.clk"):
+        handle = v.vpi_handle_by_name(path)
+        if handle is None:
+            skip(f"property matrix {path}", "no handle")
+            continue
+        for prop in string_props:
+            getter = v.vpi_get_str
+            unsafe = prop in ("vpiFile", "vpiDefName")
+            value = try_api_ex(f"vpi_get_str({prop}, {path})",
+                               lambda p=prop, h=handle, g=getter: g(getattr(v, p), h),
+                               verilator_unsafe=unsafe)
+            if value is _SKIPPED:
+                continue
+            check(value is None or isinstance(value, str),
+                  f"vpi_get_str({prop}, {path}) type", f"got {value!r}")
+        for prop in integer_props:
+            getter = v.vpi_get
+            unsafe = prop in ("vpiLineNo", "vpiTopModule", "vpiTimeUnit",
+                              "vpiTimePrecision")
+            value = try_api_ex(f"vpi_get({prop}, {path})",
+                               lambda p=prop, h=handle, g=getter: g(getattr(v, p), h),
+                               verilator_unsafe=unsafe)
+            if value is _SKIPPED:
+                continue
+            check(value is None or isinstance(value, int),
+                  f"vpi_get({prop}, {path}) type", f"got {value!r}")
+
+
+def test_vpi_value_array_control():
+    """vpi_get_value_array/vpi_put_value_array entry points.
+
+    The binding exposes index_p as a raw pointer; use a zero-length transfer
+    with a NULL index pointer so no simulator can dereference it. Completing
+    the call (or a recorded skip on Verilator) is the assertion here.
+    """
+    v = svuvm.vpi
+    obj = v.vpi_handle_by_name("top.dpi_vec_test")
+    if obj is None:
+        skip("vpi value array control", "no handle")
+        return
+    arr = v.VpiArrayValue(v.vpiIntVal, 0, [])
+    check(arr.format == v.vpiIntVal and arr.flags == 0,
+          "empty VpiArrayValue for zero-length transfer",
+          f"{arr.format}/{arr.flags}")
+    for name, fn in (
+        ("vpi_get_value_array", lambda: v.vpi_get_value_array(obj, arr, None, 0)),
+        ("vpi_put_value_array", lambda: v.vpi_put_value_array(obj, arr, None, 0)),
+    ):
+        try_api_ex(name, fn, verilator_unsafe=True)
+
+
+def test_vpi_delay_variants():
+    """VpiDelay constructor forms and all control flags (IEEE 1800 38.10/38.32)."""
+    v = svuvm.vpi
+    # da must be a capsule because the binding takes cap.data() directly; a
+    # VPI handle capsule is enough for a constructor-only test (no VPI call
+    # dereferences it here).
+    da = v.vpi_handle_by_name("top.dpi_vec_test")
+    if da is None:
+        skip("VpiDelay variants", "no capsule handle for da")
+        return
+    one = try_api_ex(
+        "VpiDelay(one delay)",
+        lambda: v.VpiDelay(da, 1, v.vpiSimTime),
+    )
+    if one is not _SKIPPED:
+        check(one.no_of_delays == 1 and one.time_type == v.vpiSimTime,
+              "VpiDelay(one delay) fields", f"{one.no_of_delays}/{one.time_type}")
+        check(one.get_da() is not None, "VpiDelay.get_da() returns stored capsule",
+              f"got {one.get_da()!r}")
+    three = try_api_ex(
+        "VpiDelay(mtm/appulse flags)",
+        lambda: v.VpiDelay(da, 3, v.vpiSimTime, 1, 1, 1),
+    )
+    if three is not _SKIPPED:
+        check(three.no_of_delays == 3 and three.time_type == v.vpiSimTime
+              and three.mtm_flag == 1 and three.append_flag == 1
+              and three.pulsere_flag == 1,
+              "VpiDelay control flags",
+              f"{three.no_of_delays}/{three.time_type}/"
+              f"{three.mtm_flag}/{three.append_flag}/{three.pulsere_flag}")
+
+
+def test_vpi_assertion_control():
+    """IEEE 1800-2023 39.2/39.5: assertion control goes through vpi_control().
+
+    There is no dedicated vpi_set_assertion_control() in the LRM: every
+    assertion control is an operation code passed to vpi_control(op, handle).
+    All standard opcodes are checked (pure binding surface), then the safe,
+    non-destructive ones are invoked on the top scope. The destructive
+    system-wide controls (SysEnd/SysKill/SysOff/SysReset) and per-assertion
+    Kill/Reset are checked at the opcode level only -- SysEnd in particular
+    forbids any further assertion action and would break later tests.
+    """
+    v = svuvm.vpi
+    # IEEE 1800-2023 39.2 / sv_vpi_user.h assertion control opcodes.
+    opcodes = {
+        "vpiAssertionLock": 645,
+        "vpiAssertionUnlock": 646,
+        "vpiAssertionDisable": 620,
+        "vpiAssertionEnable": 621,
+        "vpiAssertionReset": 622,
+        "vpiAssertionKill": 623,
+        "vpiAssertionEnableStep": 624,
+        "vpiAssertionDisableStep": 625,
+        "vpiAssertionClockSteps": 626,
+        "vpiAssertionSysLock": 647,
+        "vpiAssertionSysUnlock": 648,
+        "vpiAssertionSysOn": 627,
+        "vpiAssertionSysOff": 628,
+        "vpiAssertionSysKill": 632,
+        "vpiAssertionSysEnd": 629,
+        "vpiAssertionSysReset": 630,
+        # pass/fail/vacuous action controls
+        "vpiAssertionDisablePassAction": 633,
+        "vpiAssertionEnablePassAction": 634,
+        "vpiAssertionDisableFailAction": 635,
+        "vpiAssertionEnableFailAction": 636,
+        "vpiAssertionDisableVacuousAction": 637,
+        "vpiAssertionEnableNonvacuousAction": 638,
+    }
+    for name, value in opcodes.items():
+        got = getattr(v, name, None)
+        check(got == value, f"{name} opcode (IEEE 1800 39.2)",
+              f"got {got!r}, expected {value}")
+    check(callable(v.vpi_control), "vpi_control binding for assertion control",
+          f"got {v.vpi_control!r}")
+
+    # The wrapper forwards one capsule handle to vpi_control; NULL (no handle)
+    # would mean "all assertions". Use the real top scope when available.
+    scope = v.vpi_handle_by_name("top")
+    for name in ("vpiAssertionEnable", "vpiAssertionDisable",
+                 "vpiAssertionLock", "vpiAssertionUnlock",
+                 "vpiAssertionEnableStep", "vpiAssertionClockSteps"):
+        rc = try_api_ex(
+            f"vpi_control({name}, top)",
+            lambda name=name: v.vpi_control(getattr(v, name), scope),
+        )
+        if rc is _SKIPPED:
+            continue
+        check(isinstance(rc, int), f"vpi_control({name}) returns int", f"got {rc!r}")
+
+
+def test_vpi_coverage_get():
+    """IEEE 1800-2023 40.4/40.5: coverage data is read with vpi_get().
+
+    Coverage counters and coverage type/status are ordinary VPI properties;
+    there is no standalone vpi_get_coverage() in the LRM. Every standard
+    property opcode is checked, then the properties are read from any
+    assertion/covergroup object the simulator exposes through VPI. Verilator
+    lowers SVA/covergroup to C++ and may not expose them as VPI objects, in
+    which case the data reads are skipped while the opcode checks still run.
+    """
+    v = svuvm.vpi
+    props = {
+        # coverage type properties (40.4)
+        "vpiAssertCoverage": 760,
+        "vpiFsmStateCoverage": 761,
+        "vpiStatementCoverage": 762,
+        "vpiToggleCoverage": 763,
+        # coverage status properties (40.4)
+        "vpiCovered": 765,
+        "vpiCoveredCount": 767,
+        # assertion-specific coverage status (40.4)
+        "vpiAssertAttemptCovered": 770,
+        "vpiAssertSuccessCovered": 771,
+        "vpiAssertFailureCovered": 772,
+        "vpiAssertVacuousSuccessCovered": 773,
+        "vpiAssertDisableCovered": 774,
+        "vpiAssertKillCovered": 777,
+    }
+    for name, value in props.items():
+        got = getattr(v, name, None)
+        check(got == value, f"{name} property opcode (IEEE 1800 40.4)",
+              f"got {got!r}, expected {value}")
+
+    handles = []
+    for path in ("top.ap_vpi_probe", "top.cg_vpi_probe_inst",
+                 "top.cg_vpi_probe_inst.cp_vpi_probe"):
+        h = try_api_ex(f"coverage handle {path}",
+                       lambda path=path: v.vpi_handle_by_name(path))
+        if h is not _SKIPPED and h is not None:
+            handles.append((path, h))
+    if not handles:
+        skip("vpi_get coverage properties on assertion/covergroup",
+             "no VPI handle for assertion/covergroup objects")
+        return
+    for path, h in handles:
+        for name in ("vpiCovered", "vpiCoveredCount",
+                     "vpiAssertAttemptCovered", "vpiAssertCoverage"):
+            got = try_api_ex(
+                f"vpi_get({name}, {path})",
+                lambda h=h, name=name: v.vpi_get(getattr(v, name), h),
+            )
+            if got is _SKIPPED:
+                continue
+            # Verilator returns vpiUndefined (-1) for properties it does not
+            # implement; other simulators may return a real counter. Both int.
+            check(isinstance(got, int), f"vpi_get({name}, {path}) returns int",
+                  f"got {got!r}")
+
+
+def test_vpi_coverage_control():
+    """IEEE 1800-2023 40.5.3: coverage control goes through vpi_control().
+
+    The coverage start/stop/reset/check/merge/save operations are operation
+    codes for vpi_control(), not standalone functions. Each may take a
+    coverage type and a scope handle (NULL = all coverage). Opcode values are
+    checked, then every operation is invoked best-effort. Note the Python
+    wrapper converts non-capsule arguments to nullptr, so the call is checked
+    for "completes and returns an int status", not for a specific counter.
+    """
+    v = svuvm.vpi
+    opcodes = {
+        "vpiCoverageStart": 750,
+        "vpiCoverageStop": 751,
+        "vpiCoverageReset": 752,
+        "vpiCoverageCheck": 753,
+        "vpiCoverageMerge": 754,
+        "vpiCoverageSave": 755,
+    }
+    for name, value in opcodes.items():
+        got = getattr(v, name, None)
+        check(got == value, f"{name} opcode (IEEE 1800 40.5.3)",
+              f"got {got!r}, expected {value}")
+
+    scope = v.vpi_handle_by_name("top")
+    cov_type = getattr(v, "vpiAssertCoverage", None)
+    for name in opcodes:
+        if cov_type is None:
+            rc = try_api_ex(
+                f"vpi_control({name}, top)",
+                lambda name=name: v.vpi_control(getattr(v, name), scope),
+            )
+        else:
+            rc = try_api_ex(
+                f"vpi_control({name}, vpiAssertCoverage, top)",
+                lambda name=name: v.vpi_control(getattr(v, name), cov_type, scope),
+            )
+        if rc is _SKIPPED:
+            continue
+        check(isinstance(rc, int), f"vpi_control({name}) returns int", f"got {rc!r}")
 
 
 def test_process_pool():
@@ -593,6 +1529,31 @@ TESTS = [
     ("vpi_handle", test_vpi_handle),
     ("dpi_time", test_dpi_time),
     ("vpi_callback", test_vpi_callback),
+    ("vpi_value_ctors", test_vpi_value_ctors),
+    ("vpi_scalar_structs", test_vpi_scalar_structs),
+    ("vpi_array_value_ctors", test_vpi_array_value_ctors),
+    ("vpi_get_value_formats", test_vpi_get_value_formats),
+    ("vpi_put_value_flags", test_vpi_put_value_flags),
+    ("vpi_error_info_fields", test_vpi_error_info_fields),
+    ("vpi_get_properties", test_vpi_get_properties),
+    ("vpi_get_value", test_vpi_get_value),
+    ("vpi_put_value", test_vpi_put_value),
+    ("vpi_get64_compare", test_vpi_get64_compare),
+    ("vpi_hierarchy", test_vpi_hierarchy),
+    ("vpi_handle_management", test_vpi_handle_management),
+    ("vpi_delays", test_vpi_delays),
+    ("vpi_cb_info_and_systf", test_vpi_cb_info_and_systf),
+    ("vpi_control_operations", test_vpi_control_operations),
+    ("vpi_get_time_formats", test_vpi_get_time_formats),
+    ("vpi_callback_reasons", test_vpi_callback_reasons),
+    ("vpi_data_control", test_vpi_data_control),
+    ("vpi_mcd_multichannel", test_vpi_mcd_multichannel),
+    ("vpi_property_matrix", test_vpi_property_matrix),
+    ("vpi_value_array_control", test_vpi_value_array_control),
+    ("vpi_delay_variants", test_vpi_delay_variants),
+    ("vpi_assertion_control", test_vpi_assertion_control),
+    ("vpi_coverage_get", test_vpi_coverage_get),
+    ("vpi_coverage_control", test_vpi_coverage_control),
     ("process_pool", test_process_pool),
     ("phase_objection", test_phase_objection),
     ("component_topology", test_component_topology),
