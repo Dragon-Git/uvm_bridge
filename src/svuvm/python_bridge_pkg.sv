@@ -1145,11 +1145,10 @@ package python_bridge_pkg;
     //   uvm-2020-1.x   uvm_printer, so nothing outside it can touch them
     //   uvm-2020-2.0+  uvm_printer::get_default(); knobs public again
     //
-    // The body is therefore written twice, once per end of that range, and the
-    // condition is either side of the middle taken positively: PB_UVM_PRE_2017
-    // for the first group, `UVM_VERSION_POST_2020_1_1 for the last. On the
-    // releases where the knobs are unreachable the name is accepted and has no
-    // effect, which is how max_width and min_width are already treated.
+    // The body is written per end of that range, and the middle range uses
+    // the standard public accessors (see the `else branches below). Only
+    // header/footer lack an accessor in the middle releases; like max_width
+    // and min_width they are accepted as no-ops there.
     function automatic void set_default_printer_knob(string knob_name, int value);
 `ifdef PB_UVM_PRE_2017
         uvm_printer p = uvm_default_printer;
@@ -1178,7 +1177,26 @@ package python_bridge_pkg;
         else if (knob_name == "size") p.knobs.size = value[0];
         else `uvm_warning("python_bridge_pkg", $sformatf("unknown printer knob: %s", knob_name))
 `else
-        // unreachable here, see above
+        // IEEE-2017 / 2020-1.x: knobs is local, but a standard accessor
+        // exists for every knob except header/footer.
+        uvm_printer p = uvm_printer::get_default();
+        if (knob_name == "indent") begin
+            uvm_table_printer tp;
+            uvm_tree_printer tr;
+            if ($cast(tp, p)) tp.set_indent(value);
+            else if ($cast(tr, p)) tr.set_indent(value);
+            else `uvm_warning("python_bridge_pkg", "indent needs a table/tree printer")
+        end
+        else if (knob_name == "show_root") p.set_root_enabled(value[0]);
+        else if (knob_name == "depth") p.set_max_depth(value);
+        else if (knob_name == "reference") p.set_id_enabled(value[0]);
+        else if (knob_name == "type_name") p.set_type_name_enabled(value[0]);
+        else if (knob_name == "size") p.set_size_enabled(value[0]);
+        else if (knob_name == "header" || knob_name == "footer" ||
+                 knob_name == "max_width" || knob_name == "min_width") begin
+            // no public accessor in these releases
+        end
+        else `uvm_warning("python_bridge_pkg", $sformatf("unknown printer knob: %s", knob_name))
 `endif
     endfunction
 
@@ -1210,8 +1228,20 @@ package python_bridge_pkg;
         if (knob_name == "size") return p.knobs.size;
         return -1;
 `else
-        // unreachable here, see above
-        return -1;
+        uvm_printer p = uvm_printer::get_default();
+        if (knob_name == "indent") begin
+            uvm_table_printer tp;
+            uvm_tree_printer tr;
+            if ($cast(tp, p)) return tp.get_indent();
+            if ($cast(tr, p)) return tr.get_indent();
+            return -1;
+        end
+        if (knob_name == "show_root") return p.get_root_enabled();
+        if (knob_name == "depth") return p.get_max_depth();
+        if (knob_name == "reference") return p.get_id_enabled();
+        if (knob_name == "type_name") return p.get_type_name_enabled();
+        if (knob_name == "size") return p.get_size_enabled();
+        return -1;  // header/footer/max_width/min_width have no accessor
 `endif
     endfunction
 
@@ -1238,7 +1268,12 @@ package python_bridge_pkg;
         else if (knob_name == "verbosity") c.verbosity = value;
         else `uvm_warning("python_bridge_pkg", $sformatf("unknown comparer knob: %s", knob_name))
 `else
-        // unreachable here, see the printer above
+        uvm_comparer c = uvm_comparer::get_default();
+        if (knob_name == "show_max") c.set_show_max(value);
+        else if (knob_name == "max_messages") c.set_show_max(value);
+        else if (knob_name == "severity") c.set_severity(uvm_severity'(value));
+        else if (knob_name == "verbosity") c.set_verbosity(value);
+        else `uvm_warning("python_bridge_pkg", $sformatf("unknown comparer knob: %s", knob_name))
 `endif
     endfunction
 
@@ -1258,7 +1293,11 @@ package python_bridge_pkg;
         if (knob_name == "verbosity") return c.verbosity;
         return -1;
 `else
-        // unreachable here, see the printer above
+        uvm_comparer c = uvm_comparer::get_default();
+        if (knob_name == "show_max") return c.get_show_max();
+        if (knob_name == "max_messages") return c.get_show_max();
+        if (knob_name == "severity") return c.get_severity();
+        if (knob_name == "verbosity") return c.get_verbosity();
         return -1;
 `endif
     endfunction
