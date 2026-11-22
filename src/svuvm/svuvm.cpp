@@ -275,11 +275,18 @@ NB_MODULE(_svuvm, m) {
           nb::arg("format"))
       .def(
           "__init__",
-          [](s_vpi_value *self, PLI_INT32 format, const std::string &str) {
+          [](s_vpi_value *self, PLI_INT32 format, nb::str str) {
             self->format = format;
+            // nb::str::c_str() is PyUnicode_AsUTF8AndSize(): the UTF-8 buffer
+            // lives inside the Python str object and stays valid as long as
+            // that object does. keep_alive<1,3> below ties the str argument
+            // (index 3: self=1, format=2, value=3) to this VpiValue instance,
+            // so value.str never dangles. A const std::string& parameter would
+            // be a type caster: its temporary dies on return and keep_alive
+            // cannot help (it only tracks Python objects).
             self->value.str = const_cast<char *>(str.c_str());
           },
-          nb::arg("format"), nb::arg("value"))
+          nb::arg("format"), nb::arg("value"), nb::keep_alive<1, 3>())
       .def(
           "__init__",
           [](s_vpi_value *self, PLI_INT32 format, PLI_INT32 val) {
@@ -322,9 +329,12 @@ NB_MODULE(_svuvm, m) {
           [](s_vpi_value &o) {
             return o.value.str ? std::string(o.value.str) : std::string();
           },
-          [](s_vpi_value &o, const std::string &s) {
+          [](s_vpi_value &o, nb::str s) {
+            // See the constructor: keep the Python str alive for as long as
+            // this instance so the pointer we store into value.str is stable.
             o.value.str = const_cast<char *>(s.c_str());
-          })
+          },
+          nb::for_setter(nb::keep_alive<1, 2>()))
       .def_prop_rw(
           "scalar", [](s_vpi_value &o) { return o.value.scalar; },
           [](s_vpi_value &o, PLI_INT32 val) { o.value.scalar = val; })
@@ -500,11 +510,14 @@ NB_MODULE(_svuvm, m) {
              nb::callable calltf) {
             std::string func_name =
                 nb::cast<std::string>(calltf.attr("__name__"));
-            std::string tfname = "$" + func_name;
             auto *callback_info = new CallbackInfo(calltf, "user_data");
+            // Keep the generated "$name" in the CallbackInfo that this systf
+            // data already owns via user_data; the simulator reads tfname for
+            // the whole registration, so it must not be a stack temporary.
+            callback_info->owned_str = "$" + func_name;
             self->type = type;
             self->sysfunctype = sysfunctype;
-            self->tfname = const_cast<char *>(tfname.c_str());
+            self->tfname = const_cast<char *>(callback_info->owned_str.c_str());
             self->calltf = systf_callback_wrap;
             self->compiletf = nullptr;
             self->sizetf = nullptr;
@@ -514,7 +527,7 @@ NB_MODULE(_svuvm, m) {
       .def(
           "__init__",
           [](s_vpi_systf_data *self, PLI_INT32 type, PLI_INT32 sysfunctype,
-             const std::string &tfname) {
+             nb::str tfname) {
             self->type = type;
             self->sysfunctype = sysfunctype;
             self->tfname = const_cast<char *>(tfname.c_str());
@@ -523,7 +536,8 @@ NB_MODULE(_svuvm, m) {
             self->sizetf = nullptr;
             self->user_data = nullptr;
           },
-          nb::arg("type"), nb::arg("sysfunctype"), nb::arg("tfname"))
+          nb::arg("type"), nb::arg("sysfunctype"), nb::arg("tfname"),
+          nb::keep_alive<1, 4>())
       .def_rw("type", &s_vpi_systf_data::type)
       .def_rw("sysfunctype", &s_vpi_systf_data::sysfunctype)
       .def_prop_rw(
@@ -531,18 +545,20 @@ NB_MODULE(_svuvm, m) {
           [](s_vpi_systf_data &o) {
             return o.tfname ? std::string(o.tfname) : std::string();
           },
-          [](s_vpi_systf_data &o, const std::string &s) {
+          [](s_vpi_systf_data &o, nb::str s) {
             o.tfname = const_cast<char *>(s.c_str());
-          })
+          },
+          nb::for_setter(nb::keep_alive<1, 2>()))
       .def_prop_rw(
           "user_data",
           [](s_vpi_systf_data &o) {
             return o.user_data ? std::string((char *)o.user_data)
                                : std::string();
           },
-          [](s_vpi_systf_data &o, const std::string &s) {
+          [](s_vpi_systf_data &o, nb::str s) {
             o.user_data = const_cast<PLI_BYTE8 *>(s.c_str());
-          });
+          },
+          nb::for_setter(nb::keep_alive<1, 2>()));
 
   // Use nb::new_ instead of def("__init__", ...) so that the side-effect
   // call to the simulator runtime happens in __new__ (before placement-new
@@ -588,33 +604,40 @@ NB_MODULE(_svuvm, m) {
            [](s_vpi_error_info &o) {
              return o.message ? std::string(o.message) : std::string();
            })
+      // Keep each Python str alive as long as the error-info instance so the
+      // char* stored in the C struct never points at a dead temporary.
       .def("set_message",
-           [](s_vpi_error_info &o, const std::string &s) {
+           [](s_vpi_error_info &o, nb::str s) {
              o.message = const_cast<char *>(s.c_str());
-           })
+           },
+           nb::keep_alive<1, 2>())
       .def("get_product",
            [](s_vpi_error_info &o) {
              return o.product ? std::string(o.product) : std::string();
            })
       .def("set_product",
-           [](s_vpi_error_info &o, const std::string &s) {
+           [](s_vpi_error_info &o, nb::str s) {
              o.product = const_cast<char *>(s.c_str());
-           })
+           },
+           nb::keep_alive<1, 2>())
       .def("get_code",
            [](s_vpi_error_info &o) {
              return o.code ? std::string(o.code) : std::string();
            })
       .def("set_code",
-           [](s_vpi_error_info &o, const std::string &s) {
+           [](s_vpi_error_info &o, nb::str s) {
              o.code = const_cast<char *>(s.c_str());
-           })
+           },
+           nb::keep_alive<1, 2>())
       .def("get_file",
            [](s_vpi_error_info &o) {
              return o.file ? std::string(o.file) : std::string();
            })
-      .def("set_file", [](s_vpi_error_info &o, const std::string &s) {
-        o.file = const_cast<char *>(s.c_str());
-      });
+      .def("set_file",
+           [](s_vpi_error_info &o, nb::str s) {
+             o.file = const_cast<char *>(s.c_str());
+           },
+           nb::keep_alive<1, 2>());
 
   nb::class_<s_cb_data>(vpi, "CbData")
       .def(nb::init<>())

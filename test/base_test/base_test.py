@@ -361,9 +361,8 @@ def test_vpi_value_ctors():
     """VpiValue has several constructor overloads and one field per union arm.
 
     Exercise each scalar constructor form and read the matching field back.
-    The string constructor is skipped: the binding binds value.str to a
-    temporary std::string's buffer, so reading it back is a dangling pointer
-    on both simulators (confirmed as UnicodeDecodeError in probes).
+    The string constructor now keeps its Python str alive via keep_alive, so
+    .str reads back reliably too.
     """
     v = svuvm.vpi
     check(v.VpiValue(v.vpiIntVal, 42).integer == 42,
@@ -383,13 +382,16 @@ def test_vpi_value_ctors():
     val.scalar = 0
     check(val.scalar == 0, "VpiValue.scalar writable", f"got {val.scalar!r}")
 
-    # String overload: constructing is safe, only reading .str is not.
-    def make_str():
-        return v.VpiValue(v.vpiStringVal, "hello")
-    made = try_api("VpiValue(format, str) construct", make_str)
-    if made is not None:
-        check(made.format == v.vpiStringVal, "VpiValue(format, str) sets format",
-              f"got {made.format!r}")
+    # String overload: the Python str is kept alive for the instance, so both
+    # format and the exact string value read back correctly.
+    made = v.VpiValue(v.vpiStringVal, "hello")
+    check(made.format == v.vpiStringVal, "VpiValue(format, str) sets format",
+          f"got {made.format!r}")
+    check(made.str == "hello", "VpiValue(format, str) .str round trip",
+          f"got {made.str!r}")
+    made.str = "world"
+    check(made.str == "world", "VpiValue.str setter round trip",
+          f"got {made.str!r}")
 
 
 def test_vpi_scalar_structs():
@@ -502,19 +504,24 @@ def test_vpi_put_value_flags():
         v.vpi_get_value(obj, rv)
         return rv.integer
 
-    # String value formats: VpiValue(format, str) binds value.str to a
-    # temporary std::string buffer (confirmed dangling in probes), so the
-    # written bytes are garbage. Verilator's parser aborts on it, and xezim
-    # logs a '[VPI] ... not valid UTF-8 / not a decimal' diagnostic (which the
-    # Makefile now treats as a failure). Skip on both simulators; only the
-    # constructor itself is asserted in test_vpi_value_ctors.
-    for label, text in (("DecStr", "4660"), ("HexStr", "0000ABCD"),
-                        ("BinStr", "10101011")):
+    # String value formats. VpiValue(format, str) now keeps the Python str
+    # alive for the instance's lifetime (nb::str + keep_alive), so value.str
+    # points at a stable UTF-8 buffer. Verify the written pattern by reading
+    # it back in integer form. Verilator's string-format parser still aborts
+    # on some of these, so keep the verilator guard until it is proven safe.
+    # DecStr is base 10: "4660" == 0x1234.
+    str_cases = (("DecStr", "4660", 0x1234), ("HexStr", "0000ABCD", 0xABCD),
+                 ("BinStr", "10101011", 0xAB))
+    for label, text, expected in str_cases:
         fmt = getattr(v, f"vpi{label}Val")
-        try_api(f"vpi_put_value(vpi{label}Val)",
-                lambda f=fmt, s=text:
-                v.vpi_put_value(obj, v.VpiValue(f, s), t, v.vpiNoDelay),
-                verilator_unsafe=True, xezim_unsafe=True)
+        put = try_api_ex(f"vpi_put_value(vpi{label}Val)",
+                         lambda f=fmt, s=text:
+                         v.vpi_put_value(obj, v.VpiValue(f, s), t, v.vpiNoDelay),
+                         verilator_unsafe=True)
+        if put is not _SKIPPED:
+            check(read_int() == expected,
+                  f"put_value(vpi{label}Val) read back",
+                  f"expected 0x{expected:X}, got 0x{read_int() & 0xFFFFFFFF:X}")
     # Seed a known value through the integer form (the reliable path) before
     # testing the delay flags below.
     v.vpi_put_value(obj, v.VpiValue(v.vpiIntVal, 0x0), t, v.vpiNoDelay)
@@ -543,23 +550,16 @@ def test_vpi_error_info_fields():
     e.line = 7
     check(e.level == 3 and e.line == 7, "VpiErrorInfo scalar fields writable",
           f"{e.level}/{e.line}")
-    # String accessors set a std::string temporary then read it back; safe on
-    # xezim but a dangling pointer in the verilator build (probes confirmed).
-    def strings():
-        e.set_message("msg")
-        e.set_product("prod")
-        e.set_code("code")
-        e.set_file("file.sv")
-        return (e.get_message(), e.get_product(), e.get_code(), e.get_file())
-    # The get/set accessors point at a temporary std::string buffer, so the
-    # exact bytes read back are not reliable on either backend (xezim returns
-    # empty strings, verilator may decode garbage). Only require that the
-    # accessors are callable and return four strings without raising.
-    got = try_api("VpiErrorInfo string accessors", strings)
-    if got is not None:
-        check(isinstance(got, tuple) and len(got) == 4
-              and all(isinstance(x, str) for x in got),
-              "VpiErrorInfo string accessors return four strings", f"got {got!r}")
+    # String setters used to store a pointer into a temporary std::string,
+    # so exact read-back was unreliable. They now use nb::str + keep_alive;
+    # verify the values round-trip exactly.
+    e.set_message("msg")
+    e.set_product("prod")
+    e.set_code("code")
+    e.set_file("file.sv")
+    got = (e.get_message(), e.get_product(), e.get_code(), e.get_file())
+    check(got == ("msg", "prod", "code", "file.sv"),
+          "VpiErrorInfo string round trip", f"got {got!r}")
 
 
 def test_vpi_get_properties():
@@ -775,9 +775,13 @@ def test_vpi_cb_info_and_systf():
             return
         info = v.VpiSystfData()
         v.vpi_get_systf_info(h, info)
-        check(info.tfname != "", "vpi_get_systf_info tfname", f"got {info.tfname!r}")
+        check(info.tfname == "$cb_test", "vpi_get_systf_info tfname",
+              f"got {info.tfname!r}, expected '$cb_test'")
+    # The systf name used to be a dangling std::string buffer, which xezim
+    # rejected with a mojibake "must start with $" diagnostic. The bridge now
+    # owns tfname for the registration's lifetime, so this runs for real.
     try_api("vpi_register_systf/get_systf_info", systf,
-            verilator_unsafe=True, xezim_unsafe=True)
+            verilator_unsafe=True)
 
 
 def test_vpi_control_operations():
@@ -818,11 +822,11 @@ def test_vpi_control_operations():
     rc = try_api_ex(
         "vpi_control(vpiSetInteractiveScope, top)",
         lambda: v.vpi_control(v.vpiSetInteractiveScope, top),
-        verilator_unsafe=True, xezim_unsafe=True,
+        verilator_unsafe=True,
     )
     if rc is not _SKIPPED:
-        check(isinstance(rc, int), "vpi_control returns an integer status",
-              f"got {rc!r}")
+        check(rc == 1, "vpi_control(vpiSetInteractiveScope) succeeds",
+              f"got {rc!r}, expected 1")
 
 
 def test_vpi_get_time_formats():
@@ -1100,11 +1104,12 @@ def test_vpi_assertion_control():
 
     There is no dedicated vpi_set_assertion_control() in the LRM: every
     assertion control is an operation code passed to vpi_control(op, handle).
-    All standard opcodes are checked (pure binding surface), then the safe,
-    non-destructive ones are invoked on the top scope. The destructive
-    system-wide controls (SysEnd/SysKill/SysOff/SysReset) and per-assertion
-    Kill/Reset are checked at the opcode level only -- SysEnd in particular
-    forbids any further assertion action and would break later tests.
+    All standard opcodes are checked (pure binding surface). System-level
+    controls take no handle (they act on every assertion at once), so they are
+    invoked with just the operation and checked for the success return; this
+    works even when no assertion object is exposed through VPI. Per-assertion
+    controls need a real assertion handle, which simulators need not expose, so
+    those stay at the opcode/binding level.
     """
     v = svuvm.vpi
     # IEEE 1800-2023 39.2 / sv_vpi_user.h assertion control opcodes.
@@ -1161,6 +1166,28 @@ def test_vpi_assertion_control():
         if rc is _SKIPPED:
             continue
         check(isinstance(rc, int), f"vpi_control({name}) returns int", f"got {rc!r}")
+
+    # System-level controls (IEEE 1800-2023 39.2) need no assertion handle:
+    # vpi_control(op) with no object acts on all assertions. They are usable
+    # even when VPI exposes no assertion object (our simulators do not). The
+    # sequence re-enables after Off/Reset so the assertion system stays live
+    # for later tests; Kill is last since it ends the assertions under test.
+    # Verilator aborts on VPI calls it did not implement, so skip it there.
+    sys_sequence = (
+        "vpiAssertionSysOn", "vpiAssertionSysReset", "vpiAssertionSysOff",
+        "vpiAssertionSysOn", "vpiAssertionSysKill",
+    )
+    for name in sys_sequence:
+        op = getattr(v, name)
+        rc = try_api_ex(
+            f"vpi_control({name}) [system]",
+            lambda op=op: v.vpi_control(op),
+            verilator_unsafe=True,
+        )
+        if rc is _SKIPPED:
+            continue
+        check(rc == 1, f"vpi_control({name}) [system] succeeds",
+              f"got {rc!r}, expected 1")
 
 
 def test_vpi_coverage_get():

@@ -232,22 +232,103 @@ int vpi_printf_wrap(const std::string &format) {
   return result;
 }
 
+// vpi_control() is C-variadic: the number and types of its trailing arguments
+// depend on the operation (IEEE 1800-2023 38.4 / 39.5). A C++ function cannot
+// forward nb::args straight into a variadic call, so we must dispatch on the
+// operation and issue a fixed-arity call with the exact types the simulator's
+// va_arg sequence expects:
+//   * vpiStop / vpiFinish           -> int arg
+//   * vpiSetInteractiveScope        -> void *handle (a vpiScope)
+//   * 620..622 (assert Disable/Enable/Reset) -> void *handle
+//   * 623..625 (assert Kill/EnableStep/DisableStep)
+//                                   -> void *handle, void *time_p
+//   * 624 (EnableStep) additionally -> int step
+//   * 633..638 (assert action controls) -> void *handle
+//   * 627..632 / 639..644 / 647..648 (system ops) -> no arguments
+// Passing a pointer-to-array (as an earlier version did) made the simulator
+// read the array address as the first handle and garbage for later arguments.
+static void *vpi_control_handle_arg(const nb::object &o) {
+  if (o.is_none())
+    return nullptr;
+  if (nb::isinstance<nb::capsule>(o))
+    return nb::cast<nb::capsule>(o).data();
+  // VpiTime / VpiValue objects are exposed as nanobind classes; recover the
+  // underlying C struct address so it can serve as a time_p / object handle.
+  if (nb::isinstance<s_vpi_time>(o))
+    return static_cast<void *>(&nb::cast<s_vpi_time &>(o));
+  if (nb::isinstance<s_vpi_value>(o))
+    return static_cast<void *>(&nb::cast<s_vpi_value &>(o));
+  return nullptr;
+}
+
 int vpi_control_wrap(int operation, nb::args args) {
-  std::vector<void *> c_args;
-  for (const auto &arg : args) {
-    if (nb::isinstance<nb::capsule>(arg)) {
-      nb::capsule cap = nb::cast<nb::capsule>(arg);
-      c_args.push_back(cap.data());
-    } else if (!arg.is_none()) {
-      c_args.push_back(nullptr);
+  const size_t n = args.size();
+  const auto at = [&](size_t i) -> nb::object {
+    return i < n ? args[i] : nb::object(nb::none());
+  };
+
+  // Assertion system-wide operations take no trailing argument at all.
+  if ((operation >= 627 && operation <= 630) || operation == 632 ||
+      (operation >= 639 && operation <= 644) || operation == 647 ||
+      operation == 648)
+    return vpi_control(operation);
+
+  // vpiStop / vpiFinish take an integer "diagnostic level".
+  if (operation == 66 /* vpiStop */ || operation == 67 /* vpiFinish */) {
+    int arg = 0;
+    if (!at(0).is_none()) {
+      try {
+        arg = nb::cast<int>(at(0));
+      } catch (const std::exception &) {
+        arg = 0;
+      }
     }
+    return vpi_control(operation, arg);
   }
-  return vpi_control(operation, c_args.data());
+
+  // vpiSetInteractiveScope takes a single scope handle.
+  if (operation == 69 /* vpiSetInteractiveScope */)
+    return vpi_control(operation, vpi_control_handle_arg(at(0)));
+
+  // Per-assertion controls (IEEE 39.5). 620..622 need only the assertion
+  // handle; 623 (Kill) and 625 (DisableStep) also take a start time; 624
+  // (EnableStep) takes the start time plus the step constant.
+  if (operation >= 620 && operation <= 625) {
+    void *handle = vpi_control_handle_arg(at(0));
+    void *time_p = vpi_control_handle_arg(at(1));
+    if (operation == 624 /* vpiAssertionEnableStep */) {
+      int step = 0;
+      if (!at(2).is_none()) {
+        try {
+          step = nb::cast<int>(at(2));
+        } catch (const std::exception &) {
+          step = 0;
+        }
+      }
+      return vpi_control(operation, handle, time_p, step);
+    }
+    if (operation == 623 /* Kill */ || operation == 625 /* DisableStep */)
+      return vpi_control(operation, handle, time_p);
+    return vpi_control(operation, handle);
+  }
+
+  // Per-assertion pass/fail/vacuous action controls (633..638) take just the
+  // assertion handle.
+  if (operation >= 633 && operation <= 638)
+    return vpi_control(operation, vpi_control_handle_arg(at(0)));
+
+  // Unknown / unruntime-supported operation: forward with no trailing args so
+  // the simulator can emit its standard "operation not supported" diagnostic.
+  return vpi_control(operation);
 }
 
 struct CallbackInfo {
   nb::object nb_callback;
   std::string user_data;
+  // Owns a NUL-terminated string whose c_str() is handed to a C struct field
+  // (e.g. s_vpi_systf_data.tfname). Lives exactly as long as the CallbackInfo
+  // that the simulator holds through the systf/callback user_data pointer.
+  std::string owned_str;
 
   CallbackInfo(nb::object cb, std::string ud)
       : nb_callback(cb), user_data(ud) {}
