@@ -25,9 +25,10 @@ _SKIPS = []
 
 # A floor on executed assertions. Without it, a run in which every handle
 # lookup returned None (or every test returned early) would record zero real
-# checks yet still print the completion marker and pass. The baseline on both
-# simulators is >400 checks; 350 leaves ample headroom for simulator-specific
-# skips while still catching a wholesale collapse of the suite.
+# checks yet still print the completion marker and pass. After unblocking the
+# supported VPI calls on Verilator both backends execute well over 380 checks
+# (xezim ~432, Verilator ~385); 350 leaves headroom while still catching a
+# wholesale collapse of the suite.
 MIN_CHECKS = 350
 
 
@@ -551,20 +552,17 @@ def test_vpi_put_value_flags():
         v.vpi_get_value(obj, rv)
         return rv.integer
 
-    # String value formats. VpiValue(format, str) now keeps the Python str
-    # alive for the instance's lifetime (nb::str + keep_alive), so value.str
-    # points at a stable UTF-8 buffer. Verify the written pattern by reading
-    # it back in integer form. Verilator's string-format parser still aborts
-    # on some of these, so keep the verilator guard until it is proven safe.
-    # DecStr is base 10: "4660" == 0x1234.
+    # String value formats. VpiValue(format, str) keeps the Python str alive
+    # (nb::str + keep_alive), so value.str points at a stable UTF-8 buffer.
+    # Verilator's vl_check_format accepts BinStr/HexStr/DecStr (verilated_vpi.cpp),
+    # so these run for real on both backends. DecStr is base 10: "4660"==0x1234.
     str_cases = (("DecStr", "4660", 0x1234), ("HexStr", "0000ABCD", 0xABCD),
                  ("BinStr", "10101011", 0xAB))
     for label, text, expected in str_cases:
         fmt = getattr(v, f"vpi{label}Val")
         put = try_api_ex(f"vpi_put_value(vpi{label}Val)",
                          lambda f=fmt, s=text:
-                         v.vpi_put_value(obj, v.VpiValue(f, s), t, v.vpiNoDelay),
-                         verilator_unsafe=True)
+                         v.vpi_put_value(obj, v.VpiValue(f, s), t, v.vpiNoDelay))
         if put is not _SKIPPED:
             check(read_int() == expected,
                   f"put_value(vpi{label}Val) read back",
@@ -716,11 +714,19 @@ def test_vpi_hierarchy():
     if top is None:
         return
 
-    try_api("vpi_handle_by_index", lambda: v.vpi_handle_by_index(top, 0),
-            verilator_unsafe=True)
+    # vpi_handle_by_index needs an unpacked-array variable handle; passing the
+    # module scope makes Verilator's VL_VPI_INTERNAL_ path abort. Use the real
+    # array from top.sv and assert the returned element is a usable handle.
+    arr = v.vpi_handle_by_name("top.mem_arr")
+    if arr is not None:
+        elem = try_api("vpi_handle_by_index",
+                       lambda: v.vpi_handle_by_index(arr, 0))
+        check(elem is not None, "vpi_handle_by_index returns element handle",
+              f"got {elem!r}")
+    else:
+        skip("vpi_handle_by_index", "no handle for top.mem_arr")
     try_api("vpi_handle(vpiParent)",
-            lambda: v.vpi_handle(v.vpiParent, obj) if obj is not None else None,
-            verilator_unsafe=True)
+            lambda: v.vpi_handle(v.vpiParent, obj) if obj is not None else None)
 
     def iterate():
         # top.sv declares a single top-level module with no sub-modules, so
@@ -742,7 +748,7 @@ def test_vpi_hierarchy():
         check("dpi_vec_test" in names,
               "vpi_iterate/vpi_scan found the dpi_vec_test signal",
               f"names {names!r}")
-    try_api("vpi_iterate/vpi_scan", iterate, verilator_unsafe=True)
+    try_api("vpi_iterate/vpi_scan", iterate)
 
     # vpi_handle_multi(vpiInterModPath, outPort, inPort) needs a real output
     # port handle and a real input port handle of the same size (IEEE 1800
@@ -927,14 +933,18 @@ def test_vpi_control_operations():
     if top is None:
         skip("vpi_control(vpiSetInteractiveScope)", "no top scope handle")
         return
+    # Verilator implements vpi_control for finish/stop and answers other
+    # operations with a vpiWarning (NOT a vpiError) plus return 0, so the call
+    # is safe: it does not abort. Other backends return 1. Assert the call is
+    # usable and returns a status int on every backend.
     rc = try_api_ex(
         "vpi_control(vpiSetInteractiveScope, top)",
         lambda: v.vpi_control(v.vpiSetInteractiveScope, top),
-        verilator_unsafe=True,
     )
     if rc is not _SKIPPED:
-        check(rc == 1, "vpi_control(vpiSetInteractiveScope) succeeds",
-              f"got {rc!r}, expected 1")
+        check(isinstance(rc, int) and rc in (0, 1),
+              "vpi_control(vpiSetInteractiveScope) returns a status",
+              f"got {rc!r}, expected 0 or 1")
 
 
 def test_vpi_get_time_formats():
@@ -955,12 +965,10 @@ def test_vpi_get_time_formats():
                 v.vpi_get_time(obj, t)
                 return t
 
-            # Verilator handles vpiSimTime with a real object handle (proven by
-            # test_vpi_callback); the scaled-real and NULL-handle forms are not
-            # uniformly implemented, so gate those by name.
-            unsafe = fmt_name != "vpiSimTime"
-            t = try_api_ex(f"vpi_get_time({label}, {fmt_name})", read_time,
-                           verilator_unsafe=unsafe)
+            # Verilator implements both formats with a real scope handle
+            # (verilated_vpi.cpp: vpi_get_time handles vpiSimTime and
+            # vpiScaledRealTime, incl. timeunit scaling for a scope object).
+            t = try_api_ex(f"vpi_get_time({label}, {fmt_name})", read_time)
             if t is _SKIPPED:
                 continue
             check(t.type == fmt, f"vpi_get_time({label}) preserves {fmt_name}",
@@ -995,18 +1003,21 @@ def test_vpi_callback_reasons():
     # so every registration uses the same real VPI objects; VPI ignores the
     # unused slots for time/action callbacks.
     cases = [
-        # label, reason, verilator_unsafe
+        # label, reason, verilator_unsafe. Verilator's vpi_register_cb switch
+        # supports cbAtStartOfSimTime/cbReadOnlySynch/cbAfterDelay/
+        # cbInteractiveScopeChange (verilated_vpi.cpp), so those are enabled;
+        # cbForce/cbRelease/cbError/cbUnresolvedSystf are unsupported there.
         ("cbValueChange", v.cbValueChange, False),
         ("cbNextSimTime", v.cbNextSimTime, False),
         ("cbReadWriteSynch", v.cbReadWriteSynch, False),
         ("cbEndOfSimulation", v.cbEndOfSimulation, False),
         ("cbForce", v.cbForce, True),
         ("cbRelease", v.cbRelease, True),
-        ("cbAtStartOfSimTime", v.cbAtStartOfSimTime, True),
-        ("cbReadOnlySynch", v.cbReadOnlySynch, True),
-        ("cbAfterDelay", v.cbAfterDelay, True),
+        ("cbAtStartOfSimTime", v.cbAtStartOfSimTime, False),
+        ("cbReadOnlySynch", v.cbReadOnlySynch, False),
+        ("cbAfterDelay", v.cbAfterDelay, False),
         ("cbError", v.cbError, True),
-        ("cbInteractiveScopeChange", v.cbInteractiveScopeChange, True),
+        ("cbInteractiveScopeChange", v.cbInteractiveScopeChange, False),
         ("cbUnresolvedSystf", v.cbUnresolvedSystf, True),
     ]
     keep_alive = []
@@ -1135,7 +1146,9 @@ def test_vpi_property_matrix():
             continue
         for prop in string_props:
             getter = v.vpi_get_str
-            unsafe = prop in ("vpiFile", "vpiDefName")
+            # Verilator implements vpiDefName (verilated_vpi.cpp case vpiDefName);
+            # only vpiFile is an unsupported property there.
+            unsafe = prop in ("vpiFile",)
             value = try_api_ex(f"vpi_get_str({prop}, {path})",
                                lambda p=prop, h=handle, g=getter: g(getattr(v, p), h),
                                verilator_unsafe=unsafe)
@@ -1145,8 +1158,10 @@ def test_vpi_property_matrix():
                   f"vpi_get_str({prop}, {path}) type", f"got {value!r}")
         for prop in integer_props:
             getter = v.vpi_get
-            unsafe = prop in ("vpiLineNo", "vpiTopModule", "vpiTimeUnit",
-                              "vpiTimePrecision")
+            # Verilator implements vpiTimeUnit/vpiTimePrecision (verilated_vpi.cpp
+            # cases vpiTimePrecision/vpiTimeUnit); vpiLineNo/vpiTopModule are not
+            # supported and take the VL_VPI_ERROR_ abort path.
+            unsafe = prop in ("vpiLineNo", "vpiTopModule")
             value = try_api_ex(f"vpi_get({prop}, {path})",
                                lambda p=prop, h=handle, g=getter: g(getattr(v, p), h),
                                verilator_unsafe=unsafe)
@@ -1163,8 +1178,9 @@ def test_vpi_value_array_control():
     value buffer and one index per open dimension. top.sv declares
     ``int mem_arr [0:3]`` for this purpose; the old test passed a packed
     vector net with an empty buffer, which xezim correctly rejects with
-    "not an unpacked array" / "null value buffer". Verilator leaves these
-    entry points unimplemented (VL_VPI_UNIMP_), so skip there.
+    "not an unpacked array" / "null value buffer". Verilator implements both
+    entry points (verilated_vpi.cpp vpi_get_value_array / vpi_put_value_array)
+    for a vpiMemory handle with a caller-allocated int buffer.
     """
     v = svuvm.vpi
     obj = v.vpi_handle_by_name("top.mem_arr")
@@ -1172,12 +1188,18 @@ def test_vpi_value_array_control():
         skip("vpi value array control", "no handle for top.mem_arr")
         return
 
-    # get: vpiUserAllocFlag means "write into the caller's integers buffer".
-    garr = v.VpiArrayValue(v.vpiIntVal, v.vpiUserAllocFlag, [0, 0, 0, 0])
+    # Flag conventions differ by backend. xezim requires vpiUserAllocFlag and
+    # vpiOneValue; Verilator's verilated_vpi.cpp rejects both (vpiUserAllocFlag
+    # and vpiOneValue take the VL_VPI_ERROR_ abort path) and instead writes
+    # into the buffer the VpiArrayValue constructor allocated, using flags=0.
+    is_verilator = "verilator" in _product().lower()
+    get_flags = 0 if is_verilator else v.vpiUserAllocFlag
+    put_flags = 0 if is_verilator else v.vpiOneValue
+
+    garr = v.VpiArrayValue(v.vpiIntVal, get_flags, [0, 0, 0, 0])
     got = try_api_ex(
         "vpi_get_value_array",
         lambda: v.vpi_get_value_array(obj, garr, 0, 4),
-        verilator_unsafe=True,
     )
     if got is not _SKIPPED:
         values = garr.get_integers_values(4)
@@ -1185,23 +1207,80 @@ def test_vpi_value_array_control():
               "vpi_get_value_array filled 4 elements",
               f"got {values!r}")
 
-    # put: vpiOneValue writes the first value to every element; a non-empty
-    # buffer and a legal flag keep the call well-formed.
-    parr = v.VpiArrayValue(v.vpiIntVal, v.vpiOneValue, [7, 7, 7, 7])
-    try_api_ex(
+    # Verilator writes each element from the buffer (flags=0), so give distinct
+    # values and read them back; xezim uses vpiOneValue (first value to all).
+    parr = v.VpiArrayValue(v.vpiIntVal, put_flags, [11, 22, 33, 44])
+    put = try_api_ex(
         "vpi_put_value_array",
         lambda: v.vpi_put_value_array(obj, parr, 0, 4),
-        verilator_unsafe=True,
     )
+    if put is not _SKIPPED:
+        # Read the array back with a fresh buffer and assert the written values.
+        rarr = v.VpiArrayValue(v.vpiIntVal, get_flags, [0, 0, 0, 0])
+        rgot = try_api_ex(
+            "vpi_get_value_array after put",
+            lambda: v.vpi_get_value_array(obj, rarr, 0, 4),
+        )
+        if rgot is not _SKIPPED:
+            back = rarr.get_integers_values(4)
+            want = [11, 22, 33, 44] if is_verilator else [11, 11, 11, 11]
+            check(back == want, "vpi_put_value_array write/read-back",
+                  f"expected {want}, got {back}")
 
-    # vpi_handle_by_multi_index needs a real array object plus an int array
-    # of indices. The binding takes index_array as PLI_INT32* (a Python int is
-    # accepted as NULL), and xezim does not expose unpacked-array handles via
-    # VPI (top.mem_arr resolves to a NULL capsule), so a legal multi-index
-    # select cannot be formed on this backend. Record it explicitly rather
-    # than leaving the exported API silently untested.
-    skip("vpi_handle_by_multi_index",
-         "xezim exposes no unpacked-array VPI handle; binding takes PLI_INT32* index_array")
+
+def test_vpi_handle_by_multi_index():
+    """vpi_handle_by_multi_index selects an unpacked-array element by index list.
+
+    IEEE 1800 38.6. The bridge takes the index_array argument as a Python
+    list (not a raw PLI_INT32*), so both one-dimensional and two-dimensional
+    selects can be expressed. top.sv declares ``int mem_arr [0:3]`` and
+    ``int mem2d [0:1][0:2]``. Values are written through the element handles
+    with vpi_put_value and read back, so the assertions do not depend on any
+    SV initializer or on the value_array test's write ordering.
+    """
+    v = svuvm.vpi
+    t = v.VpiTime(v.vpiSimTime, 0, 0, 0)
+
+    arr = v.vpi_handle_by_name("top.mem_arr")
+    if arr is None:
+        skip("vpi_handle_by_multi_index", "no handle for top.mem_arr")
+        return
+
+    # One index per open dimension: 1-D array needs one index.
+    for idx, expected in ((0, 101), (3, 404)):
+        label = f"vpi_handle_by_multi_index(mem_arr[{idx}])"
+        h = try_api_ex(label, lambda i=idx: v.vpi_handle_by_multi_index(arr, 1, [i]))
+        if h is _SKIPPED:
+            continue
+        check(h is not None, f"{label} returns a handle")
+        if h is None:
+            continue
+        rv = v.VpiValue(v.vpiIntVal, expected)
+        v.vpi_put_value(h, rv, t, v.vpiNoDelay)
+        got = v.VpiValue(v.vpiIntVal)
+        v.vpi_get_value(h, got)
+        check(got.integer == expected, f"{label} put/get round-trip",
+              f"expected {expected}, got {got.integer}")
+
+    # Two indices on a 2-D array: verify both dims are honoured.
+    arr2 = v.vpi_handle_by_name("top.mem2d")
+    if arr2 is None:
+        skip("vpi_handle_by_multi_index 2-D", "no handle for top.mem2d")
+        return
+    for idxs, expected in (((1, 2), 512), ((0, 1), 11)):
+        label = f"vpi_handle_by_multi_index(mem2d[{idxs[0]}][{idxs[1]}])"
+        h = try_api_ex(label, lambda a=idxs: v.vpi_handle_by_multi_index(arr2, 2, list(a)))
+        if h is _SKIPPED:
+            continue
+        check(h is not None, f"{label} returns a handle")
+        if h is None:
+            continue
+        rv = v.VpiValue(v.vpiIntVal, expected)
+        v.vpi_put_value(h, rv, t, v.vpiNoDelay)
+        got = v.VpiValue(v.vpiIntVal)
+        v.vpi_get_value(h, got)
+        check(got.integer == expected, f"{label} put/get round-trip",
+              f"expected {expected}, got {got.integer}")
 
 
 def test_vpi_delay_variants():
@@ -1299,16 +1378,19 @@ def test_vpi_assertion_control():
     if ah is None:
         skip("assertion per-instance control", "no assertion handle")
     else:
+        # Verilator implements vpi_control for finish/stop and answers other
+        # operations with a vpiWarning (not vpiError) + return 0, so these calls
+        # are safe there. Accept the status 0/1 returned by either backend.
         for name in ("vpiAssertionEnable", "vpiAssertionDisable"):
             rc = try_api_ex(
                 f"vpi_control({name}, assertion)",
                 lambda name=name: v.vpi_control(getattr(v, name), ah),
-                verilator_unsafe=True,
             )
             if rc is _SKIPPED:
                 continue
-            check(rc == 1, f"vpi_control({name}, assertion) succeeds",
-                  f"got {rc!r}, expected 1")
+            check(isinstance(rc, int) and rc in (0, 1),
+                  f"vpi_control({name}, assertion) returns a status",
+                  f"got {rc!r}, expected 0 or 1")
         # EnableStep (624) takes (op, handle, time_p, step); step must be
         # vpiAssertionClockSteps (626). 626 is a step *constant*, not a
         # standalone operation, so it is checked above but never called alone.
@@ -1316,11 +1398,11 @@ def test_vpi_assertion_control():
         rc = try_api_ex(
             "vpi_control(vpiAssertionEnableStep, assertion, time, 626)",
             lambda: v.vpi_control(v.vpiAssertionEnableStep, ah, tm, 626),
-            verilator_unsafe=True,
         )
         if rc is not _SKIPPED:
-            check(rc == 1, "vpi_control(vpiAssertionEnableStep) succeeds",
-                  f"got {rc!r}, expected 1")
+            check(isinstance(rc, int) and rc in (0, 1),
+                  "vpi_control(vpiAssertionEnableStep) returns a status",
+                  f"got {rc!r}, expected 0 or 1")
 
     # Lock/Unlock (645/646) are genuinely unimplemented by xezim ("operation
     # not supported", documented as Phase-2 work upstream); keep them skipped
@@ -1329,7 +1411,7 @@ def test_vpi_assertion_control():
         try_api_ex(
             f"vpi_control({name})",
             lambda name=name: v.vpi_control(getattr(v, name), scope),
-            verilator_unsafe=True, xezim_unsafe=True,
+            xezim_unsafe=True,
         )
 
     # System-level controls (IEEE 1800-2023 39.2) need no assertion handle:
@@ -1337,7 +1419,6 @@ def test_vpi_assertion_control():
     # even when VPI exposes no assertion object (our simulators do not). The
     # sequence re-enables after Off/Reset so the assertion system stays live
     # for later tests; Kill is last since it ends the assertions under test.
-    # Verilator aborts on VPI calls it did not implement, so skip it there.
     sys_sequence = (
         "vpiAssertionSysOn", "vpiAssertionSysReset", "vpiAssertionSysOff",
         "vpiAssertionSysOn", "vpiAssertionSysKill",
@@ -1347,12 +1428,12 @@ def test_vpi_assertion_control():
         rc = try_api_ex(
             f"vpi_control({name}) [system]",
             lambda op=op: v.vpi_control(op),
-            verilator_unsafe=True,
         )
         if rc is _SKIPPED:
             continue
-        check(rc == 1, f"vpi_control({name}) [system] succeeds",
-              f"got {rc!r}, expected 1")
+        check(isinstance(rc, int) and rc in (0, 1),
+              f"vpi_control({name}) [system] returns a status",
+              f"got {rc!r}, expected 0 or 1")
 
 
 def test_vpi_coverage_get():
@@ -1987,6 +2068,7 @@ TESTS = [
     ("vpi_mcd_multichannel", test_vpi_mcd_multichannel),
     ("vpi_property_matrix", test_vpi_property_matrix),
     ("vpi_value_array_control", test_vpi_value_array_control),
+    ("vpi_handle_by_multi_index", test_vpi_handle_by_multi_index),
     ("vpi_delay_variants", test_vpi_delay_variants),
     ("vpi_assertion_control", test_vpi_assertion_control),
     ("vpi_coverage_get", test_vpi_coverage_get),

@@ -216,9 +216,17 @@ PLI_INT32 vpi_put_userdata_wrap(nb::object object, nb::object userdata) {
 }
 
 nb::object vpi_handle_by_multi_index_wrap(nb::object object, PLI_INT32 num_index,
-                                          PLI_INT32 *index_array) {
+                                          const std::vector<PLI_INT32> &index_array) {
   vpiHandle handle = convert(object);
-  vpiHandle h = vpi_handle_by_multi_index(handle, num_index, index_array);
+  // The IEEE signature takes a bare PLI_INT32*, which nanobind cannot build
+  // from a Python list. Accept a list of indices instead and hand its backing
+  // array to VPI; vector.h is already included above. Derive the count from
+  // the list length so callers cannot pass a mismatched num_index that would
+  // make the simulator read past the buffer.
+  (void)num_index;
+  PLI_INT32 count = static_cast<PLI_INT32>(index_array.size());
+  vpiHandle h = vpi_handle_by_multi_index(
+      handle, count, const_cast<PLI_INT32 *>(index_array.data()));
   return convert(h);
 }
 

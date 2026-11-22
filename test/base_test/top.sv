@@ -263,6 +263,11 @@ module top ();
     // These calls operate on whole unpacked arrays, not packed vector nets.
     int mem_arr [0:3]/*verilator public_flat*/;
 
+    // Two-dimensional unpacked array for vpi_handle_by_multi_index with
+    // num_index=2 (IEEE 1800 38.6). Values are written by the test itself via
+    // vpi_put_value on the element handles, so no SV initializer is needed.
+    int mem2d [0:1][0:2]/*verilator public_flat*/;
+
     // Interconnected ports for vpi_handle_multi(vpiInterModPath, ...).
     logic [7:0] port_wire;
     vpi_port_producer u_prod(.o_data(port_wire));
