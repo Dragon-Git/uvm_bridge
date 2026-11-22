@@ -7,7 +7,10 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
+#include <nanobind/stl/tuple.h>
 #include <nanobind/stl/vector.h>
+#include <stdexcept>
+#include <tuple>
 
 namespace nb = nanobind;
 
@@ -223,7 +226,7 @@ NB_MODULE(_svuvm, m) {
       .def_rw("low", &s_vpi_time::low)
       .def_rw("real", &s_vpi_time::real);
 
-  nb::class_<s_vpi_delay>(vpi, "VpiDelay")
+  nb::class_<s_vpi_delay>(vpi, "VpiDelay", nb::dynamic_attr())
       .def(nb::init<>())
       .def(
           "__init__",
@@ -247,6 +250,34 @@ NB_MODULE(_svuvm, m) {
       .def_rw("mtm_flag", &s_vpi_delay::mtm_flag)
       .def_rw("append_flag", &s_vpi_delay::append_flag)
       .def_rw("pulsere_flag", &s_vpi_delay::pulsere_flag)
+      // IEEE 1800 38.10: s_vpi_delay.da is a *caller-allocated* array of
+      // no_of_delays s_vpi_time entries. A default-constructed VpiDelay has
+      // da == nullptr, which every conforming simulator (including xezim and
+      // Verilator) rejects with "null da array". alloc_da(n) allocates that
+      // array, stores it in da, and keeps it alive on the Python object via a
+      // capsule attribute so the pointer stays valid for vpi_get/put_delays.
+      .def("alloc_da", [](nb::object self, int n) {
+        s_vpi_delay &o = nb::cast<s_vpi_delay &>(self);
+        if (n < 0) {
+          throw std::invalid_argument("alloc_da: negative count");
+        }
+        auto *arr = new s_vpi_time[static_cast<size_t>(n)]();
+        nb::capsule holder(arr, [](void *p) noexcept {
+          delete[] static_cast<s_vpi_time *>(p);
+        });
+        self.attr("_da_owner") = holder;
+        o.da = arr;
+        o.no_of_delays = n;
+      }, nb::arg("n"))
+      // Read back one delay entry after vpi_get_delays so tests can assert
+      // the simulator actually filled the caller-allocated array.
+      .def("get_da_time", [](s_vpi_delay &o, int i) {
+        if (o.da == nullptr || i < 0 || i >= o.no_of_delays) {
+          throw std::out_of_range("get_da_time: index out of range");
+        }
+        s_vpi_time &t = o.da[i];
+        return std::make_tuple(t.type, t.high, t.low, t.real);
+      }, nb::arg("i"))
       .def("get_da", [](s_vpi_delay &o) { return convert((vpiHandle)o.da); })
       .def("set_da", [](s_vpi_delay &o, nb::object obj) {
         o.da = (p_vpi_time)nb::cast<nb::capsule>(obj).data();
@@ -468,6 +499,16 @@ NB_MODULE(_svuvm, m) {
            [](s_vpi_arrayvalue &o) {
              return convert((vpiHandle)o.value.integers);
            })
+      // Read n PLI_INT32 values out of the integers buffer so tests can
+      // assert what vpi_get_value_array actually wrote into caller memory.
+      .def("get_integers_values", [](s_vpi_arrayvalue &o, int n) {
+        if (o.value.integers == nullptr || n < 0) {
+          throw std::invalid_argument("get_integers_values: null buffer or count");
+        }
+        std::vector<PLI_INT32> out;
+        for (int i = 0; i < n; ++i) out.push_back(o.value.integers[i]);
+        return out;
+      }, nb::arg("n"))
       .def("set_integers",
            [](s_vpi_arrayvalue &o, nb::object obj) {
              o.value.integers = (PLI_INT32 *)nb::cast<nb::capsule>(obj).data();

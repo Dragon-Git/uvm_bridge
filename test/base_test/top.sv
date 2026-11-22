@@ -1,3 +1,15 @@
+// Minimal producer/consumer pair with ports, used by the VPI
+// vpi_handle_multi(vpiInterModPath, outPort, inPort) test (IEEE 1800 38.30).
+// vpiInterModPath needs a real output port handle and a real input port handle
+// of the same size; a plain net handle is rejected by conforming simulators.
+module vpi_port_producer(output logic [7:0] o_data);
+    assign o_data = 8'h5A;
+endmodule
+
+module vpi_port_consumer(input logic [7:0] i_data);
+    wire sink/*verilator public_flat*/ = |i_data;
+endmodule
+
 module top ();
     import uvm_pkg::*;
     `include "uvm_macros.svh"
@@ -239,6 +251,22 @@ module top ();
             super.new(name);
         endfunction
     endclass
+
+    // Continuous assignment with an explicit delay: vpi_get_delays reads the
+    // delay from the net a gate/assign drives, and vpi_put_delays writes it
+    // back only when such a driver exists. test_wire is undriven, so VPI
+    // delay round-trips target this net instead (IEEE 1800 38.10/38.32).
+    wire delay_net/*verilator public_flat*/;
+    assign #1 delay_net = dpi_vec_test;
+
+    // Static unpacked array for vpi_get/put_value_array (IEEE 1800 38.14).
+    // These calls operate on whole unpacked arrays, not packed vector nets.
+    int mem_arr [0:3]/*verilator public_flat*/;
+
+    // Interconnected ports for vpi_handle_multi(vpiInterModPath, ...).
+    logic [7:0] port_wire;
+    vpi_port_producer u_prod(.o_data(port_wire));
+    vpi_port_consumer u_cons(.i_data(port_wire));
 
     logic clk/*verilator public_flat*/ = 1'b0;
     always #5 clk = ~clk;

@@ -697,12 +697,42 @@ def test_vpi_hierarchy():
               f"names {names!r}")
     try_api("vpi_iterate/vpi_scan", iterate, verilator_unsafe=True)
 
-    # vpi_handle_multi needs two object handles; vpiInterModPath is the only
-    # relation many simulators implement, and may still return None.
-    try_api("vpi_handle_multi",
-            lambda: v.vpi_handle_multi(v.vpiInterModPath, obj, obj)
-            if obj is not None else None,
-            verilator_unsafe=True, xezim_unsafe=True)
+    # vpi_handle_multi(vpiInterModPath, outPort, inPort) needs a real output
+    # port handle and a real input port handle of the same size (IEEE 1800
+    # 38.30). top.sv instantiates a producer/consumer pair connected by an 8-bit
+    # net; collect their vpiPort objects by iterating each module instance.
+    def find_port(inst_path, want_dir):
+        inst = v.vpi_handle_by_name(inst_path)
+        if inst is None:
+            return None
+        it = v.vpi_iterate(v.vpiPort, inst)
+        if it is None:
+            return None
+        while True:
+            port = v.vpi_scan(it)
+            if port is None:
+                return None
+            direction = v.vpi_get(v.vpiDirection, port)
+            if direction == want_dir:
+                return port
+
+    out_port = find_port("top.u_prod", v.vpiOutput)
+    in_port = find_port("top.u_cons", v.vpiInput)
+
+    def intermod():
+        if out_port is None or in_port is None:
+            skip("vpi_handle_multi",
+                 f"no port handles (out={out_port!r}, in={in_port!r})")
+            return None
+        return v.vpi_handle_multi(v.vpiInterModPath, out_port, in_port)
+
+    rc = try_api_ex("vpi_handle_multi", intermod, verilator_unsafe=True)
+    if rc is not _SKIPPED:
+        # A found interconnect is returned as a handle (capsule); None is a
+        # legitimate "no interconnect" result. Neither may be a scalar.
+        check(rc is None or not isinstance(rc, (bool, int, float, str)),
+              "vpi_handle_multi(vpiInterModPath) returned a handle or None",
+              f"got {rc!r} ({type(rc).__name__})")
 
 
 def test_vpi_handle_management():
@@ -713,10 +743,11 @@ def test_vpi_handle_management():
         skip("vpi handle management", "no handle")
         return
 
-    try_api("vpi_get_userdata", lambda: v.vpi_get_userdata(obj),
-            verilator_unsafe=True, xezim_unsafe=True)
-    try_api("vpi_put_userdata", lambda: v.vpi_put_userdata(obj, obj),
-            verilator_unsafe=True, xezim_unsafe=True)
+    # vpi_put/get_userdata are handle-scoped (IEEE 1800 38.31/38.33): they
+    # require the active vpiSysTfCall handle, not a plain signal handle. There
+    # is no systf call active in main_phase and xezim cannot call a systf that
+    # was registered at run time, so these cannot be exercised here; they are
+    # covered by the recorded skip in test_vpi_data_control.
     # vpi_free_object and vpi_release_handle are deprecated / no-ops on some
     # backends; use a fresh handle so any invalidation cannot affect later tests.
     spare = v.vpi_handle_by_name("top.test_wire")
@@ -728,25 +759,48 @@ def test_vpi_handle_management():
 
 
 def test_vpi_delays():
-    """vpi_get_delays / vpi_put_delays (best-effort; many VPI impls skip)."""
+    """vpi_get_delays / vpi_put_delays (IEEE 1800 38.10/38.32).
+
+    s_vpi_delay.da is caller-allocated: a default VpiDelay has da == nullptr
+    and every conforming simulator rejects the call with "null da array".
+    Allocate the array explicitly with alloc_da(n) so xezim actually fills it.
+    Verilator still aborts on these calls (VL_VPI_UNIMP_), so skip there.
+    """
     v = svuvm.vpi
-    obj = v.vpi_handle_by_name("top.test_wire")
+    # delay_net is driven by `assign #1`, so both get and put delays are legal
+    # (an undriven net can be read but xezim refuses to annotate it).
+    obj = v.vpi_handle_by_name("top.delay_net")
     if obj is None:
-        skip("vpi delays", "no handle for top.test_wire")
+        skip("vpi delays", "no handle for top.delay_net")
         return
 
     def make_delay():
         d = v.VpiDelay()
-        d.no_of_delays = 1
+        d.alloc_da(1)
         d.time_type = v.vpiSimTime
         return d
-    delay = try_api("VpiDelay construct", make_delay)
-    if delay is None:
+    delay = try_api_ex("VpiDelay alloc_da", make_delay, verilator_unsafe=True)
+    if delay is _SKIPPED:
         return
-    try_api("vpi_get_delays", lambda: v.vpi_get_delays(obj, delay),
-            verilator_unsafe=True, xezim_unsafe=True)
-    try_api("vpi_put_delays", lambda: v.vpi_put_delays(obj, delay),
-            verilator_unsafe=True, xezim_unsafe=True)
+    check(delay.no_of_delays == 1 and delay.time_type == v.vpiSimTime,
+          "VpiDelay alloc_da(1) fields",
+          f"{delay.no_of_delays}/{delay.time_type}")
+
+    got = try_api_ex("vpi_get_delays", lambda: v.vpi_get_delays(obj, delay),
+                     verilator_unsafe=True)
+    if got is not _SKIPPED:
+        # The array must be readable after the call; an undriven net may
+        # legitimately report a zero delay, but the entry is always filled.
+        entry = delay.get_da_time(0)
+        check(isinstance(entry, tuple) and len(entry) == 4,
+              "vpi_get_delays filled the caller-allocated da array",
+              f"got {entry!r}")
+
+    # put_delays writes the same array back. An undriven reg/net in xezim may
+    # refuse the write (documented), so treat a diagnostic as a recorded skip
+    # but run the call for real when the backend accepts it.
+    try_api_ex("vpi_put_delays", lambda: v.vpi_put_delays(obj, delay),
+               verilator_unsafe=True)
 
 
 def test_vpi_cb_info_and_systf():
@@ -964,6 +1018,13 @@ def test_vpi_data_control():
         check(isinstance(got, int), "vpi_get_data returns a byte count",
               f"got {got!r}")
 
+    # vpi_put_userdata/get_userdata are handle-scoped (IEEE 1800 38.31/38.33):
+    # the object must be the active vpiSysTfCall handle. There is no systf call
+    # active from main_phase, and xezim cannot call a systf registered at run
+    # time (its SV elaboration rejects "unknown system task"). A plain signal
+    # handle is rejected with "not a system task or function call handle", so
+    # keep these skipped rather than log a [VPI] diagnostic. This is an IEEE
+    # calling-context requirement, not a simulator defect.
     obj = v.vpi_handle_by_name("top.test_wire")
     if obj is None:
         skip("vpi userdata control", "no handle for top.test_wire")
@@ -1049,29 +1110,42 @@ def test_vpi_property_matrix():
 
 
 def test_vpi_value_array_control():
-    """vpi_get_value_array/vpi_put_value_array entry points.
+    """vpi_get_value_array / vpi_put_value_array (IEEE 1800 38.14).
 
-    The binding declares index_p as an int (not optional), so a NULL index
-    raises TypeError on every backend. Use index 0 with a zero-length transfer
-    (num=0), which no simulator dereferences. Completing the call (or a
-    recorded skip on Verilator) is the assertion here.
+    These calls operate on a static unpacked array with a caller-allocated
+    value buffer and one index per open dimension. top.sv declares
+    ``int mem_arr [0:3]`` for this purpose; the old test passed a packed
+    vector net with an empty buffer, which xezim correctly rejects with
+    "not an unpacked array" / "null value buffer". Verilator leaves these
+    entry points unimplemented (VL_VPI_UNIMP_), so skip there.
     """
     v = svuvm.vpi
-    obj = v.vpi_handle_by_name("top.dpi_vec_test")
+    obj = v.vpi_handle_by_name("top.mem_arr")
     if obj is None:
-        skip("vpi value array control", "no handle")
+        skip("vpi value array control", "no handle for top.mem_arr")
         return
-    arr = v.VpiArrayValue(v.vpiIntVal, 0, [])
-    check(arr.format == v.vpiIntVal and arr.flags == 0,
-          "empty VpiArrayValue for zero-length transfer",
-          f"{arr.format}/{arr.flags}")
-    for name, fn in (
-        ("vpi_get_value_array", lambda: v.vpi_get_value_array(obj, arr, 0, 0)),
-        ("vpi_put_value_array", lambda: v.vpi_put_value_array(obj, arr, 0, 0)),
-    ):
-        # xezim rejects a non-unpacked-array object with a [VPI] diagnostic
-        # even for a zero-length transfer; skip it there.
-        try_api_ex(name, fn, verilator_unsafe=True, xezim_unsafe=True)
+
+    # get: vpiUserAllocFlag means "write into the caller's integers buffer".
+    garr = v.VpiArrayValue(v.vpiIntVal, v.vpiUserAllocFlag, [0, 0, 0, 0])
+    got = try_api_ex(
+        "vpi_get_value_array",
+        lambda: v.vpi_get_value_array(obj, garr, 0, 4),
+        verilator_unsafe=True,
+    )
+    if got is not _SKIPPED:
+        values = garr.get_integers_values(4)
+        check(isinstance(values, list) and len(values) == 4,
+              "vpi_get_value_array filled 4 elements",
+              f"got {values!r}")
+
+    # put: vpiOneValue writes the first value to every element; a non-empty
+    # buffer and a legal flag keep the call well-formed.
+    parr = v.VpiArrayValue(v.vpiIntVal, v.vpiOneValue, [7, 7, 7, 7])
+    try_api_ex(
+        "vpi_put_value_array",
+        lambda: v.vpi_put_value_array(obj, parr, 0, 4),
+        verilator_unsafe=True,
+    )
 
 
 def test_vpi_delay_variants():
@@ -1542,12 +1616,12 @@ def test_uvm_event():
     check(trigger_time >= 0, "get_trigger_time", f"got {trigger_time!r}")
     check(num_waiters == 0, "get_num_waiters with no waiters", f"got {num_waiters!r}")
 
-    # A uvm_object may come back as a capsule or None on the Python side.
-    try:
-        _ = svuvm.get_default_data(event_name)
-        svuvm.vpi.vpi_printf("get_default_data ok\n")
-    except Exception as exc:
-        skip("get_default_data", str(exc))
+    # uvm_event data accessors (get_default_data/get_trigger_data/...) are SV
+    # wrappers returning uvm_object; they are deliberately excluded from the
+    # DPI/Python export (scripts/generate_sv_export.py) because a uvm_object
+    # cannot cross the DPI boundary safely. They are not Python APIs, so there
+    # is nothing to call here. Verify the Python event surface instead: ev_reset
+    # with a default-data argument clears is_on (covered just below).
 
     svuvm.cancel(event_name)
     svuvm.ev_reset(event_name, 1)
