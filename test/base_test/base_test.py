@@ -676,18 +676,25 @@ def test_vpi_hierarchy():
             verilator_unsafe=True)
 
     def iterate():
-        it = v.vpi_iterate(v.vpiModule, top)
+        # top.sv declares a single top-level module with no sub-modules, so
+        # vpi_iterate(vpiModule, top) legitimately yields nothing. Iterate the
+        # registers/signals declared inside top instead (test_wire,
+        # dpi_vec_test, clk, cg_vpi_probe_inst) to really exercise iterate/scan.
+        it = v.vpi_iterate(v.vpiReg, top)
         if it is None:
-            skip("vpi_iterate/vpi_scan", "no module iterator from top")
+            skip("vpi_iterate/vpi_scan", "no reg iterator from top")
             return
-        seen = 0
-        while seen < 8:
+        names = []
+        while len(names) < 8:
             item = v.vpi_scan(it)
             if item is None:
                 break
-            seen += 1
-        check(seen >= 1, "vpi_iterate/vpi_scan yielded at least one module",
-              f"got {seen}")
+            names.append(v.vpi_get_str(v.vpiName, item))
+        check(len(names) >= 1, "vpi_iterate/vpi_scan yielded regs",
+              f"got {names!r}")
+        check("dpi_vec_test" in names,
+              "vpi_iterate/vpi_scan found the dpi_vec_test signal",
+              f"names {names!r}")
     try_api("vpi_iterate/vpi_scan", iterate, verilator_unsafe=True)
 
     # vpi_handle_multi needs two object handles; vpiInterModPath is the only
@@ -1152,20 +1159,48 @@ def test_vpi_assertion_control():
     check(callable(v.vpi_control), "vpi_control binding for assertion control",
           f"got {v.vpi_control!r}")
 
-    # The wrapper forwards one capsule handle to vpi_control; NULL (no handle)
-    # would mean "all assertions". Use the real top scope when available.
+    # Per-assertion control needs a REAL assertion object handle: passing the
+    # top scope is rejected with "not an assertion handle". top.sv declares a
+    # named assertion ap_vpi_probe that xezim exposes through VPI. Verilator
+    # lowers SVA to C++ and does not expose assertion objects, so skip these
+    # per-instance calls there (the system-level calls below still run).
     scope = v.vpi_handle_by_name("top")
-    for name in ("vpiAssertionEnable", "vpiAssertionDisable",
-                 "vpiAssertionLock", "vpiAssertionUnlock",
-                 "vpiAssertionEnableStep", "vpiAssertionClockSteps"):
+    ah = v.vpi_handle_by_name("top.ap_vpi_probe")
+    if ah is None:
+        skip("assertion per-instance control", "no assertion handle")
+    else:
+        for name in ("vpiAssertionEnable", "vpiAssertionDisable"):
+            rc = try_api_ex(
+                f"vpi_control({name}, assertion)",
+                lambda name=name: v.vpi_control(getattr(v, name), ah),
+                verilator_unsafe=True,
+            )
+            if rc is _SKIPPED:
+                continue
+            check(rc == 1, f"vpi_control({name}, assertion) succeeds",
+                  f"got {rc!r}, expected 1")
+        # EnableStep (624) takes (op, handle, time_p, step); step must be
+        # vpiAssertionClockSteps (626). 626 is a step *constant*, not a
+        # standalone operation, so it is checked above but never called alone.
+        tm = v.VpiTime(v.vpiSimTime, 0, 0, 0)
         rc = try_api_ex(
-            f"vpi_control({name}, top)",
-            lambda name=name: v.vpi_control(getattr(v, name), scope),
-            xezim_unsafe=True,
+            "vpi_control(vpiAssertionEnableStep, assertion, time, 626)",
+            lambda: v.vpi_control(v.vpiAssertionEnableStep, ah, tm, 626),
+            verilator_unsafe=True,
         )
-        if rc is _SKIPPED:
-            continue
-        check(isinstance(rc, int), f"vpi_control({name}) returns int", f"got {rc!r}")
+        if rc is not _SKIPPED:
+            check(rc == 1, "vpi_control(vpiAssertionEnableStep) succeeds",
+                  f"got {rc!r}, expected 1")
+
+    # Lock/Unlock (645/646) are genuinely unimplemented by xezim ("operation
+    # not supported", documented as Phase-2 work upstream); keep them skipped
+    # after their opcode constants have been checked above.
+    for name in ("vpiAssertionLock", "vpiAssertionUnlock"):
+        try_api_ex(
+            f"vpi_control({name})",
+            lambda name=name: v.vpi_control(getattr(v, name), scope),
+            verilator_unsafe=True, xezim_unsafe=True,
+        )
 
     # System-level controls (IEEE 1800-2023 39.2) need no assertion handle:
     # vpi_control(op) with no object acts on all assertions. They are usable
