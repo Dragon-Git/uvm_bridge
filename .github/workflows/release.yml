@@ -31,7 +31,7 @@ concurrency:
 jobs:
   validate-and-tag:
     name: Validate and Create Tag
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 👇 【致命修复】必须加 job 级别的 outputs，下游才能拿到值
     outputs:
       tag_name: ${{ steps.tag_step.outputs.tag_name || steps.tag_step_dry.outputs.tag_name }}
@@ -100,7 +100,7 @@ jobs:
       matrix:
         # cibuildwheel builds the runner's own architecture, so this cell is
         # what produces the linux aarch64 wheels.
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-26]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-26]
     runs-on: ${{matrix.os}}
 
     steps:
@@ -132,7 +132,7 @@ jobs:
   publish-github-release:
     needs: [validate-and-tag, build-wheels]
     name: Publish GitHub Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: github.event.inputs.dry_run != 'true'
 
     steps:
@@ -166,7 +166,7 @@ jobs:
   publish-to-pypi:
     needs: [validate-and-tag, build-wheels]
     name: Publish to PyPI
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: pypi
     permissions:
       id-token: write

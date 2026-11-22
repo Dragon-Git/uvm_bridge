@@ -17,7 +17,7 @@ jobs:
         python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
         # runner.arch is part of every cache key below: amd64 and arm64 both
         # report runner.os = Linux and must not share a ccache.
-        os: [ubuntu-latest, ubuntu-24.04-arm, macos-26]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-26]
     env:
       CCACHE_DIR: ${{ github.workspace }}/.ccache-vlt
       OBJCACHE: ccache
@@ -153,14 +153,14 @@ jobs:
   # covers all of its cells, and the binaries are not interchangeable anyway.
   #
   # Release assets, for when a release is new enough instead of main:
-  #   ubuntu-latest      xezim-manylinux_2_34_x86_64-0.11.1.tar.gz
+  #   ubuntu-24.04      xezim-manylinux_2_34_x86_64-0.11.1.tar.gz
   #   ubuntu-24.04-arm   xezim-manylinux_2_34_aarch64-0.11.1.tar.gz
   #   macos-26           xezim-macos-arm64-0.11.1.tar.gz
   xezim-build-linux-x64:
-    name: xezim build (ubuntu-latest)
+    name: xezim build (ubuntu-24.04)
     uses: ./.github/workflows/xezim-build.yml
     with:
-      os: ubuntu-latest
+      os: ubuntu-24.04
 
   xezim-build-linux-arm64:
     name: xezim build (ubuntu-24.04-arm)
@@ -175,11 +175,11 @@ jobs:
       os: macos-26
 
   xezim-test-linux-x64:
-    name: xezim-test (ubuntu-latest)
+    name: xezim-test (ubuntu-24.04)
     needs: xezim-build-linux-x64
     uses: ./.github/workflows/xezim-tests.yml
     with:
-      os: ubuntu-latest
+      os: ubuntu-24.04
 
   xezim-test-linux-arm64:
     name: xezim-test (ubuntu-24.04-arm)
@@ -208,7 +208,7 @@ jobs:
   # (docs/uvm-version-compatibility.md); they are cases in the table, not
   # omissions, so the boundary stays visible.
   uvm-compat-verilator:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v7
       with:
@@ -236,7 +236,7 @@ jobs:
   # The same table, run instead of linted, against the xezim build.
   uvm-compat-xezim:
     needs: xezim-build-linux-x64
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@v7
       with:
