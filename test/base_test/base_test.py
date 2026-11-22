@@ -23,6 +23,13 @@ _CHECKS = 0
 _FAILURES = []
 _SKIPS = []
 
+# A floor on executed assertions. Without it, a run in which every handle
+# lookup returned None (or every test returned early) would record zero real
+# checks yet still print the completion marker and pass. The baseline on both
+# simulators is >400 checks; 350 leaves ample headroom for simulator-specific
+# skips while still catching a wholesale collapse of the suite.
+MIN_CHECKS = 350
+
 
 def check(condition, label, detail=""):
     """Record one real assertion and print a marker on failure."""
@@ -40,6 +47,14 @@ def skip(label, reason):
     """An API that is allowed to be unsupported on some simulators."""
     svuvm.vpi.vpi_printf(f"[SKIP] {label} - {reason}\n")
     _SKIPS.append(label)
+
+
+def fail(label, reason):
+    """Record a hard failure (a real API error, not a supported gap)."""
+    msg = f"[FAIL] {label}" + (f" - {reason}" if reason else "")
+    svuvm.vpi.vpi_printf(msg + "\n")
+    _FAILURES.append(msg)
+    return False
 
 
 def banner(title):
@@ -77,6 +92,11 @@ def try_api_ex(label, fn, verilator_unsafe=False, xezim_unsafe=False):
     * ``xezim_unsafe``: xezim does not support the operation / handle class and
       prints ``[VPI] ... not supported`` (or similar); skip it there. The
       standard opcode constants are still verified by the caller.
+
+    An exception that is NOT explained by one of those explicit, per-simulator
+    markers is a real defect (bridge bug / regression) and is recorded as a
+    FAIL, never silently converted to a skip. Only the two declared
+    simulator-unsupported cases may downgrade to a skip.
     """
     product = _product().lower()
     if verilator_unsafe and "verilator" in product:
@@ -88,7 +108,8 @@ def try_api_ex(label, fn, verilator_unsafe=False, xezim_unsafe=False):
     try:
         return fn()
     except Exception as exc:
-        skip(label, f"{type(exc).__name__}: {exc}")
+        # Unexpected exception: a genuine failure, not a supported gap.
+        fail(label, f"unexpected {type(exc).__name__}: {exc}")
         return _SKIPPED
 
 
@@ -156,6 +177,22 @@ def test_uvm_objection():
         svuvm.uvm_objection_op("RAISE", phase, "uvm_test_top", "TEST OBJECTION RAISE", 1)
         svuvm.uvm_objection_op("DROP", phase, "uvm_test_top", "TEST OBJECTION DROP", 1)
     check(len(phases) == 12, "raise/drop over all 12 task phases", f"got {len(phases)}")
+
+    # The loop above only proves the calls don't raise. Verify the real side
+    # effect: a RAISE increments the phase objection count and a DROP restores
+    # it. Keep the pair synchronous (no time advance) so a raised objection
+    # cannot hold the phase open; use a task phase other than the running one.
+    phase = "configure"
+    ctx = "uvm_test_top"
+    before = svuvm.get_objection_count(phase, ctx)
+    svuvm.uvm_objection_op("RAISE", phase, ctx, "probe", 1)
+    during = svuvm.get_objection_count(phase, ctx)
+    svuvm.uvm_objection_op("DROP", phase, ctx, "probe", 1)
+    after = svuvm.get_objection_count(phase, ctx)
+    check(during == before + 1, "RAISE increments objection count",
+          f"before={before}, during={during}")
+    check(after == before, "DROP restores objection count",
+          f"before={before}, after={after}")
 
 
 def test_uvm_hdl():
@@ -229,6 +266,16 @@ def test_uvm_report():
         "set_report_verbosity_level(UVM_MEDIUM) is visible",
         f"got {max_verbosity!r}",
     )
+
+    # Side-effect check for set_report_id_action: set a dedicated id to a
+    # known action and read it back. Uses a fresh id so the report traffic
+    # above (which targets "uvm_report_test"/"main") cannot change it.
+    probe_id = "roundtrip_action_probe"
+    svuvm.set_report_id_action("", probe_id, svuvm.UVM_DISPLAY)
+    probe_action = svuvm.get_report_action("", svuvm.UVM_INFO, probe_id)
+    check(probe_action == svuvm.UVM_DISPLAY,
+          "set_report_id_action is visible via get_report_action",
+          f"got {probe_action!r}, expected {svuvm.UVM_DISPLAY!r}")
 
 
 def test_report_server():
@@ -1147,6 +1194,15 @@ def test_vpi_value_array_control():
         verilator_unsafe=True,
     )
 
+    # vpi_handle_by_multi_index needs a real array object plus an int array
+    # of indices. The binding takes index_array as PLI_INT32* (a Python int is
+    # accepted as NULL), and xezim does not expose unpacked-array handles via
+    # VPI (top.mem_arr resolves to a NULL capsule), so a legal multi-index
+    # select cannot be formed on this backend. Record it explicitly rather
+    # than leaving the exported API silently untested.
+    skip("vpi_handle_by_multi_index",
+         "xezim exposes no unpacked-array VPI handle; binding takes PLI_INT32* index_array")
+
 
 def test_vpi_delay_variants():
     """VpiDelay constructor forms and all control flags (IEEE 1800 38.10/38.32)."""
@@ -1627,6 +1683,25 @@ def test_uvm_event():
     svuvm.ev_reset(event_name, 1)
     check(not svuvm.is_on(event_name), "ev_reset clears the event", f"got {svuvm.is_on(event_name)!r}")
 
+    # wait_on/wait_off are blocking tasks, but each returns immediately when
+    # the event is already in the awaited state. Drive the state first so no
+    # time advance is needed and the phase cannot hang. Use dedicated events.
+    off_evt = "wait_off_probe"
+    svuvm.ev_reset(off_evt)          # freshly reset -> off
+    try:
+        svuvm.wait_off(off_evt)
+        check(True, "wait_off returns immediately for an off event")
+    except Exception as exc:
+        fail("wait_off", f"{type(exc).__name__}: {exc}")
+
+    on_evt = "wait_on_probe"
+    svuvm.trigger(on_evt)            # triggered -> on
+    try:
+        svuvm.wait_on(on_evt)
+        check(True, "wait_on returns immediately for an on event")
+    except Exception as exc:
+        fail("wait_on", f"{type(exc).__name__}: {exc}")
+
 
 def test_config_db_extended():
     exists_int = svuvm.config_db_exists("", "", "int_value")
@@ -1722,20 +1797,33 @@ def test_sequencer():
 
     cur_seq = svuvm.get_current_sequence_name(sqr_path)
     svuvm.vpi.vpi_printf(f"get_current_sequence_name = {cur_seq}\n")
-    check(isinstance(cur_seq, str), "get_current_sequence_name", f"got {cur_seq!r}")
+    # Upgrade from a bare type check to the name's format contract: a
+    # sequence name/instance path has no whitespace, and "" is legal when no
+    # sequence is currently running. Cross-check the two getters for internal
+    # consistency: an idle sequencer (busy==0) must not report a running name.
+    check(isinstance(cur_seq, str) and not any(c.isspace() for c in cur_seq),
+          "get_current_sequence_name is a whitespace-free name or empty",
+          f"got {cur_seq!r}")
+    if busy == 0:
+        check(cur_seq == "", "idle sequencer has no current sequence",
+              f"busy={busy}, name={cur_seq!r}")
+    if cur_seq == "":
+        skip("current sequence name content",
+             "no sequence running on the sequencer at this point")
 
-    # start_seq needs a connected sequencer/driver; not every simulator's
-    # UVM provides one here, so a failure is reported as a skip, not a check.
+    # These DPI tasks return void; completing without an exception is the
+    # assertion. A raised exception is a real bridge/UVM failure, not a
+    # supported gap, so it is recorded as a FAIL (never a silent skip).
     try:
         svuvm.start_seq("simple_seq", sqr_path, rand_en=0, background=1)
-        svuvm.vpi.vpi_printf("start_seq background: success\n")
+        check(True, "start_seq background completes")
     except Exception as exc:
-        skip("start_seq background", str(exc))
+        fail("start_seq background", f"{type(exc).__name__}: {exc}")
     try:
         svuvm.stop_sequences(sqr_path)
-        svuvm.vpi.vpi_printf("stop_sequences: success\n")
+        check(True, "stop_sequences completes")
     except Exception as exc:
-        skip("stop_sequences", str(exc))
+        fail("stop_sequences", f"{type(exc).__name__}: {exc}")
 
 
 def test_barrier():
@@ -1752,6 +1840,17 @@ def test_barrier():
     svuvm.barrier_reset(bar_name, 0)
     svuvm.vpi.vpi_printf("barrier_reset success\n")
     check(svuvm.barrier_get_threshold(bar_name) == 3, "barrier_reset keeps the threshold")
+
+    # barrier_wait is a blocking task: it returns once `threshold` processes
+    # are waiting. With threshold=1 the single caller satisfies it immediately,
+    # so this is safe to call synchronously (no risk of hanging the phase).
+    wait_bar = "barrier_wait_probe"
+    svuvm.barrier_set_threshold(wait_bar, 1)
+    try:
+        svuvm.barrier_wait(wait_bar)
+        check(True, "barrier_wait returns when threshold is met")
+    except Exception as exc:
+        fail("barrier_wait", f"{type(exc).__name__}: {exc}")
 
 
 def test_pool():
@@ -1782,7 +1881,17 @@ def test_callback():
 
     cb_type_names = svuvm.get_callback_type_names("uvm_test_top")
     svuvm.vpi.vpi_printf(f"get_callback_type_names(uvm_test_top) = {cb_type_names}\n")
-    check(isinstance(cb_type_names, str), "get_callback_type_names", f"got {cb_type_names!r}")
+    # Upgrade from a bare type check to the list's format contract: a
+    # comma-separated type-name list, where "" is a legal empty list. This is
+    # content-independent (no simulator-specific type names) yet catches a
+    # malformed value such as a count, a repr, or a trailing comma.
+    names = [n.strip() for n in cb_type_names.split(",")] if cb_type_names else []
+    check(all(names) and cb_type_names == ",".join(n.strip() for n in names),
+          "get_callback_type_names returns a well-formed comma-separated list",
+          f"got {cb_type_names!r}")
+    if not names:
+        skip("callback type-name content",
+             "no callbacks registered on uvm_test_top in this run")
 
 
 def test_printer_comparer_knobs():
@@ -1919,6 +2028,13 @@ def _run(name, fn):
 def main():
     for name, fn in TESTS:
         _run(name, fn)
+
+    # Guard against a vacuous pass: too few executed assertions means the
+    # suite largely skipped/returned early, which must not print the marker
+    # that the Makefile checks for.
+    if _CHECKS < MIN_CHECKS:
+        fail("assertion floor",
+             f"only {_CHECKS} checks executed, expected >= {MIN_CHECKS}")
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     if _FAILURES:
