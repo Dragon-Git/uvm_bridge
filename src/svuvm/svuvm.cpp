@@ -590,16 +590,31 @@ NB_MODULE(_svuvm, m) {
             o.tfname = const_cast<char *>(s.c_str());
           },
           nb::for_setter(nb::keep_alive<1, 2>()))
+      // user_data always holds a CallbackInfo* (see both constructors below):
+      // the callable ctor allocates one to carry the systf callback + name,
+      // and vpi_get_systf_info writes that same pointer back. Reading it as a
+      // C string (the old code) decoded the CallbackInfo object's bytes and
+      // raised UnicodeDecodeError. Mirror s_cb_data.user_data: dereference.
       .def_prop_rw(
           "user_data",
-          [](s_vpi_systf_data &o) {
-            return o.user_data ? std::string((char *)o.user_data)
-                               : std::string();
+          [](s_vpi_systf_data &o) -> std::string {
+            if (o.user_data == nullptr)
+              return std::string();
+            auto *cb = reinterpret_cast<CallbackInfo *>(o.user_data);
+            return cb->user_data;
           },
           [](s_vpi_systf_data &o, nb::str s) {
-            o.user_data = const_cast<PLI_BYTE8 *>(s.c_str());
-          },
-          nb::for_setter(nb::keep_alive<1, 2>()));
+            // Preserve the existing callback; only replace the user-data
+            // string. Allocating a fresh CallbackInfo with a null callback
+            // here would silently drop the systf's calltf target.
+            if (o.user_data != nullptr) {
+              auto *cb = reinterpret_cast<CallbackInfo *>(o.user_data);
+              cb->user_data = std::string(s.c_str());
+            } else {
+              auto *cb = new CallbackInfo(nb::none(), std::string(s.c_str()));
+              o.user_data = reinterpret_cast<PLI_BYTE8 *>(cb);
+            }
+          });
 
   // Use nb::new_ instead of def("__init__", ...) so that the side-effect
   // call to the simulator runtime happens in __new__ (before placement-new
@@ -735,16 +750,20 @@ NB_MODULE(_svuvm, m) {
             auto *cb = reinterpret_cast<CallbackInfo *>(o.user_data);
             return cb->user_data;
           },
-          [](s_cb_data &o, nb::object cb_rtn_obj, const std::string &s) {
-            // 替换 callback：先释放旧 CallbackInfo（持有 nb::object，必须
-            // 在持 GIL 时析构，所以这里 delete 是安全的），再装新的。
+          [](s_cb_data &o, nb::str s) {
+            // A property setter receives exactly (self, value). The previous
+            // signature took an extra cb_rtn_obj, so `cb.user_data = "x"`
+            // raised TypeError (nanobind reported it wanted (object, str)).
+            // Mirror VpiSystfData.user_data: update the string in place and
+            // preserve the already-registered calltf so a later callback
+            // still reaches the original Python callable.
             if (o.user_data != nullptr) {
-              auto *old_cb = reinterpret_cast<CallbackInfo *>(o.user_data);
-              delete old_cb;
-              o.user_data = nullptr;
+              auto *cb = reinterpret_cast<CallbackInfo *>(o.user_data);
+              cb->user_data = std::string(s.c_str());
+            } else {
+              auto *cb = new CallbackInfo(nb::none(), std::string(s.c_str()));
+              o.user_data = reinterpret_cast<PLI_BYTE8 *>(cb);
             }
-            auto *new_cb = new CallbackInfo(cb_rtn_obj, s);
-            o.user_data = reinterpret_cast<PLI_BYTE8 *>(new_cb);
           });
 
   // NOTE: CallbackInfo（被 s_cb_data::user_data / s_vpi_systf_data::user_data

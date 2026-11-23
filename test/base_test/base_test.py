@@ -787,6 +787,19 @@ def test_vpi_hierarchy():
               "vpi_handle_multi(vpiInterModPath) returned a handle or None",
               f"got {rc!r} ({type(rc).__name__})")
 
+    # The wrapper used to print a message but still call vpi_handle_multi
+    # with null handles when fewer than two were given. Fewer than two must
+    # now be rejected at the Python boundary, independent of the simulator.
+    if out_port is not None:
+        too_few_rejected = False
+        try:
+            v.vpi_handle_multi(v.vpiInterModPath, out_port)
+        except (ValueError, TypeError):
+            too_few_rejected = True
+        check(too_few_rejected,
+              "vpi_handle_multi rejects fewer than two handles",
+              "call with one handle did not raise")
+
 
 def test_vpi_handle_management():
     """userdata and handle lifetime APIs (best-effort across simulators)."""
@@ -868,6 +881,16 @@ def test_vpi_cb_info_and_systf():
     val = v.VpiValue(v.vpiIntVal, 0)
 
     cb = v.CbData(v.cbNextSimTime, cb_test, obj, t, val, 0, "cb_ud")
+    # The user_data setter used to take an extra cb_rtn_obj argument, so any
+    # `cb.user_data = ...` raised TypeError (nanobind wanted (object, str)).
+    # Verify the two-argument round trip, then restore the original value so
+    # the vpi_get_cb_info assertion below still sees "cb_ud".
+    check(cb.user_data == "cb_ud", "CbData.user_data getter",
+          f"got {cb.user_data!r}")
+    cb.user_data = "cb_ud_changed"
+    check(cb.user_data == "cb_ud_changed", "CbData.user_data setter",
+          f"got {cb.user_data!r}")
+    cb.user_data = "cb_ud"
     h = try_api("vpi_register_cb", lambda: v.vpi_register_cb(cb))
     if h is not None:
         def get_info():
@@ -882,6 +905,13 @@ def test_vpi_cb_info_and_systf():
 
     def systf():
         sd = v.VpiSystfData(v.vpiSysTask, v.vpiSysTfCall, cb_test)
+        # user_data holds a CallbackInfo*, not a C string. Reading it used to
+        # decode the CallbackInfo object's bytes and raise UnicodeDecodeError.
+        check(sd.user_data == "user_data", "VpiSystfData.user_data getter",
+              f"got {sd.user_data!r}")
+        sd.user_data = "systf_ud"
+        check(sd.user_data == "systf_ud", "VpiSystfData.user_data setter",
+              f"got {sd.user_data!r}")
         h = v.vpi_register_systf(sd)
         if h is None:
             skip("vpi_get_systf_info",

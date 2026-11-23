@@ -137,28 +137,39 @@ void vpi_get_systf_info_wrap(nb::object object, p_vpi_systf_data systf_data_p) {
   vpi_get_systf_info(handle, systf_data_p);
 }
 nb::object vpi_handle_multi_wrap(int type, nb::args ref_handles) {
-  std::vector<vpiHandle> c_ref_handles;
-  vpiHandle refHandle1 = nullptr;
-  vpiHandle refHandle2 = nullptr;
+  // IEEE 1800 declares vpi_handle_multi as
+  //   vpiHandle vpi_handle_multi(PLI_INT32 type, vpiHandle ref1,
+  //                              vpiHandle ref2, ...);
+  // with "two or more" reference handles (the only relationship in common
+  // use is vpiInterModPath, which takes exactly two ports). A C variadic
+  // call cannot forward a runtime-sized nb::args directly, and the previous
+  // code passed `vector.data()` as ONE vararg -- so a third handle was read
+  // by the simulator as the vector's backing-array address, not as a handle.
+  // Dispatch by fixed arity instead, and reject <2 handles up front rather
+  // than calling through with null handles after only printing a message.
+  const size_t n = ref_handles.size();
+  if (n < 2) {
+    throw std::invalid_argument(
+        "vpi_handle_multi needs at least two reference handles");
+  }
+  const auto h = [&](size_t i) -> vpiHandle {
+    nb::object arg = ref_handles[i];
+    return convert(arg);
+  };
 
-  for (const auto &arg : ref_handles) {
-    if (nb::isinstance<nb::capsule>(arg)) {
-      nb::capsule cap = nb::cast<nb::capsule>(arg);
-      c_ref_handles.push_back((vpiHandle) cap.data());
-    } else {
-      throw std::runtime_error(
-          "Invalid argument type for vpiHandle conversion.");
-    }
-  }
-  if (c_ref_handles.size() >= 2) {
-    refHandle1 = c_ref_handles[0];
-    refHandle2 = c_ref_handles[1];
-    c_ref_handles.erase(c_ref_handles.begin(), c_ref_handles.begin() + 2);
-  } else {
-    vpi_printf((PLI_BYTE8*)"Error: c_ref_handles does not contain at least two elements.\n");
-  }
-  vpiHandle h = vpi_handle_multi(type, refHandle1, refHandle2, c_ref_handles.data());
-  return convert(h);
+  if (n == 2)
+    return convert(vpi_handle_multi(type, h(0), h(1)));
+  if (n == 3)
+    return convert(vpi_handle_multi(type, h(0), h(1), h(2)));
+  if (n == 4)
+    return convert(vpi_handle_multi(type, h(0), h(1), h(2), h(3)));
+  if (n == 5)
+    return convert(vpi_handle_multi(type, h(0), h(1), h(2), h(3), h(4)));
+  if (n == 6)
+    return convert(vpi_handle_multi(type, h(0), h(1), h(2), h(3), h(4), h(5)));
+
+  throw std::invalid_argument(
+      "vpi_handle_multi supports at most six reference handles");
 }
 
 void vpi_get_delays_wrap(nb::object object, p_vpi_delay delay_p) {
