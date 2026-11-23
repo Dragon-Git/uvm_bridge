@@ -13,6 +13,7 @@ completion marker only when every check passed, which is what the Makefile
 greps for on both simulators.
 """
 
+import ctypes
 import itertools
 import math
 
@@ -476,22 +477,94 @@ def test_vpi_scalar_structs():
 def test_vpi_array_value_ctors():
     """VpiArrayValue has one constructor per array element type."""
     v = svuvm.vpi
+    # The format argument decides which union member (and element width) the
+    # constructor allocates. Each case must pair its format with matching
+    # values; the old test used vpiIntVal for all of them and relied on
+    # C++-type overload resolution to pick the element type, which masked the
+    # overload-shadowing bug (only INT32/double were ever reachable).
     cases = [
-        ("integers", [1, 2, 3]),
-        ("shortints", [1, 2]),
-        ("longints", [1 << 33, 2]),
-        ("rawvals", [1, 2, 3, 4]),
-        ("reals", [1.5, 2.5]),
-        ("shortreals", [1.5, 2.5]),
+        ("integers", v.vpiIntVal, [1, 2, 3]),
+        ("shortints", v.vpiShortIntVal, [1, 2]),
+        ("longints", v.vpiLongIntVal, [1 << 33, 2]),
+        ("rawvals", v.vpiRawTwoStateVal, [1, 2, 3, 4]),
+        ("reals", v.vpiRealVal, [1.5, 2.5]),
+        ("shortreals", v.vpiShortRealVal, [1.5, 2.5]),
     ]
-    for label, values in cases:
-        def make(vals=values):
-            return v.VpiArrayValue(v.vpiIntVal, 0, vals)
+    for label, fmt, values in cases:
+        def make(f=fmt, vals=values):
+            return v.VpiArrayValue(f, 0, vals)
         arr = try_api(f"VpiArrayValue({label})", make)
         if arr is None:
             continue
-        check(arr.format == v.vpiIntVal and arr.flags == 0,
+        check(arr.format == fmt and arr.flags == 0,
               f"VpiArrayValue({label}) format/flags", f"{arr.format}/{arr.flags}")
+
+    # get_integers_values used to read past the allocated buffer with no
+    # upper bound. A 3-element buffer must reject n>3 rather than return
+    # adjacent heap garbage. This is simulator-independent (pure Python-side
+    # readback), so it runs on every backend.
+    small = v.VpiArrayValue(v.vpiIntVal, 0, [1, 2, 3])
+    check(small.get_integers_values(3) == [1, 2, 3],
+          "VpiArrayValue readback within bounds")
+    oob_rejected = False
+    try:
+        small.get_integers_values(1000)
+    except (IndexError, ValueError):
+        oob_rejected = True
+    check(oob_rejected,
+          "VpiArrayValue.get_integers_values rejects n beyond buffer",
+          "out-of-bounds read was not rejected")
+
+    # The constructor dispatches on `format`, which decides the union member's
+    # element width. Previously 8 C++-type-differentiated __init__ overloads
+    # collapsed in Python to only INT32/double (the others were unreachable),
+    # so shortint/longint/raw/shortreal buffers were allocated with the wrong
+    # stride and the simulator read garbage. Read the raw union pointer back
+    # with the correct C type to verify each format stores real values.
+    def _capsule_ptr(cap):
+        api = ctypes.pythonapi
+        api.PyCapsule_GetPointer.restype = ctypes.c_void_p
+        api.PyCapsule_GetPointer.argtypes = [ctypes.py_object, ctypes.c_char_p]
+        return api.PyCapsule_GetPointer(cap, None)
+
+    fmt_cases = [
+        ("short", v.vpiShortIntVal, ctypes.c_int16, [1, 2, 3]),
+        ("long", v.vpiLongIntVal, ctypes.c_int64, [1 << 33, 2]),
+        ("raw", v.vpiRawTwoStateVal, ctypes.c_byte, [1, 2, 3]),
+        ("shortreal", v.vpiShortRealVal, ctypes.c_float, [1.5, 2.5, 3.5]),
+    ]
+    for label, fmt, ctype, values in fmt_cases:
+        try:
+            arr = v.VpiArrayValue(fmt, 0, values)
+            addr = _capsule_ptr(arr.get_integers())
+            buf = (ctype * len(values)).from_address(addr)
+            got = [buf[i] for i in range(len(values))]
+            check(got == values,
+                  f"VpiArrayValue({label}) element width/values",
+                  f"read back {got}, expected {values}")
+        except Exception as exc:
+            fail(f"VpiArrayValue({label}) construct/readback",
+                 f"{type(exc).__name__}: {exc}")
+
+    # An unsupported format must be rejected rather than silently falling
+    # through to a default (mis-shaped) allocation.
+    bad_fmt_rejected = False
+    try:
+        v.VpiArrayValue(0x7FFFFFFF, 0, [1])
+    except ValueError:
+        bad_fmt_rejected = True
+    check(bad_fmt_rejected, "VpiArrayValue rejects unknown format",
+          "unknown format was accepted")
+
+    # get_integers_values reads PLI_INT32 elements; other formats must be
+    # rejected instead of reading past their narrower allocation.
+    nonint_rejected = False
+    try:
+        v.VpiArrayValue(v.vpiShortIntVal, 0, [1]).get_integers_values(1)
+    except ValueError:
+        nonint_rejected = True
+    check(nonint_rejected, "get_integers_values rejects non-int format",
+          "non-int format was read as int32")
 
 
 def test_vpi_get_value_formats():

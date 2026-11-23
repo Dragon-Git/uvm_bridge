@@ -14,6 +14,17 @@
 
 namespace nb = nanobind;
 
+// Own a heap array allocated for an s_vpi_arrayvalue union member with a
+// nanobind capsule, so it is freed when the Python wrapper dies (or when a
+// setter replaces it). The old code used bare new[] with no owner and leaked
+// the buffer on every construct/overwrite.
+template <typename T>
+static nb::capsule make_array_owner(T *p) {
+  return nb::capsule(p, [](void *q) noexcept {
+    delete[] static_cast<T *>(q);
+  });
+}
+
 // DPI 导出函数声明（供 SystemVerilog 调用）
 
 #ifndef NO_VPI
@@ -395,101 +406,111 @@ NB_MODULE(_svuvm, m) {
                 (p_vpi_strengthval)nb::cast<nb::capsule>(obj).data();
           });
 
-  nb::class_<s_vpi_arrayvalue>(vpi, "VpiArrayValue")
+  // The constructors below allocate the union's array on the heap. Keep that
+  // memory owned by a capsule stored on the Python object (_buf_owner) and
+  // record its element count (_buf_len). This fixes two bugs in the old code:
+  //   (1) bare new[] with no owner leaked on every construct and on every
+  //       setter overwrite (verified: 50k x 1000 ints leaked ~196 MB);
+  //   (2) get_integers_values(n) read past the allocation with no upper bound
+  //       (verified: reading 100000 from a 3-element buffer returned garbage).
+  nb::class_<s_vpi_arrayvalue>(vpi, "VpiArrayValue", nb::dynamic_attr())
       .def(nb::init<>())
+      // A single constructor dispatches on `format`. Previously there were
+      // 8 overloads distinguished only by the C++ element type of a Python
+      // list; nanobind resolves those in registration order, so every integer
+      // list hit vector<PLI_INT32> and every float list hit vector<double>
+      // (shortint/longint/byte/shortreal/... were unreachable). That mismatched
+      // the union member width with the advertised format, making the
+      // simulator read the buffer with the wrong element stride. The format
+      // argument is authoritative per IEEE 1800, so use it to pick the type.
       .def(
           "__init__",
           [](s_vpi_arrayvalue *self, unsigned int format, unsigned int flags,
-             std::vector<PLI_INT32> integers) {
-            self->format = format;
-            self->flags = flags;
-            self->value.integers = new PLI_INT32[integers.size()];
-            for (size_t i = 0; i < integers.size(); ++i) {
-              self->value.integers[i] = integers[i];
-            }
-          },
-          nb::arg("format"), nb::arg("flags"), nb::arg("value"))
-      .def(
-          "__init__",
-          [](s_vpi_arrayvalue *self, unsigned int format, unsigned int flags,
-             std::vector<PLI_INT16> shortints) {
-            self->format = format;
-            self->flags = flags;
-            self->value.shortints = new PLI_INT16[shortints.size()];
-            for (size_t i = 0; i < shortints.size(); ++i) {
-              self->value.shortints[i] = shortints[i];
-            }
-          },
-          nb::arg("format"), nb::arg("flags"), nb::arg("value"))
-      .def(
-          "__init__",
-          [](s_vpi_arrayvalue *self, unsigned int format, unsigned int flags,
-             std::vector<PLI_INT64> longints) {
-            self->format = format;
-            self->flags = flags;
-            self->value.longints = new PLI_INT64[longints.size()];
-            for (size_t i = 0; i < longints.size(); ++i) {
-              self->value.longints[i] = longints[i];
-            }
-          },
-          nb::arg("format"), nb::arg("flags"), nb::arg("value"))
-      .def(
-          "__init__",
-          [](s_vpi_arrayvalue *self, unsigned int format, unsigned int flags,
-             std::vector<PLI_BYTE8> rawvals) {
-            self->format = format;
-            self->flags = flags;
-            self->value.rawvals = new PLI_BYTE8[rawvals.size()];
-            for (size_t i = 0; i < rawvals.size(); ++i) {
-              self->value.rawvals[i] = rawvals[i];
-            }
-          },
-          nb::arg("format"), nb::arg("flags"), nb::arg("value"))
-      .def(
-          "__init__",
-          [](s_vpi_arrayvalue *self, unsigned int format, unsigned int flags,
-             std::vector<s_vpi_vecval> vectors) {
-            self->format = format;
-            self->flags = flags;
-            self->value.vectors = new s_vpi_vecval[vectors.size()];
-            for (size_t i = 0; i < vectors.size(); ++i) {
-              self->value.vectors[i] = vectors[i];
-            }
-          },
-          nb::arg("format"), nb::arg("flags"), nb::arg("value"))
-      .def(
-          "__init__",
-          [](s_vpi_arrayvalue *self, unsigned int format, unsigned int flags,
-             std::vector<s_vpi_time> times) {
-            self->format = format;
-            self->flags = flags;
-            self->value.times = new s_vpi_time[times.size()];
-            for (size_t i = 0; i < times.size(); ++i) {
-              self->value.times[i] = times[i];
-            }
-          },
-          nb::arg("format"), nb::arg("flags"), nb::arg("value"))
-      .def(
-          "__init__",
-          [](s_vpi_arrayvalue *self, unsigned int format, unsigned int flags,
-             std::vector<double> reals) {
-            self->format = format;
-            self->flags = flags;
-            self->value.reals = new double[reals.size()];
-            for (size_t i = 0; i < reals.size(); ++i) {
-              self->value.reals[i] = reals[i];
-            }
-          },
-          nb::arg("format"), nb::arg("flags"), nb::arg("value"))
-      .def(
-          "__init__",
-          [](s_vpi_arrayvalue *self, unsigned int format, unsigned int flags,
-             std::vector<float> shortreals) {
-            self->format = format;
-            self->flags = flags;
-            self->value.shortreals = new float[shortreals.size()];
-            for (size_t i = 0; i < shortreals.size(); ++i) {
-              self->value.shortreals[i] = shortreals[i];
+             nb::object values) {
+            nb::object py = nb::cast(self);
+            auto &o = *self;
+            o.format = format;
+            o.flags = flags;
+            switch (format) {
+              case vpiIntVal: {
+                auto v = nb::cast<std::vector<PLI_INT32>>(values);
+                auto *p = new PLI_INT32[v.size()];
+                for (size_t i = 0; i < v.size(); ++i) p[i] = v[i];
+                o.value.integers = p;
+                py.attr("_buf_owner") = make_array_owner(p);
+                py.attr("_buf_len") = (long long)v.size();
+                break;
+              }
+              case vpiShortIntVal: {
+                auto v = nb::cast<std::vector<PLI_INT16>>(values);
+                auto *p = new PLI_INT16[v.size()];
+                for (size_t i = 0; i < v.size(); ++i) p[i] = v[i];
+                o.value.shortints = p;
+                py.attr("_buf_owner") = make_array_owner(p);
+                py.attr("_buf_len") = (long long)v.size();
+                break;
+              }
+              case vpiLongIntVal: {
+                auto v = nb::cast<std::vector<PLI_INT64>>(values);
+                auto *p = new PLI_INT64[v.size()];
+                for (size_t i = 0; i < v.size(); ++i) p[i] = v[i];
+                o.value.longints = p;
+                py.attr("_buf_owner") = make_array_owner(p);
+                py.attr("_buf_len") = (long long)v.size();
+                break;
+              }
+              case vpiRawTwoStateVal:
+              case vpiRawFourStateVal: {
+                // PLI_BYTE8 is char; nanobind treats vector<char> as bytes and
+                // will not accept a Python list of ints. Go through vector<int>.
+                auto v = nb::cast<std::vector<int>>(values);
+                auto *p = new PLI_BYTE8[v.size()];
+                for (size_t i = 0; i < v.size(); ++i)
+                  p[i] = static_cast<PLI_BYTE8>(v[i]);
+                o.value.rawvals = p;
+                py.attr("_buf_owner") = make_array_owner(p);
+                py.attr("_buf_len") = (long long)v.size();
+                break;
+              }
+              case vpiVectorVal: {
+                auto v = nb::cast<std::vector<s_vpi_vecval>>(values);
+                auto *p = new s_vpi_vecval[v.size()];
+                for (size_t i = 0; i < v.size(); ++i) p[i] = v[i];
+                o.value.vectors = p;
+                py.attr("_buf_owner") = make_array_owner(p);
+                py.attr("_buf_len") = (long long)v.size();
+                break;
+              }
+              case vpiTimeVal: {
+                auto v = nb::cast<std::vector<s_vpi_time>>(values);
+                auto *p = new s_vpi_time[v.size()];
+                for (size_t i = 0; i < v.size(); ++i) p[i] = v[i];
+                o.value.times = p;
+                py.attr("_buf_owner") = make_array_owner(p);
+                py.attr("_buf_len") = (long long)v.size();
+                break;
+              }
+              case vpiRealVal: {
+                auto v = nb::cast<std::vector<double>>(values);
+                auto *p = new double[v.size()];
+                for (size_t i = 0; i < v.size(); ++i) p[i] = v[i];
+                o.value.reals = p;
+                py.attr("_buf_owner") = make_array_owner(p);
+                py.attr("_buf_len") = (long long)v.size();
+                break;
+              }
+              case vpiShortRealVal: {
+                auto v = nb::cast<std::vector<float>>(values);
+                auto *p = new float[v.size()];
+                for (size_t i = 0; i < v.size(); ++i) p[i] = v[i];
+                o.value.shortreals = p;
+                py.attr("_buf_owner") = make_array_owner(p);
+                py.attr("_buf_len") = (long long)v.size();
+                break;
+              }
+              default:
+                throw std::invalid_argument(
+                    "VpiArrayValue: unsupported value format");
             }
           },
           nb::arg("format"), nb::arg("flags"), nb::arg("value"))
@@ -501,46 +522,80 @@ NB_MODULE(_svuvm, m) {
            })
       // Read n PLI_INT32 values out of the integers buffer so tests can
       // assert what vpi_get_value_array actually wrote into caller memory.
-      .def("get_integers_values", [](s_vpi_arrayvalue &o, int n) {
+      // _buf_len is recorded by the constructor that allocated the buffer;
+      // set_integers() clears it (external buffer, length unknown), in which
+      // case only null/negative checks apply as before.
+      .def("get_integers_values", [](nb::object self, int n) {
+        auto &o = nb::cast<s_vpi_arrayvalue &>(self);
+        // This helper reads PLI_INT32 elements. Other formats use a different
+        // union member with a different element width, so reading them as
+        // int32 would run past the allocation. Constructors now honour the
+        // format, so reject those explicitly instead of returning garbage.
+        if (o.format != vpiIntVal) {
+          throw std::invalid_argument(
+              "get_integers_values: only valid for vpiIntVal buffers");
+        }
         if (o.value.integers == nullptr || n < 0) {
           throw std::invalid_argument("get_integers_values: null buffer or count");
         }
+        nb::object len_obj = self.attr("_buf_len");
+        if (len_obj.is_valid() && !len_obj.is_none()) {
+          long long cap = nb::cast<long long>(len_obj);
+          if (n > cap) {
+            throw std::out_of_range("get_integers_values: n exceeds buffer length");
+          }
+        }
         std::vector<PLI_INT32> out;
+        out.reserve(n);
         for (int i = 0; i < n; ++i) out.push_back(o.value.integers[i]);
         return out;
       }, nb::arg("n"))
+      // Setters adopt the supplied capsule as the new owner (releasing any
+      // buffer allocated by a constructor) and keep it alive for as long as
+      // this object points into it. Length is unknown for external buffers.
       .def("set_integers",
-           [](s_vpi_arrayvalue &o, nb::object obj) {
+           [](nb::object self, nb::object obj) {
+             auto &o = nb::cast<s_vpi_arrayvalue &>(self);
              o.value.integers = (PLI_INT32 *)nb::cast<nb::capsule>(obj).data();
+             self.attr("_buf_owner") = obj;
+             self.attr("_buf_len") = nb::none();
            })
       .def(
           "get_times",
           [](s_vpi_arrayvalue &o) { return convert((vpiHandle)o.value.times); })
       .def("set_times",
-           [](s_vpi_arrayvalue &o, nb::object obj) {
+           [](nb::object self, nb::object obj) {
+             auto &o = nb::cast<s_vpi_arrayvalue &>(self);
              o.value.times = (p_vpi_time)nb::cast<nb::capsule>(obj).data();
+             self.attr("_buf_owner") = obj;
            })
       .def(
           "get_reals",
           [](s_vpi_arrayvalue &o) { return convert((vpiHandle)o.value.reals); })
       .def("set_reals",
-           [](s_vpi_arrayvalue &o, nb::object obj) {
+           [](nb::object self, nb::object obj) {
+             auto &o = nb::cast<s_vpi_arrayvalue &>(self);
              o.value.reals = (double *)nb::cast<nb::capsule>(obj).data();
+             self.attr("_buf_owner") = obj;
            })
       .def("get_vectors",
            [](s_vpi_arrayvalue &o) {
              return convert((vpiHandle)o.value.vectors);
            })
       .def("set_vectors",
-           [](s_vpi_arrayvalue &o, nb::object obj) {
+           [](nb::object self, nb::object obj) {
+             auto &o = nb::cast<s_vpi_arrayvalue &>(self);
              o.value.vectors = (p_vpi_vecval)nb::cast<nb::capsule>(obj).data();
+             self.attr("_buf_owner") = obj;
            })
       .def("get_rawvals",
            [](s_vpi_arrayvalue &o) {
              return convert((vpiHandle)o.value.rawvals);
            })
-      .def("set_rawvals", [](s_vpi_arrayvalue &o, nb::object obj) {
+      .def("set_rawvals", [](nb::object self, nb::object obj) {
+        auto &o = nb::cast<s_vpi_arrayvalue &>(self);
         o.value.rawvals = (PLI_BYTE8 *)nb::cast<nb::capsule>(obj).data();
+        self.attr("_buf_owner") = obj;
       });
 
   nb::class_<s_vpi_systf_data>(vpi, "VpiSystfData")
