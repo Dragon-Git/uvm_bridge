@@ -255,7 +255,10 @@ NB_MODULE(_svuvm, m) {
           },
           nb::arg("da"), nb::arg("no_of_delays"), nb::arg("time_type"),
           nb::arg("mtm_flag") = 0, nb::arg("append_flag") = 0,
-          nb::arg("pulsere_flag") = 0)
+          nb::arg("pulsere_flag") = 0,
+          // da is a caller-owned array; keep the capsule alive so the pointer
+          // stored in s_vpi_delay.da stays valid (self=1, da_obj=2).
+          nb::keep_alive<1, 2>())
       .def_rw("no_of_delays", &s_vpi_delay::no_of_delays)
       .def_rw("time_type", &s_vpi_delay::time_type)
       .def_rw("mtm_flag", &s_vpi_delay::mtm_flag)
@@ -292,7 +295,7 @@ NB_MODULE(_svuvm, m) {
       .def("get_da", [](s_vpi_delay &o) { return convert((vpiHandle)o.da); })
       .def("set_da", [](s_vpi_delay &o, nb::object obj) {
         o.da = (p_vpi_time)nb::cast<nb::capsule>(obj).data();
-      });
+      }, nb::arg("obj"), nb::keep_alive<1, 2>());
 
   nb::class_<s_vpi_vecval>(vpi, "VpiVecVal")
       .def(nb::init<>())
@@ -329,18 +332,30 @@ NB_MODULE(_svuvm, m) {
             self->value.str = const_cast<char *>(str.c_str());
           },
           nb::arg("format"), nb::arg("value"), nb::keep_alive<1, 3>())
+      // IEEE 1800: `format` decides which union member is valid. These two
+      // constructors used to always write `integer` / `real` respectively,
+      // so VpiValue(vpiRealVal, 5) left real holding the bit pattern of int 5
+      // and VpiValue(vpiIntVal, 5.5) left integer as 0. Dispatch on format in
+      // each constructor; the C++ parameter type still selects the overload
+      // (Python int -> PLI_INT32, Python float -> double), which is fine.
       .def(
           "__init__",
           [](s_vpi_value *self, PLI_INT32 format, PLI_INT32 val) {
             self->format = format;
-            self->value.integer = val;
+            if (format == vpiRealVal)
+              self->value.real = static_cast<double>(val);
+            else
+              self->value.integer = val;  // vpiIntVal / vpiScalarVal
           },
           nb::arg("format"), nb::arg("value"))
       .def(
           "__init__",
           [](s_vpi_value *self, PLI_INT32 format, double val) {
             self->format = format;
-            self->value.real = val;
+            if (format == vpiRealVal)
+              self->value.real = val;
+            else
+              self->value.integer = static_cast<PLI_INT32>(val);
           },
           nb::arg("format"), nb::arg("value"))
       .def(
@@ -349,14 +364,14 @@ NB_MODULE(_svuvm, m) {
             self->format = format;
             self->value.time = (p_vpi_time)nb::cast<nb::capsule>(obj).data();
           },
-          nb::arg("format"), nb::arg("value"))
+          nb::arg("format"), nb::arg("value"), nb::keep_alive<1, 3>())
       .def(
           "__init__",
           [](s_vpi_value *self, PLI_INT32 format, nb::object obj) {
             self->format = format;
             self->value.vector = (p_vpi_vecval)nb::cast<nb::capsule>(obj).data();
           },
-          nb::arg("format"), nb::arg("value"))
+          nb::arg("format"), nb::arg("value"), nb::keep_alive<1, 3>())
       .def(
           "__init__",
           [](s_vpi_value *self, PLI_INT32 format, nb::object obj) {
@@ -364,7 +379,7 @@ NB_MODULE(_svuvm, m) {
             self->value.strength =
                 (p_vpi_strengthval)nb::cast<nb::capsule>(obj).data();
           },
-          nb::arg("format"), nb::arg("value"))
+          nb::arg("format"), nb::arg("value"), nb::keep_alive<1, 3>())
       .def_rw("format", &s_vpi_value::format)
       .def_prop_rw(
           "str",
@@ -391,20 +406,23 @@ NB_MODULE(_svuvm, m) {
           [](s_vpi_value &o) { return convert((vpiHandle)o.value.time); },
           [](s_vpi_value &o, nb::object obj) {
             o.value.time = (p_vpi_time)nb::cast<nb::capsule>(obj).data();
-          })
+          },
+          nb::for_setter(nb::keep_alive<1, 2>()))
       .def_prop_rw(
           "vector",
           [](s_vpi_value &o) { return convert((vpiHandle)o.value.vector); },
           [](s_vpi_value &o, nb::object obj) {
             o.value.vector = (p_vpi_vecval)nb::cast<nb::capsule>(obj).data();
-          })
+          },
+          nb::for_setter(nb::keep_alive<1, 2>()))
       .def_prop_rw(
           "strength",
           [](s_vpi_value &o) { return convert((vpiHandle)o.value.strength); },
           [](s_vpi_value &o, nb::object obj) {
             o.value.strength =
                 (p_vpi_strengthval)nb::cast<nb::capsule>(obj).data();
-          });
+          },
+          nb::for_setter(nb::keep_alive<1, 2>()));
 
   // The constructors below allocate the union's array on the heap. Keep that
   // memory owned by a capsule stored on the Python object (_buf_owner) and
@@ -774,7 +792,13 @@ NB_MODULE(_svuvm, m) {
           },
           nb::arg("reason"), nb::arg("cb_rtn"), nb::arg("object"),
           nb::arg("time"), nb::arg("value"), nb::arg("index"),
-          nb::arg("user_data"))
+          nb::arg("user_data"),
+          // vpi_register_cb copies s_cb_data but keeps the time/value *pointers*
+          // (IEEE 1800 36.1); the pointed-to objects must outlive the callback.
+          // Without keep_alive, passing temporaries leaves cb_data->time/value
+          // dangling and the simulator reads freed memory when it fires.
+          // Indices: self=1, reason=2, cb_rtn=3, object=4, time=5, value=6.
+          nb::keep_alive<1, 5>(), nb::keep_alive<1, 6>())
       .def_rw("reason", &s_cb_data::reason)
       .def_prop_ro("cb_rtn", [](s_cb_data &o) { return o.cb_rtn != nullptr; })
       .def_prop_rw(
@@ -787,7 +811,8 @@ NB_MODULE(_svuvm, m) {
           },
           [](s_cb_data &o, nb::object obj) {
             o.time = obj.is_none() ? nullptr : &nb::cast<s_vpi_time &>(obj);
-          })
+          },
+          nb::for_setter(nb::keep_alive<1, 2>()))
       .def_prop_rw(
           "value",
           [](s_cb_data &o) -> nb::object {
@@ -795,7 +820,8 @@ NB_MODULE(_svuvm, m) {
           },
           [](s_cb_data &o, nb::object obj) {
             o.value = obj.is_none() ? nullptr : &nb::cast<s_vpi_value &>(obj);
-          })
+          },
+          nb::for_setter(nb::keep_alive<1, 2>()))
       .def_rw("index", &s_cb_data::index)
       .def_prop_rw(
           "user_data",

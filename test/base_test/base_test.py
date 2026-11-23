@@ -14,6 +14,7 @@ greps for on both simulators.
 """
 
 import ctypes
+import gc
 import itertools
 import math
 
@@ -405,6 +406,24 @@ def test_vpi_callback():
     check(a is not None, "CbData constructed", f"got {a!r}")
     svuvm.vpi.vpi_register_cb(a)
 
+    # vpi_register_cb keeps the time/value *pointers* (IEEE 1800 36.1), so the
+    # pointed-to Python objects must stay alive as long as the CbData. Passing
+    # temporaries used to leave cb_data.time/value dangling: after GC the
+    # getters returned freed-memory garbage instead of the stored values.
+    v = svuvm.vpi
+    tmp = v.CbData(
+        v.cbAfterDelay, cb_test, obj,
+        v.VpiTime(v.vpiSimTime, 0, 4242, 0),
+        v.VpiValue(v.vpiIntVal, 31337), 0, "")
+    gc.collect()
+    try:
+        check(tmp.time.low == 4242 and tmp.value.integer == 31337,
+              "CbData keeps temporary time/value alive",
+              f"time.low={tmp.time.low} value.integer={tmp.value.integer}")
+    except Exception as exc:
+        fail("CbData temporary time/value readback",
+             f"{type(exc).__name__}: {exc}")
+
 
 def test_vpi_value_ctors():
     """VpiValue has several constructor overloads and one field per union arm.
@@ -420,6 +439,18 @@ def test_vpi_value_ctors():
           "VpiValue(format, double) -> real", f"got {v.VpiValue(v.vpiRealVal, 2.5).real!r}")
     check(v.VpiValue(v.vpiScalarVal, 1).scalar == 1,
           "VpiValue(format, scalar) -> scalar", f"got {v.VpiValue(v.vpiScalarVal, 1).scalar!r}")
+
+    # IEEE 1800: format decides the valid union member. Cross combinations
+    # (an int value with a real format, a float value with an int format) used
+    # to write the wrong arm: VpiValue(vpiRealVal, 5).real gave garbage and
+    # VpiValue(vpiIntVal, 5.5).integer gave 0. The constructor now dispatches
+    # on format instead of on the Python argument type.
+    check(v.VpiValue(v.vpiRealVal, 5).real == 5.0,
+          "VpiValue(vpiRealVal, int) writes real arm",
+          f"got {v.VpiValue(v.vpiRealVal, 5).real!r}")
+    check(v.VpiValue(v.vpiIntVal, 5.5).integer == 5,
+          "VpiValue(vpiIntVal, float) writes integer arm",
+          f"got {v.VpiValue(v.vpiIntVal, 5.5).integer!r}")
 
     # Single-argument form sets only format; fields are writable afterwards.
     val = v.VpiValue(v.vpiIntVal)
