@@ -1108,7 +1108,11 @@ NB_MODULE(_svuvm, m) {
           nb::arg("arrayvalue_p"), nb::arg("index_p"), nb::arg("num"),
           "Put an array of values.");
 
-  vpi.def("vpi_get_time", &vpi_get_time_wrap, nb::arg("object"),
+  // IEEE 1800 38.25: object may be NULL, meaning "the current simulation
+  // time" rather than a time relative to a scope. The generic nb::object ->
+  // vpiHandle conversion already maps Python None to a NULL handle, so only
+  // the nanobind signature needs to accept None.
+  vpi.def("vpi_get_time", &vpi_get_time_wrap, nb::arg("object").none(),
           nb::arg("time_p"), "Get time for an object.");
 
   vpi.def("vpi_mcd_open", vpi_func_wrap(vpi_mcd_open), nb::arg("fileName"),

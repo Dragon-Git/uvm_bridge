@@ -869,6 +869,76 @@ def test_vpi_get_value():
     check("1010101111001101" in str(bv.str),
           "vpi_get_value(vpiBinStrVal)", f"got {bv.str!r}")
 
+    # The three union arms below are the ones touched by the recent union
+    # initialisation / keep_alive fixes. Constructors were covered, but the
+    # vpi_get_value query path was not. Read each arm back through the
+    # binding's getters (capsules for vector/time, str for string).
+    def _capsule_addr(cap):
+        api = ctypes.pythonapi
+        api.PyCapsule_GetPointer.restype = ctypes.c_void_p
+        api.PyCapsule_GetPointer.argtypes = [ctypes.py_object, ctypes.c_char_p]
+        return api.PyCapsule_GetPointer(cap, None)
+
+    # vpiVectorVal: s_vpi_vecval[] is {aval, bval} per 32-bit word. The
+    # simulator may replace our buffer with one from its own pool, so always
+    # read the pointer from the value object *after* the call.
+    vecbuf = (ctypes.c_uint32 * 2)(0, 0)
+    new_cap = ctypes.pythonapi.PyCapsule_New
+    new_cap.restype = ctypes.py_object
+    new_cap.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_void_p]
+    cap = new_cap(ctypes.addressof(vecbuf), b"base_test", None)
+    vv = v.VpiValue(v.vpiVectorVal)
+    vv.vector = cap
+
+    def get_vector():
+        v.vpi_get_value(obj, vv)
+        return vv.vector
+
+    vec_cap = try_api_ex("vpi_get_value(vpiVectorVal)", get_vector)
+    if vec_cap is not _SKIPPED:
+        words = (ctypes.c_uint32 * 2).from_address(_capsule_addr(vec_cap))
+        check((words[0], words[1]) == (0xABCD, 0),
+              "vpi_get_value(vpiVectorVal) aval/bval",
+              f"got aval=0x{words[0]:X}, bval=0x{words[1]:X}")
+
+    # vpiTimeVal: the union arm holds s_vpi_time*. Verilator's
+    # vl_check_format() rejects vpiTimeVal for a logic vector and records a
+    # VPI error, so that leg is skipped there; xezim is probed for real.
+    class _VpiTimeCT(ctypes.Structure):
+        _fields_ = [("type", ctypes.c_int32), ("high", ctypes.c_uint32),
+                    ("low", ctypes.c_uint32), ("real", ctypes.c_double)]
+
+    tv = v.VpiValue(v.vpiTimeVal)
+
+    def get_time_arm():
+        v.vpi_get_value(obj, tv)
+        return tv.time
+
+    time_cap = try_api_ex("vpi_get_value(vpiTimeVal)", get_time_arm,
+                          verilator_unsafe=True)
+    if time_cap is not _SKIPPED:
+        raw = _VpiTimeCT.from_address(_capsule_addr(time_cap))
+        check(raw.type in (v.vpiSimTime, v.vpiScaledRealTime) and
+              (int(raw.low) >= 0 and int(raw.high) >= 0),
+              "vpi_get_value(vpiTimeVal) time arm",
+              f"got type={raw.type} high={raw.high} low={raw.low} real={raw.real}")
+
+    # vpiStringVal: for a packed vector the string arm is the vector's byte
+    # representation. "ABCD" is printable on both backends (unlike 0xCDAB,
+    # whose high bytes decode differently and are replaced by spaces).
+    svuvm.uvm_hdl_deposit("top.dpi_vec_test", svuvm.VpiVecVal(0x41424344, 0x0))
+    sv = v.VpiValue(v.vpiStringVal)
+
+    def get_string_arm():
+        v.vpi_get_value(obj, sv)
+        return str(sv.str).strip()
+
+    text = try_api_ex("vpi_get_value(vpiStringVal)", get_string_arm)
+    if text is not _SKIPPED:
+        check(text.encode("utf-8", "replace") in (b"ABCD", b"DCBA"),
+              "vpi_get_value(vpiStringVal) byte string", f"got {text!r}")
+    svuvm.uvm_hdl_deposit("top.dpi_vec_test", svuvm.VpiVecVal(0x0000ABCD, 0x0))
+
 
 def test_vpi_put_value():
     """vpi_put_value then vpi_get_value read-back (whole 32-bit pattern)."""
@@ -1211,6 +1281,18 @@ def test_vpi_control_operations():
               f"svuvm.{name} convenience binding exists",
               f"got {getattr(svuvm, name, None)!r}")
 
+    # Isolated-only terminal operations: the opcodes are verified above, but
+    # executing them from main() would either terminate the simulator
+    # (vpiFinish) or suspend it waiting for interactive input (vpiStop), so
+    # main() could never print the completion marker the Makefile gates on.
+    # A +UVM_PY_FUNC standalone entry is not viable either: probing it with
+    # both backends showed no Python call at all (no [PASS]/sys.path output),
+    # so a real isolated test needs a separate SV test component and a
+    # dedicated make target. Record the boundary explicitly instead of
+    # pretending the behavior was exercised.
+    skip("vpiStop/vpiFinish terminal behavior",
+         "isolated-only: terminates/suspends before completion marker; opcodes verified")
+
     # IEEE 1800-2023 38.4: vpiReset carries stop_value, reset_value and
     # diagnostics_value. Exercise both the raw VPI call and the convenience
     # binding (with and without explicit arguments) to catch a lost-vararg
@@ -1247,15 +1329,16 @@ def test_vpi_control_operations():
 
 
 def test_vpi_get_time_formats():
-    """vpi_get_time() with a real scope handle and both standard time formats.
+    """vpi_get_time() with a real scope handle and the NULL-object global form.
 
-    IEEE allows a NULL object handle (global time), but the Python binding
-    declares ``object`` as non-optional, so only the real-handle form is
-    callable here; the NULL form would just raise TypeError on every backend.
+    IEEE 1800 38.25 allows object=NULL to read the current simulation time
+    without scope scaling. The binding used to reject None in its signature;
+    it now declares the argument .none() and the wrapper converts None to a
+    NULL vpiHandle.
     """
     v = svuvm.vpi
     top = v.vpi_handle_by_name("top")
-    for label, obj in (("top", top),):
+    for label, obj in (("top", top), ("NULL", None)):
         for fmt_name in ("vpiSimTime", "vpiScaledRealTime"):
             fmt = getattr(v, fmt_name)
 
@@ -1318,6 +1401,13 @@ def test_vpi_callback_reasons():
         ("cbError", v.cbError, True),
         ("cbInteractiveScopeChange", v.cbInteractiveScopeChange, False),
         ("cbUnresolvedSystf", v.cbUnresolvedSystf, True),
+        # xezim's vpi_user.h documents cbAtEndOfSimTime, cbNBASynch and
+        # cbStartOfSimulation as supported (issue #1190 is about assertion
+        # callbacks, not these). Verilator handles cbAtEndOfSimTime and
+        # cbStartOfSimulation but has no cbNBASynch case in vpi_register_cb.
+        ("cbAtEndOfSimTime", v.cbAtEndOfSimTime, False),
+        ("cbNBASynch", v.cbNBASynch, True),
+        ("cbStartOfSimulation", v.cbStartOfSimulation, False),
     ]
     keep_alive = []
     for label, reason, unsafe in cases:
@@ -1463,6 +1553,27 @@ def test_vpi_property_matrix():
             unsafe = prop in ("vpiLineNo", "vpiTopModule")
             value = try_api_ex(f"vpi_get({prop}, {path})",
                                lambda p=prop, h=handle, g=getter: g(getattr(v, p), h),
+                               verilator_unsafe=unsafe)
+            if value is _SKIPPED:
+                continue
+            check(value is None or isinstance(value, int),
+                  f"vpi_get({prop}, {path}) type", f"got {value!r}")
+
+        # Common query properties on the same handles. Verilator's vpi_get
+        # switch (verilated_vpi.cpp) implements vpiDirection and vpiSigned but
+        # routes vpiNetType/vpiLeftRange/vpiRightRange through
+        # VL_VPI_ERROR_, so those three are skipped there. Avoid asserting a
+        # concrete value: the encoding and the range of a 1-bit reg differ
+        # between backends.
+        for prop, unsafe in (
+            ("vpiDirection", False),
+            ("vpiNetType", True),
+            ("vpiSigned", False),
+            ("vpiLeftRange", True),
+            ("vpiRightRange", True),
+        ):
+            value = try_api_ex(f"vpi_get({prop}, {path})",
+                               lambda p=prop, h=handle: v.vpi_get(getattr(v, p), h),
                                verilator_unsafe=unsafe)
             if value is _SKIPPED:
                 continue

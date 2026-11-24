@@ -273,6 +273,8 @@ void vpi_put_value_array_wrap(nb::object object, nb::object arrayvalue_obj,
 }
 
 void vpi_get_time_wrap(nb::object object, p_vpi_time time_p) {
+  // IEEE 1800 38.25 allows a NULL object (global simulation time). convert()
+  // maps nb::none() to a NULL vpiHandle, so None is forwarded unchanged.
   vpiHandle handle = convert(object);
   vpi_get_time(handle, time_p);
 }
