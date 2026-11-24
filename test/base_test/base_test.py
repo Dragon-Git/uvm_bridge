@@ -633,6 +633,39 @@ def test_vpi_array_value_ctors():
     check(nonint_rejected, "get_integers_values rejects non-int format",
           "non-int format was read as int32")
 
+    # A setter replaces the union arm, so it must also update `format`.
+    # Previously set_reals() on an int array left format=vpiIntVal and
+    # _buf_len=3, so reading 3 ints from the new 8-byte buffer returned heap
+    # garbage instead of raising. Both the rejection and the still-valid
+    # set_integers() path are simulator-independent and run everywhere.
+    import ctypes as _ct
+
+    new_cap = _ct.pythonapi.PyCapsule_New
+    new_cap.restype = _ct.py_object
+    new_cap.argtypes = [_ct.c_void_p, _ct.c_char_p, _ct.c_void_p]
+    switched = v.VpiArrayValue(v.vpiIntVal, 0, [1, 2, 3])
+    reals = (_ct.c_double * 1)(2.5)
+    reals_cap = new_cap(_ct.addressof(reals), b"audit", None)
+    switched.set_reals(reals_cap)
+    stale_fmt_rejected = False
+    try:
+        switched.get_integers_values(3)
+    except (IndexError, ValueError):
+        stale_fmt_rejected = True
+    check(stale_fmt_rejected,
+          "set_reals switches format so get_integers_values is rejected",
+          "stale int format read past the new real buffer")
+    check(switched.format == v.vpiRealVal,
+          "set_reals updates format to vpiRealVal", f"got {switched.format}")
+
+    kept = v.VpiArrayValue(v.vpiIntVal, 0, [1, 2, 3])
+    ints = (_ct.c_int32 * 3)(7, 8, 9)
+    ints_cap = new_cap(_ct.addressof(ints), b"audit", None)
+    kept.set_integers(ints_cap)
+    check(kept.get_integers_values(3) == [7, 8, 9],
+          "set_integers keeps get_integers_values readable",
+          "int buffer readback broke after set_integers")
+
 
 def test_vpi_get_value_formats():
     """vpi_get_value fills different union arms depending on format.
@@ -1415,6 +1448,20 @@ def test_vpi_value_array_control():
         skip("vpi value array control", "no handle for top.mem_arr")
         return
 
+    # The bridge must reject `num` larger than the buffer it allocated: a
+    # conforming simulator writes exactly `num` elements (IEEE 1800 38.14),
+    # which would overflow this 3-element heap buffer. The guard fires before
+    # the simulator call, so this runs safely on every backend.
+    small = v.VpiArrayValue(v.vpiIntVal, 0, [1, 2, 3])
+    for api in ("vpi_get_value_array", "vpi_put_value_array"):
+        num_oob = False
+        try:
+            getattr(v, api)(obj, small, 0, 100)
+        except (IndexError, ValueError):
+            num_oob = True
+        check(num_oob, f"{api} rejects num beyond buffer length",
+              "oversized num reached the simulator")
+
     # Flag conventions differ by backend. xezim requires vpiUserAllocFlag and
     # vpiOneValue; Verilator's verilated_vpi.cpp rejects both (vpiUserAllocFlag
     # and vpiOneValue take the VL_VPI_ERROR_ abort path) and instead writes
@@ -1513,6 +1560,12 @@ def test_vpi_handle_by_multi_index():
 def test_vpi_delay_variants():
     """VpiDelay constructor forms and all control flags (IEEE 1800 38.10/38.32)."""
     v = svuvm.vpi
+    # IEEE 1800: s_vpi_time.type must be vpiSimTime/vpiScaledRealTime; 0 is
+    # illegal. The default-constructed VpiDelay used to carry time_type=0.
+    default_delay = v.VpiDelay()
+    check(default_delay.time_type == v.vpiSimTime,
+          "VpiDelay() defaults time_type to vpiSimTime",
+          f"got {default_delay.time_type}")
     # da must be a capsule because the binding takes cap.data() directly; a
     # VPI handle capsule is enough for a constructor-only test (no VPI call
     # dereferences it here).
@@ -1547,12 +1600,15 @@ def test_vpi_assertion_control():
 
     There is no dedicated vpi_set_assertion_control() in the LRM: every
     assertion control is an operation code passed to vpi_control(op, handle).
-    All standard opcodes are checked (pure binding surface). System-level
-    controls take no handle (they act on every assertion at once), so they are
-    invoked with just the operation and checked for the success return; this
-    works even when no assertion object is exposed through VPI. Per-assertion
-    controls need a real assertion handle, which simulators need not expose, so
-    those stay at the opcode/binding level.
+    All standard opcodes are checked (pure binding surface). IEEE 1800-2023
+    39.5.1 requires a SECOND handle argument for the system-level operations
+    too: it is a vpiHandle for a scope, and NULL means the control applies to
+    all assertions regardless of scope. Those calls therefore pass a scope
+    handle (or None for the all-scopes form) and only assert the status code;
+    this works even when no assertion object is exposed through VPI.
+    Per-assertion controls (39.5.2, incl. Lock/Unlock 645/646) need a real
+    assertion handle, which simulators need not expose, so those are skipped
+    when no assertion object is available.
     """
     v = svuvm.vpi
     # IEEE 1800-2023 39.2 / sv_vpi_user.h assertion control opcodes.
@@ -1631,21 +1687,30 @@ def test_vpi_assertion_control():
                   "vpi_control(vpiAssertionEnableStep) returns a status",
                   f"got {rc!r}, expected 0 or 1")
 
-    # Lock/Unlock (645/646) are genuinely unimplemented by xezim ("operation
-    # not supported", documented as Phase-2 work upstream); keep them skipped
-    # after their opcode constants have been checked above.
-    for name in ("vpiAssertionLock", "vpiAssertionUnlock"):
-        try_api_ex(
-            f"vpi_control({name})",
-            lambda name=name: v.vpi_control(getattr(v, name), scope),
-            xezim_unsafe=True,
-        )
+    # Lock/Unlock (645/646, IEEE 1800-2023 39.5.2) take a single assertion
+    # handle -- the same `ah` used by the per-assertion controls above. xezim
+    # reports these operations as unsupported, so keep them skipped there
+    # after their opcode constants have been checked.
+    if ah is None:
+        skip("vpi_control(Lock/Unlock, assertion)", "no assertion handle")
+    else:
+        for name in ("vpiAssertionLock", "vpiAssertionUnlock"):
+            rc = try_api_ex(
+                f"vpi_control({name}, assertion)",
+                lambda name=name: v.vpi_control(getattr(v, name), ah),
+                xezim_unsafe=True,
+            )
+            if rc is not _SKIPPED:
+                check(isinstance(rc, int) and rc in (0, 1),
+                      f"vpi_control({name}, assertion) returns a status",
+                      f"got {rc!r}, expected 0 or 1")
 
-    # System-level controls (IEEE 1800-2023 39.2) need no assertion handle:
-    # vpi_control(op) with no object acts on all assertions. They are usable
-    # even when VPI exposes no assertion object (our simulators do not). The
-    # sequence re-enables after Off/Reset so the assertion system stays live
-    # for later tests; Kill is last since it ends the assertions under test.
+    # System-level controls (IEEE 1800-2023 39.5.1) DO take a second handle
+    # argument: a scope handle, where NULL applies to all assertions. Passing
+    # only the opcode made a conforming tool read a garbage va_arg. They are
+    # usable even when VPI exposes no assertion object (our simulators do not).
+    # The sequence re-enables after Off/Reset so the assertion system stays
+    # live for later tests; Kill is last since it ends the assertions.
     sys_sequence = (
         "vpiAssertionSysOn", "vpiAssertionSysReset", "vpiAssertionSysOff",
         "vpiAssertionSysOn", "vpiAssertionSysKill",
@@ -1653,13 +1718,24 @@ def test_vpi_assertion_control():
     for name in sys_sequence:
         op = getattr(v, name)
         rc = try_api_ex(
-            f"vpi_control({name}) [system]",
-            lambda op=op: v.vpi_control(op),
+            f"vpi_control({name}, scope) [system]",
+            lambda op=op: v.vpi_control(op, scope),
         )
         if rc is _SKIPPED:
             continue
         check(isinstance(rc, int) and rc in (0, 1),
-              f"vpi_control({name}) [system] returns a status",
+              f"vpi_control({name}, scope) [system] returns a status",
+              f"got {rc!r}, expected 0 or 1")
+
+    # Explicitly cover the legal NULL-handle form ("all assertions, all
+    # scopes") required by IEEE 1800-2023 39.5.1.
+    rc = try_api_ex(
+        "vpi_control(vpiAssertionSysOn, None) [system, NULL handle]",
+        lambda: v.vpi_control(v.vpiAssertionSysOn, None),
+    )
+    if rc is not _SKIPPED:
+        check(isinstance(rc, int) and rc in (0, 1),
+              "vpi_control(system, None) returns a status",
               f"got {rc!r}, expected 0 or 1")
 
 

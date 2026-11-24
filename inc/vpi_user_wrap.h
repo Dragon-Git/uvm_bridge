@@ -214,15 +214,57 @@ nb::object vpi_put_value_wrap(nb::object object, p_vpi_value value_p,
   return convert(h);
 }
 
-void vpi_get_value_array_wrap(nb::object object, p_vpi_arrayvalue arrayvalue_p,
+// Guard vpi_get/put_value_array against writing `num` elements into an
+// undersized heap buffer (IEEE 1800-2023 38.14: the tool writes exactly `num`
+// elements into the caller's array). Bridge-created VpiArrayValue objects
+// record their allocation length on the Python object as `_buf_len`. We read
+// that attribute from the very Python object we were handed -- never from an
+// arbitrary raw pointer -- so a foreign object, a default-constructed one, or
+// one whose length is unknown (set_* installed an external capsule) simply
+// skips validation. This is a safety check, not an API change: a legal `num`
+// is forwarded unchanged.
+inline void check_arrayvalue_num(const nb::object &arrayvalue_obj,
+                                 PLI_UINT32 num, const char *api_name) {
+  nb::object len_obj;
+  try {
+    len_obj = arrayvalue_obj.attr("_buf_len");
+  } catch (const std::exception &) {
+    return;  // no recorded length on this object; nothing we can validate
+  }
+  if (!len_obj.is_valid() || len_obj.is_none()) {
+    return;
+  }
+  long long capacity = 0;
+  try {
+    capacity = nb::cast<long long>(len_obj);
+  } catch (const std::exception &) {
+    return;
+  }
+  if (capacity < 0) {
+    return;
+  }
+  if (static_cast<unsigned long long>(num) >
+      static_cast<unsigned long long>(capacity)) {
+    throw std::out_of_range(std::string(api_name) +
+                            ": num exceeds VpiArrayValue buffer length");
+  }
+}
+
+void vpi_get_value_array_wrap(nb::object object, nb::object arrayvalue_obj,
                               PLI_INT32 *index_p, PLI_UINT32 num) {
   vpiHandle handle = convert(object);
+  p_vpi_arrayvalue arrayvalue_p =
+      &nb::cast<s_vpi_arrayvalue &>(arrayvalue_obj);
+  check_arrayvalue_num(arrayvalue_obj, num, "vpi_get_value_array");
   vpi_get_value_array(handle, arrayvalue_p, index_p, num);
 }
 
-void vpi_put_value_array_wrap(nb::object object, p_vpi_arrayvalue arrayvalue_p,
+void vpi_put_value_array_wrap(nb::object object, nb::object arrayvalue_obj,
                               PLI_INT32 *index_p, PLI_UINT32 num) {
   vpiHandle handle = convert(object);
+  p_vpi_arrayvalue arrayvalue_p =
+      &nb::cast<s_vpi_arrayvalue &>(arrayvalue_obj);
+  check_arrayvalue_num(arrayvalue_obj, num, "vpi_put_value_array");
   vpi_put_value_array(handle, arrayvalue_p, index_p, num);
 }
 
@@ -342,7 +384,12 @@ int vpi_printf_wrap(const std::string &format) {
 //                                   -> void *handle, void *time_p
 //   * 624 (EnableStep) additionally -> int step
 //   * 633..638 (assert action controls) -> void *handle
-//   * 627..632 / 639..644 / 647..648 (system ops) -> no arguments
+//   * 645..646 (assert Lock/Unlock) -> void *handle
+//   * 627..630 / 632 / 639..644 / 647..648 (system ops)
+//                                   -> void *handle (scope; NULL = all)
+// IEEE 1800-2023 39.5.1 requires a second handle argument even for the
+// system-wide operations: a vpiHandle for a scope, where NULL means the
+// control applies to all assertions regardless of scope.
 // Passing a pointer-to-array (as an earlier version did) made the simulator
 // read the array address as the first handle and garbage for later arguments.
 static void *vpi_control_handle_arg(const nb::object &o) {
@@ -365,11 +412,14 @@ int vpi_control_wrap(int operation, nb::args args) {
     return i < n ? args[i] : nb::object(nb::none());
   };
 
-  // Assertion system-wide operations take no trailing argument at all.
+  // Assertion system-wide operations (IEEE 1800-2023 39.5.1) take a second
+  // handle argument: a vpiHandle for a scope. A NULL handle (Python None, or
+  // no argument at all) means the control applies to all assertions
+  // regardless of scope; a real scope handle is forwarded unchanged.
   if ((operation >= 627 && operation <= 630) || operation == 632 ||
       (operation >= 639 && operation <= 644) || operation == 647 ||
       operation == 648)
-    return vpi_control(operation);
+    return vpi_control(operation, vpi_control_handle_arg(at(0)));
 
   // vpiStop / vpiFinish take an integer "diagnostic level".
   if (operation == 66 /* vpiStop */ || operation == 67 /* vpiFinish */) {
@@ -415,6 +465,13 @@ int vpi_control_wrap(int operation, nb::args args) {
   if (operation >= 633 && operation <= 638)
     return vpi_control(operation, vpi_control_handle_arg(at(0)));
 
+  // vpiAssertionLock / vpiAssertionUnlock (645/646, IEEE 1800-2023 39.5.2)
+  // each take one assertion handle. They used to fall through to the bare
+  // vpi_control(operation) call and had that handle silently discarded.
+  if (operation == 645 /* vpiAssertionLock */ ||
+      operation == 646 /* vpiAssertionUnlock */)
+    return vpi_control(operation, vpi_control_handle_arg(at(0)));
+
   // Unknown / unruntime-supported operation: forward with no trailing args so
   // the simulator can emit its standard "operation not supported" diagnostic.
   return vpi_control(operation);
@@ -430,6 +487,15 @@ struct CallbackInfo {
   // call sites keep working.
   nb::object nb_compiletf;
   nb::object nb_sizetf;
+  // IEEE 1800 36.1: vpi_register_cb copies s_cb_data but keeps the raw
+  // time/value pointers until vpi_remove_cb. keep_alive on the Python CbData
+  // wrapper only protects them while that wrapper is alive; after registration
+  // the simulator is the real user. Pin the two objects on this shared
+  // CallbackInfo so the registration registry keeps them alive for exactly
+  // that window. None for systf data (no time/value there) and for callers
+  // that do not supply them. Defaulted so all existing call sites are intact.
+  nb::object nb_time = nb::none();
+  nb::object nb_value = nb::none();
   std::string user_data;
   // Owns a NUL-terminated string whose c_str() is handed to a C struct field
   // (e.g. s_vpi_systf_data.tfname). Lives exactly as long as the CallbackInfo
@@ -543,11 +609,28 @@ callback_registry() {
 
 // Create a CallbackInfo under shared ownership and make it discoverable by
 // its raw user_data pointer. Every former `new CallbackInfo` site uses this.
+// `time` / `value` are the Python objects behind cb_data->time / ->value: they
+// must outlive the registration window even if the Python CbData wrapper is
+// collected right after vpi_register_cb (IEEE 36.1). The registry holds the
+// returned shared_ptr until vpi_remove_cb succeeds; when that copy and the
+// wrapper's capsule are both gone, the objects are released together with
+// the simulator's use of the pointers. Systf callers pass None for both.
 inline std::shared_ptr<CallbackInfo> make_callback_info(nb::object cb,
-                                                        std::string ud) {
+                                                        std::string ud,
+                                                        nb::object time,
+                                                        nb::object value) {
   auto sp = std::make_shared<CallbackInfo>(std::move(cb), std::move(ud));
+  sp->nb_time = std::move(time);
+  sp->nb_value = std::move(value);
   callback_raw_map()[sp.get()] = sp;  // implicit weak_ptr from shared_ptr
   return sp;
+}
+
+// Backwards-compatible form for the many callers with no time/value objects.
+inline std::shared_ptr<CallbackInfo> make_callback_info(nb::object cb,
+                                                        std::string ud) {
+  return make_callback_info(std::move(cb), std::move(ud), nb::none(),
+                            nb::none());
 }
 
 // Recover shared ownership from the raw pointer the simulator handed back.

@@ -248,7 +248,18 @@ NB_MODULE(_svuvm, m) {
       .def_rw("real", &s_vpi_time::real);
 
   nb::class_<s_vpi_delay>(vpi, "VpiDelay", nb::dynamic_attr())
-      .def(nb::init<>())
+      // IEEE 1800: s_vpi_time.type must be vpiSimTime (2) or
+      // vpiScaledRealTime (1); 0 is illegal. nb::init<> would zero the struct
+      // and hand the simulator an invalid time_type, so install the legal
+      // default explicitly (same pattern as VpiTime above). da stays nullptr.
+      .def("__init__", [](s_vpi_delay *self) {
+        self->da = nullptr;
+        self->no_of_delays = 0;
+        self->time_type = vpiSimTime;
+        self->mtm_flag = 0;
+        self->append_flag = 0;
+        self->pulsere_flag = 0;
+      })
       .def(
           "__init__",
           [](s_vpi_delay *self, nb::object da_obj, int no_of_delays,
@@ -263,7 +274,8 @@ NB_MODULE(_svuvm, m) {
             self->append_flag = append_flag;
             self->pulsere_flag = pulsere_flag;
           },
-          nb::arg("da"), nb::arg("no_of_delays"), nb::arg("time_type"),
+          nb::arg("da"), nb::arg("no_of_delays"),
+          nb::arg("time_type") = vpiSimTime,
           nb::arg("mtm_flag") = 0, nb::arg("append_flag") = 0,
           nb::arg("pulsere_flag") = 0,
           // da is a caller-owned array; keep the capsule alive so the pointer
@@ -605,10 +617,18 @@ NB_MODULE(_svuvm, m) {
       // Setters adopt the supplied capsule as the new owner (releasing any
       // buffer allocated by a constructor) and keep it alive for as long as
       // this object points into it. Length is unknown for external buffers.
+      // Every setter replaces the union arm AND must update `format` to match
+      // it; otherwise a reader still trusts the old format and walks the new
+      // buffer with the wrong element stride (verified: set_reals on an int
+      // array then get_integers_values(3) read 12 bytes out of an 8-byte
+      // buffer). External capsule lengths are not observable from Python, so
+      // `_buf_len` is uniformly cleared to "unknown"; the format guard in the
+      // getters is what rejects a mismatched read.
       .def("set_integers",
            [](nb::object self, nb::object obj) {
              auto &o = nb::cast<s_vpi_arrayvalue &>(self);
              o.value.integers = (PLI_INT32 *)nb::cast<nb::capsule>(obj).data();
+             o.format = vpiIntVal;
              self.attr("_buf_owner") = obj;
              self.attr("_buf_len") = nb::none();
            })
@@ -619,7 +639,9 @@ NB_MODULE(_svuvm, m) {
            [](nb::object self, nb::object obj) {
              auto &o = nb::cast<s_vpi_arrayvalue &>(self);
              o.value.times = (p_vpi_time)nb::cast<nb::capsule>(obj).data();
+             o.format = vpiTimeVal;
              self.attr("_buf_owner") = obj;
+             self.attr("_buf_len") = nb::none();
            })
       .def(
           "get_reals",
@@ -628,7 +650,9 @@ NB_MODULE(_svuvm, m) {
            [](nb::object self, nb::object obj) {
              auto &o = nb::cast<s_vpi_arrayvalue &>(self);
              o.value.reals = (double *)nb::cast<nb::capsule>(obj).data();
+             o.format = vpiRealVal;
              self.attr("_buf_owner") = obj;
+             self.attr("_buf_len") = nb::none();
            })
       .def("get_vectors",
            [](s_vpi_arrayvalue &o) {
@@ -638,7 +662,9 @@ NB_MODULE(_svuvm, m) {
            [](nb::object self, nb::object obj) {
              auto &o = nb::cast<s_vpi_arrayvalue &>(self);
              o.value.vectors = (p_vpi_vecval)nb::cast<nb::capsule>(obj).data();
+             o.format = vpiVectorVal;
              self.attr("_buf_owner") = obj;
+             self.attr("_buf_len") = nb::none();
            })
       .def("get_rawvals",
            [](s_vpi_arrayvalue &o) {
@@ -647,7 +673,12 @@ NB_MODULE(_svuvm, m) {
       .def("set_rawvals", [](nb::object self, nb::object obj) {
         auto &o = nb::cast<s_vpi_arrayvalue &>(self);
         o.value.rawvals = (PLI_BYTE8 *)nb::cast<nb::capsule>(obj).data();
+        // The header exposes vpiRawTwoStateVal / vpiRawFourStateVal (17/18);
+        // a bare byte capsule has no four-state info, so two-state is the
+        // consistent choice and matches the constructor's raw buffer.
+        o.format = vpiRawTwoStateVal;
         self.attr("_buf_owner") = obj;
+        self.attr("_buf_len") = nb::none();
       });
 
   // dynamic_attr lets the constructors/setters attach an nb::capsule that
@@ -870,7 +901,13 @@ NB_MODULE(_svuvm, m) {
             self.p->value = v;
             self.p->index = index;
             self.p->user_data = nullptr;
-            auto callback_info = make_callback_info(cb_rtn, user_data);
+            // Pin `time` and `value` on the shared CallbackInfo as well as via
+            // keep_alive<1,5>/<1,6>. keep_alive only lasts while this Python
+            // CbData wrapper lives; the simulator keeps the raw pointers after
+            // registration (IEEE 1800 36.1). The registry's shared_ptr now
+            // keeps both objects alive until vpi_remove_cb succeeds.
+            auto callback_info =
+                make_callback_info(cb_rtn, user_data, time, value);
             self.p->user_data =
                 reinterpret_cast<PLI_BYTE8 *>(callback_info.get());
             self.h.attr("_vpi_callback_info_owner") =
