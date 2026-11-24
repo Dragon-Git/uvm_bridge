@@ -5,6 +5,7 @@
 #include "vpi_user.h"
 #include <dlfcn.h>
 #include <functional>
+#include <stdexcept>
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
@@ -189,6 +190,23 @@ void vpi_get_value_wrap(nb::object object, p_vpi_value value_p) {
 
 nb::object vpi_put_value_wrap(nb::object object, p_vpi_value value_p,
                               p_vpi_time time_p, PLI_INT32 flags) {
+  // IEEE 1800-2023 38.35: vpiInertialDelay / vpiTransportDelay /
+  // vpiPureTransportDelay require a non-NULL time_p whose type is
+  // vpiSimTime. vpiNoDelay ignores time_p (NULL is legal), and
+  // vpiForceFlag / vpiReleaseFlag do not require one either. These delay
+  // constants are mutually exclusive enum values (1..6), not bit flags,
+  // so they must be compared by equality rather than with a bitmask test.
+  if (flags == vpiInertialDelay || flags == vpiTransportDelay ||
+      flags == vpiPureTransportDelay) {
+    if (time_p == nullptr) {
+      throw std::invalid_argument(
+          "vpi_put_value: delay flags require a non-null time_p");
+    }
+    if (time_p->type != vpiSimTime) {
+      throw std::invalid_argument(
+          "vpi_put_value: delay time_p must have type vpiSimTime");
+    }
+  }
   vpiHandle handle = convert(object);
   vpiHandle h = vpi_put_value(handle, value_p, time_p, flags);
   return convert(h);
@@ -343,6 +361,14 @@ int vpi_control_wrap(int operation, nb::args args) {
 
 struct CallbackInfo {
   nb::object nb_callback;
+  // IEEE 1800 36: s_vpi_systf_data exposes three independent callbacks, all
+  // with the signature PLI_INT32 (*)(PLI_BYTE8*). compiletf validates
+  // arguments at compile time and sizetf reports the width of a sized system
+  // function; both are optional, so they default to None. The constructor
+  // signature is intentionally unchanged so existing CallbackInfo(cb, ud)
+  // call sites keep working.
+  nb::object nb_compiletf;
+  nb::object nb_sizetf;
   std::string user_data;
   // Owns a NUL-terminated string whose c_str() is handed to a C struct field
   // (e.g. s_vpi_systf_data.tfname). Lives exactly as long as the CallbackInfo
@@ -350,7 +376,8 @@ struct CallbackInfo {
   std::string owned_str;
 
   CallbackInfo(nb::object cb, std::string ud)
-      : nb_callback(cb), user_data(ud) {}
+      : nb_callback(cb), nb_compiletf(nb::none()), nb_sizetf(nb::none()),
+        user_data(ud) {}
 };
 
 static PLI_INT32 vpi_callback_wrap(p_cb_data cb_data) {
@@ -383,6 +410,41 @@ static PLI_INT32 systf_callback_wrap(PLI_BYTE8 *user_data) {
     std::cerr << "Exception in python callback: " << e.what() << std::endl;
     return 0;
   }
+}
+
+// Shared dispatcher for the two newly bound systf callbacks. Both follow the
+// same IEEE 1800 signature and calling convention as calltf: no arguments,
+// None -> 0, int -> that value, Python exception -> diagnostic + 0.
+static PLI_INT32 invoke_systf_python(const nb::object &callback,
+                                    const char *kind) {
+  nb::gil_scoped_acquire gil;
+  try {
+    nb::object nb_result = callback();
+    if (nb_result.is_none()) {
+      return 0;
+    }
+    return nb::cast<PLI_INT32>(nb_result);
+  } catch (const nb::python_error &e) {
+    std::cerr << "Exception in python " << kind << " callback: "
+              << e.what() << std::endl;
+    return 0;
+  }
+}
+
+static PLI_INT32 systf_compiletf_wrap(PLI_BYTE8 *user_data) {
+  auto *callback_info = reinterpret_cast<CallbackInfo *>(user_data);
+  if (callback_info == nullptr || callback_info->nb_compiletf.is_none()) {
+    return 0;
+  }
+  return invoke_systf_python(callback_info->nb_compiletf, "compiletf");
+}
+
+static PLI_INT32 systf_sizetf_wrap(PLI_BYTE8 *user_data) {
+  auto *callback_info = reinterpret_cast<CallbackInfo *>(user_data);
+  if (callback_info == nullptr || callback_info->nb_sizetf.is_none()) {
+    return 0;
+  }
+  return invoke_systf_python(callback_info->nb_sizetf, "sizetf");
 }
 
 #endif /* VPI_USER_WRAP_H */

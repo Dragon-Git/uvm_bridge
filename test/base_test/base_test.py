@@ -452,6 +452,27 @@ def test_vpi_value_ctors():
           "VpiValue(vpiIntVal, float) writes integer arm",
           f"got {v.VpiValue(v.vpiIntVal, 5.5).integer!r}")
 
+    # IEEE 1800: a plain scalar is only valid for the three scalar formats.
+    # Pointer/string formats have dedicated constructors, and the
+    # short/long/shortreal formats belong to s_vpi_arrayvalue, not this
+    # union. Writing `integer` for any of them used to produce a wild
+    # pointer when the simulator read the union according to `format`.
+    for fmt_name in ("vpiVectorVal", "vpiTimeVal", "vpiStrengthVal",
+                     "vpiStringVal", "vpiShortIntVal", "vpiLongIntVal"):
+        fmt = getattr(v, fmt_name, None)
+        if fmt is None:
+            continue
+        try:
+            v.VpiValue(fmt, 5)
+        except (ValueError, TypeError) as exc:
+            check(True, f"VpiValue({fmt_name}, int) rejected", str(exc))
+        except Exception as exc:
+            check(False, f"VpiValue({fmt_name}, int) rejected",
+                  f"wrong exception {type(exc).__name__}: {exc}")
+        else:
+            check(False, f"VpiValue({fmt_name}, int) rejected",
+                  "scalar constructor was accepted")
+
     # Single-argument form sets only format; fields are writable afterwards.
     val = v.VpiValue(v.vpiIntVal)
     check(val.format == v.vpiIntVal, "VpiValue(format) sets format", f"got {val.format!r}")
@@ -487,6 +508,20 @@ def test_vpi_scalar_structs():
     p = v.VpiVecVal(0x1234, 0x5678)
     check((p.aval, p.bval) == (0x1234, 0x5678), "VpiVecVal(aval, bval)",
           f"{p.aval:x}/{p.bval:x}")
+
+    # IEEE 1800: s_vpi_time.type must be vpiScaledRealTime or vpiSimTime;
+    # 0 is reserved/illegal. Both the no-arg and the defaulted 4-arg
+    # constructor must now start out as vpiSimTime.
+    default_time = v.VpiTime()
+    check(default_time.type == v.vpiSimTime and default_time.high == 0
+          and default_time.low == 0 and default_time.real == 0.0,
+          "VpiTime() defaults to vpiSimTime",
+          f"{default_time.type}/{default_time.high}/{default_time.low}/{default_time.real}")
+    keyword_time = v.VpiTime(high=7, low=8, real=1.5)
+    check(keyword_time.type == v.vpiSimTime
+          and (keyword_time.high, keyword_time.low, keyword_time.real) == (7, 8, 1.5),
+          "VpiTime(4-arg defaults) type == vpiSimTime",
+          f"{keyword_time.type}/{keyword_time.high}/{keyword_time.low}/{keyword_time.real}")
 
     # VpiTime: 4-arg form (type, high, low, real) and mutable fields.
     t = v.VpiTime(v.vpiSimTime, 1, 2, 3.5)
@@ -674,6 +709,33 @@ def test_vpi_put_value_flags():
     # Seed a known value through the integer form (the reliable path) before
     # testing the delay flags below.
     v.vpi_put_value(obj, v.VpiValue(v.vpiIntVal, 0x0), t, v.vpiNoDelay)
+
+    # IEEE 1800 38.35: inertial/transport/pure-transport require a non-NULL
+    # time_p of type vpiSimTime. Reject bad combinations in the bridge,
+    # before the simulator can misread a NULL/wrong-type time pointer and
+    # emit a [VPI] diagnostic. vpiNoDelay ignores time_p entirely.
+    bad_time_cases = (
+        ("vpiInertialDelay with NULL time", v.vpiInertialDelay, None),
+        ("vpiTransportDelay with NULL time", v.vpiTransportDelay, None),
+        ("vpiPureTransportDelay with NULL time", v.vpiPureTransportDelay, None),
+        ("vpiInertialDelay with vpiScaledRealTime", v.vpiInertialDelay,
+         v.VpiTime(v.vpiScaledRealTime, 0, 0, 1.0)),
+        ("vpiTransportDelay with vpiScaledRealTime", v.vpiTransportDelay,
+         v.VpiTime(v.vpiScaledRealTime, 0, 0, 1.0)),
+    )
+    for label, flags, bad_time in bad_time_cases:
+        try:
+            v.vpi_put_value(obj, v.VpiValue(v.vpiIntVal, 1), bad_time, flags)
+        except (ValueError, TypeError) as exc:
+            check(True, f"vpi_put_value rejects {label}", str(exc))
+        except Exception as exc:
+            check(False, f"vpi_put_value rejects {label}",
+                  f"wrong exception {type(exc).__name__}: {exc}")
+        else:
+            check(False, f"vpi_put_value rejects {label}", "call was accepted")
+    try_api("vpi_put_value(vpiNoDelay, time_p=None)",
+            lambda: v.vpi_put_value(obj, v.VpiValue(v.vpiIntVal, 0), None,
+                                     v.vpiNoDelay))
 
     # Delay flags: on xezim the value lands immediately; Verilator schedules
     # inertial/transport writes for later simulation time, so an immediate
@@ -1008,7 +1070,37 @@ def test_vpi_cb_info_and_systf():
         try_api("vpi_remove_cb", lambda: v.vpi_remove_cb(h))
 
     def systf():
+        def cb_compiletf():
+            return 0
+
+        def cb_sizetf():
+            return 32
+
         sd = v.VpiSystfData(v.vpiSysTask, v.vpiSysTfCall, cb_test)
+        # IEEE 1800 36: compiletf/sizetf are optional callbacks with the
+        # same signature as calltf. Both constructors leave them unbound;
+        # assigning a Python callable stores it in the CallbackInfo behind
+        # user_data and installs the matching C wrapper in the struct.
+        check(not sd.compiletf and not sd.sizetf,
+              "VpiSystfData compiletf/sizetf initially unbound",
+              f"{sd.compiletf}/{sd.sizetf}")
+        sd.compiletf = cb_compiletf
+        sd.sizetf = cb_sizetf
+        check(sd.compiletf and sd.sizetf,
+              "VpiSystfData compiletf/sizetf writable",
+              f"{sd.compiletf}/{sd.sizetf}")
+        # Binding callbacks must not change the user_data string semantics.
+        check(sd.user_data == "user_data",
+              "VpiSystfData.user_data after callback binding",
+              f"got {sd.user_data!r}")
+        # The tfname-only constructor has no CallbackInfo yet: the setters
+        # must allocate one lazily and keep user_data readable afterwards.
+        sd2 = v.VpiSystfData(v.vpiSysFunc, v.vpiSysFunc, "$probe_sizetf")
+        sd2.sizetf = cb_sizetf
+        check(sd2.sizetf and sd2.user_data == "",
+              "VpiSystfData.sizetf on tfname-only constructor",
+              f"bound={sd2.sizetf}, user_data={sd2.user_data!r}")
+
         # user_data holds a CallbackInfo*, not a C string. Reading it used to
         # decode the CallbackInfo object's bytes and raise UnicodeDecodeError.
         check(sd.user_data == "user_data", "VpiSystfData.user_data getter",

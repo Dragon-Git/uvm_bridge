@@ -228,10 +228,20 @@ NB_MODULE(_svuvm, m) {
 #include <vpi_attr.h>
   // datatypes
   nb::class_<s_vpi_time>(vpi, "VpiTime")
-      .def(nb::init<>())
+      // IEEE 1800: s_vpi_time.type must be vpiScaledRealTime (1) or
+      // vpiSimTime (2); 0 is reserved/illegal and both backends reject or
+      // misread it. nanobind's nb::init<> would zero-initialise the struct,
+      // so use an explicit __init__ that installs the legal default and
+      // clears all remaining fields.
+      .def("__init__", [](s_vpi_time *self) {
+        self->type = vpiSimTime;
+        self->high = 0;
+        self->low = 0;
+        self->real = 0.0;
+      })
       .def(nb::init<PLI_INT32, PLI_UINT32, PLI_UINT32, double>(),
-           nb::arg("type") = 0, nb::arg("high") = 0, nb::arg("low") = 0,
-           nb::arg("real") = 0.0)
+           nb::arg("type") = vpiSimTime, nb::arg("high") = 0,
+           nb::arg("low") = 0, nb::arg("real") = 0.0)
       .def_rw("type", &s_vpi_time::type)
       .def_rw("high", &s_vpi_time::high)
       .def_rw("low", &s_vpi_time::low)
@@ -332,30 +342,54 @@ NB_MODULE(_svuvm, m) {
             self->value.str = const_cast<char *>(str.c_str());
           },
           nb::arg("format"), nb::arg("value"), nb::keep_alive<1, 3>())
-      // IEEE 1800: `format` decides which union member is valid. These two
-      // constructors used to always write `integer` / `real` respectively,
-      // so VpiValue(vpiRealVal, 5) left real holding the bit pattern of int 5
-      // and VpiValue(vpiIntVal, 5.5) left integer as 0. Dispatch on format in
-      // each constructor; the C++ parameter type still selects the overload
-      // (Python int -> PLI_INT32, Python float -> double), which is fine.
+      // IEEE 1800: `format` decides which union member is valid. Only
+      // vpiIntVal / vpiScalarVal / vpiRealVal can be built from a plain
+      // Python scalar. Pointer/string formats have dedicated constructors;
+      // writing `integer` for them would make the simulator interpret an
+      // integer as a pointer (wild-pointer crash). Reject every other
+      // format, including the s_vpi_arrayvalue-only short/long/shortreal
+      // formats which are not members of this union at all. The C++
+      // parameter type still selects the overload (Python int -> PLI_INT32,
+      // Python float -> double), preserving VpiValue(vpiRealVal, 5).real
+      // == 5.0 and VpiValue(vpiIntVal, 5.5).integer == 5.
       .def(
           "__init__",
           [](s_vpi_value *self, PLI_INT32 format, PLI_INT32 val) {
             self->format = format;
-            if (format == vpiRealVal)
+            switch (format) {
+            case vpiRealVal:
               self->value.real = static_cast<double>(val);
-            else
-              self->value.integer = val;  // vpiIntVal / vpiScalarVal
+              break;
+            case vpiIntVal:
+              self->value.integer = val;
+              break;
+            case vpiScalarVal:
+              self->value.scalar = val;
+              break;
+            default:
+              throw std::invalid_argument(
+                  "VpiValue: scalar value not valid for this format");
+            }
           },
           nb::arg("format"), nb::arg("value"))
       .def(
           "__init__",
           [](s_vpi_value *self, PLI_INT32 format, double val) {
             self->format = format;
-            if (format == vpiRealVal)
+            switch (format) {
+            case vpiRealVal:
               self->value.real = val;
-            else
+              break;
+            case vpiIntVal:
               self->value.integer = static_cast<PLI_INT32>(val);
+              break;
+            case vpiScalarVal:
+              self->value.scalar = static_cast<PLI_INT32>(val);
+              break;
+            default:
+              throw std::invalid_argument(
+                  "VpiValue: scalar value not valid for this format");
+            }
           },
           nb::arg("format"), nb::arg("value"))
       .def(
@@ -687,6 +721,37 @@ NB_MODULE(_svuvm, m) {
               auto *cb = new CallbackInfo(nb::none(), std::string(s.c_str()));
               o.user_data = reinterpret_cast<PLI_BYTE8 *>(cb);
             }
+          })
+      // IEEE 1800 36: s_vpi_systf_data::compiletf and ::sizetf are optional
+      // callbacks with the same signature as calltf. Bind them the same way:
+      // store the Python callable in the CallbackInfo behind user_data and
+      // install the matching C wrapper in the struct. The getter reports
+      // whether the field is bound (mirrors the cb_rtn read-only property).
+      // A (type, sysfunctype, tfname) constructed object has no CallbackInfo
+      // yet, so the setters allocate one on first use.
+      .def_prop_rw(
+          "compiletf",
+          [](s_vpi_systf_data &o) { return o.compiletf != nullptr; },
+          [](s_vpi_systf_data &o, nb::callable cb) {
+            auto *info = reinterpret_cast<CallbackInfo *>(o.user_data);
+            if (info == nullptr) {
+              info = new CallbackInfo(nb::none(), "");
+              o.user_data = reinterpret_cast<PLI_BYTE8 *>(info);
+            }
+            info->nb_compiletf = nb::object(cb);
+            o.compiletf = systf_compiletf_wrap;
+          })
+      .def_prop_rw(
+          "sizetf",
+          [](s_vpi_systf_data &o) { return o.sizetf != nullptr; },
+          [](s_vpi_systf_data &o, nb::callable cb) {
+            auto *info = reinterpret_cast<CallbackInfo *>(o.user_data);
+            if (info == nullptr) {
+              info = new CallbackInfo(nb::none(), "");
+              o.user_data = reinterpret_cast<PLI_BYTE8 *>(info);
+            }
+            info->nb_sizetf = nb::object(cb);
+            o.sizetf = systf_sizetf_wrap;
           });
 
   // Use nb::new_ instead of def("__init__", ...) so that the side-effect
@@ -906,8 +971,12 @@ NB_MODULE(_svuvm, m) {
   vpi.def("vpi_get_value", &vpi_get_value_wrap, nb::arg("expr"),
           nb::arg("value_p"), "Get a value.");
 
-  vpi.def("vpi_put_value", &vpi_put_value_wrap, nb::arg("object"),
-          nb::arg("value_p"), nb::arg("time_p"), nb::arg("flags"),
+  // IEEE 1800 38.35: time_p may be NULL with vpiNoDelay / force / release,
+  // and the object handle may be NULL too. nanobind rejects None for plain
+  // object / pointer arguments unless .none() is declared on the argument,
+  // so mark both explicitly; the wrapper performs the semantic validation.
+  vpi.def("vpi_put_value", &vpi_put_value_wrap, nb::arg("object").none(),
+          nb::arg("value_p"), nb::arg("time_p").none(), nb::arg("flags"),
           "Put a value.");
 
   vpi.def("vpi_get_value_array", &vpi_get_value_array_wrap, nb::arg("object"),
