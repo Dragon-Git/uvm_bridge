@@ -17,6 +17,7 @@ import ctypes
 import gc
 import itertools
 import math
+import weakref
 
 from svuvm import _svuvm as svuvm
 
@@ -2261,6 +2262,146 @@ def test_report_summarize():
         check(False, "report_summarize", str(exc))
 
 
+def _capsule_with_deleter(tag, freed):
+    """Build a PyCapsule whose deleter records `tag` in `freed`.
+
+    The CPython PyCapsule destructor receives the capsule object (not the
+    payload pointer), so the tag comes from a Python closure. The CFUNCTYPE
+    object is returned because the capsule stores only a raw function pointer.
+    """
+    new_capsule = ctypes.pythonapi.PyCapsule_New
+    new_capsule.restype = ctypes.py_object
+    new_capsule.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_void_p]
+    buffer = (ctypes.c_int * 1)(tag)
+
+    def on_delete(capsule_obj):
+        freed.append(tag)
+
+    deleter = ctypes.CFUNCTYPE(None, ctypes.c_void_p)(on_delete)
+    cap = new_capsule(ctypes.addressof(buffer), b"base_test",
+                      ctypes.cast(deleter, ctypes.c_void_p))
+    return cap, (buffer, deleter)
+
+
+def test_vpi_callbackinfo_lifecycle():
+    """Bug#5: CallbackInfo dies with its Python owner (unregistered case).
+
+    A registered callback must outlive its Python wrapper until vpi_remove_cb
+    succeeds, so reclamation is asserted only for *unregistered* objects:
+    those have no simulator user_data pointer and are safe to free on every
+    backend. Registration and removal are exercised for crash-safety only.
+    """
+    v = svuvm.vpi
+    obj = v.vpi_handle_by_name("top.dpi_vec_test")
+    if obj is None:
+        skip("callback info lifecycle", "no handle for top.dpi_vec_test")
+        return
+
+    t = v.VpiTime(v.vpiSimTime, 0, 0, 0)
+    val = v.VpiValue(v.vpiIntVal, 0)
+
+    def make_cb_data():
+        def target():
+            return 1
+        wr = weakref.ref(target)
+        data = v.CbData(v.cbNextSimTime, target, obj, t, val, 0, "lifecycle")
+        return data, wr
+
+    data, wr = make_cb_data()
+    check(hasattr(data, "_vpi_callback_info_owner"),
+          "CbData carries CallbackInfo capsule",
+          f"attrs={list(data.__dict__.keys())}")
+    check(wr() is not None, "CbData keeps its callable alive")
+    del data
+    gc.collect()
+    gc.collect()
+    check(wr() is None, "unregistered CbData releases callable on GC",
+          f"weakref={wr()}")
+
+    def make_systf():
+        def target():
+            return 0
+        wr = weakref.ref(target)
+        sd = v.VpiSystfData(v.vpiSysTask, v.vpiSysTfCall, target)
+        return sd, wr
+
+    sd, wr = make_systf()
+    check(hasattr(sd, "_vpi_callback_info_owner"),
+          "VpiSystfData carries CallbackInfo capsule")
+    del sd
+    gc.collect()
+    gc.collect()
+    check(wr() is None, "unregistered VpiSystfData releases calltf on GC",
+          f"weakref={wr()}")
+
+    # Lazy allocation from setters on a default-constructed object must also
+    # install the capsule; otherwise the CallbackInfo (and the callable it
+    # holds) would leak on that path.
+    def make_lazy():
+        def target():
+            return 32
+        wr = weakref.ref(target)
+        sd = v.VpiSystfData()
+        sd.user_data = "lazy"
+        sd.sizetf = target
+        return sd, wr
+
+    sd, wr = make_lazy()
+    check(hasattr(sd, "_vpi_callback_info_owner"),
+          "VpiSystfData setters attach CallbackInfo capsule")
+    check(sd.user_data == "lazy", "lazy user_data survives sizetf setter",
+          f"got {sd.user_data!r}")
+    del sd
+    gc.collect()
+    gc.collect()
+    check(wr() is None, "lazy CallbackInfo releases callable on GC",
+          f"weakref={wr()}")
+
+
+def test_vpi_userdata_keepalive():
+    """Bug#6: a capsule passed to vpi_put_userdata must not be freed early.
+
+    The local control proves the deleter fires when nothing retains the
+    capsule. The VPI call is only valid for a system-task-call handle; both
+    supported simulators reject userdata on an ordinary signal handle, so the
+    registry assertion is recorded as a skip there. The stub-driven probe
+    (probe_lifecycle.py) verifies the registry end to end.
+    """
+    v = svuvm.vpi
+    freed = []
+    cap, keep = _capsule_with_deleter(7001, freed)
+    del cap, keep
+    gc.collect()
+    check(freed == [7001], "capsule deleter fires without VPI keep-alive",
+          f"freed={freed}")
+
+    obj = v.vpi_handle_by_name("top.test_wire")
+    if obj is None:
+        skip("vpi userdata keepalive", "no handle for top.test_wire")
+        return
+
+    freed2 = []
+    cap2, keep2 = _capsule_with_deleter(7002, freed2)
+    rc = try_api_ex("vpi_put_userdata keepalive",
+                    lambda: v.vpi_put_userdata(obj, cap2),
+                    verilator_unsafe=True, xezim_unsafe=True)
+    if rc is not _SKIPPED:
+        local_cap = cap2
+        cap2 = None
+        del local_cap
+        gc.collect()
+        gc.collect()
+        check(not freed2, "put_userdata retains capsule after Python GC",
+              f"freed={freed2}")
+        try_api_ex("vpi_release_handle after put_userdata",
+                   lambda: v.vpi_release_handle(obj))
+    cap2 = None
+    keep2 = None
+    gc.collect()
+    check(7002 in freed2, "capsule deleter fires after refs are dropped",
+          f"freed2={freed2}")
+
+
 TESTS = [
     ("print_topology", test_print_topology),
     ("uvm_objection", test_uvm_objection),
@@ -2291,6 +2432,8 @@ TESTS = [
     ("vpi_get_time_formats", test_vpi_get_time_formats),
     ("vpi_callback_reasons", test_vpi_callback_reasons),
     ("vpi_data_control", test_vpi_data_control),
+    ("vpi_callbackinfo_lifecycle", test_vpi_callbackinfo_lifecycle),
+    ("vpi_userdata_keepalive", test_vpi_userdata_keepalive),
     ("vpi_mcd_multichannel", test_vpi_mcd_multichannel),
     ("vpi_property_matrix", test_vpi_property_matrix),
     ("vpi_value_array_control", test_vpi_value_array_control),

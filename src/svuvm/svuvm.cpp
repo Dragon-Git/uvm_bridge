@@ -650,26 +650,33 @@ NB_MODULE(_svuvm, m) {
         self.attr("_buf_owner") = obj;
       });
 
-  nb::class_<s_vpi_systf_data>(vpi, "VpiSystfData")
+  // dynamic_attr lets the constructors/setters attach an nb::capsule that
+  // owns a shared_ptr<CallbackInfo>: the Python object then keeps the
+  // simulator's user_data target alive without ever deleting it early.
+  nb::class_<s_vpi_systf_data>(vpi, "VpiSystfData", nb::dynamic_attr())
       .def(nb::init<>())
       .def(
           "__init__",
-          [](s_vpi_systf_data *self, PLI_INT32 type, PLI_INT32 sysfunctype,
-             nb::callable calltf) {
+          [](nb::pointer_and_handle<s_vpi_systf_data> self, PLI_INT32 type,
+             PLI_INT32 sysfunctype, nb::callable calltf) {
             std::string func_name =
                 nb::cast<std::string>(calltf.attr("__name__"));
-            auto *callback_info = new CallbackInfo(calltf, "user_data");
+            auto callback_info = make_callback_info(calltf, "user_data");
             // Keep the generated "$name" in the CallbackInfo that this systf
             // data already owns via user_data; the simulator reads tfname for
             // the whole registration, so it must not be a stack temporary.
             callback_info->owned_str = "$" + func_name;
-            self->type = type;
-            self->sysfunctype = sysfunctype;
-            self->tfname = const_cast<char *>(callback_info->owned_str.c_str());
-            self->calltf = systf_callback_wrap;
-            self->compiletf = nullptr;
-            self->sizetf = nullptr;
-            self->user_data = reinterpret_cast<PLI_BYTE8 *>(callback_info);
+            self.p->type = type;
+            self.p->sysfunctype = sysfunctype;
+            self.p->tfname =
+                const_cast<char *>(callback_info->owned_str.c_str());
+            self.p->calltf = systf_callback_wrap;
+            self.p->compiletf = nullptr;
+            self.p->sizetf = nullptr;
+            self.p->user_data =
+                reinterpret_cast<PLI_BYTE8 *>(callback_info.get());
+            self.h.attr("_vpi_callback_info_owner") =
+                make_callback_info_owner(callback_info);
           },
           nb::arg("type"), nb::arg("sysfunctype"), nb::arg("calltf"))
       .def(
@@ -710,7 +717,8 @@ NB_MODULE(_svuvm, m) {
             auto *cb = reinterpret_cast<CallbackInfo *>(o.user_data);
             return cb->user_data;
           },
-          [](s_vpi_systf_data &o, nb::str s) {
+          [](nb::object self, nb::str s) {
+            auto &o = nb::cast<s_vpi_systf_data &>(self);
             // Preserve the existing callback; only replace the user-data
             // string. Allocating a fresh CallbackInfo with a null callback
             // here would silently drop the systf's calltf target.
@@ -718,8 +726,9 @@ NB_MODULE(_svuvm, m) {
               auto *cb = reinterpret_cast<CallbackInfo *>(o.user_data);
               cb->user_data = std::string(s.c_str());
             } else {
-              auto *cb = new CallbackInfo(nb::none(), std::string(s.c_str()));
-              o.user_data = reinterpret_cast<PLI_BYTE8 *>(cb);
+              auto cb = make_callback_info(nb::none(), std::string(s.c_str()));
+              o.user_data = reinterpret_cast<PLI_BYTE8 *>(cb.get());
+              self.attr("_vpi_callback_info_owner") = make_callback_info_owner(cb);
             }
           })
       // IEEE 1800 36: s_vpi_systf_data::compiletf and ::sizetf are optional
@@ -732,11 +741,14 @@ NB_MODULE(_svuvm, m) {
       .def_prop_rw(
           "compiletf",
           [](s_vpi_systf_data &o) { return o.compiletf != nullptr; },
-          [](s_vpi_systf_data &o, nb::callable cb) {
+          [](nb::object self, nb::callable cb) {
+            auto &o = nb::cast<s_vpi_systf_data &>(self);
             auto *info = reinterpret_cast<CallbackInfo *>(o.user_data);
             if (info == nullptr) {
-              info = new CallbackInfo(nb::none(), "");
-              o.user_data = reinterpret_cast<PLI_BYTE8 *>(info);
+              auto sp = make_callback_info(nb::none(), "");
+              o.user_data = reinterpret_cast<PLI_BYTE8 *>(sp.get());
+              self.attr("_vpi_callback_info_owner") = make_callback_info_owner(sp);
+              info = sp.get();
             }
             info->nb_compiletf = nb::object(cb);
             o.compiletf = systf_compiletf_wrap;
@@ -744,11 +756,14 @@ NB_MODULE(_svuvm, m) {
       .def_prop_rw(
           "sizetf",
           [](s_vpi_systf_data &o) { return o.sizetf != nullptr; },
-          [](s_vpi_systf_data &o, nb::callable cb) {
+          [](nb::object self, nb::callable cb) {
+            auto &o = nb::cast<s_vpi_systf_data &>(self);
             auto *info = reinterpret_cast<CallbackInfo *>(o.user_data);
             if (info == nullptr) {
-              info = new CallbackInfo(nb::none(), "");
-              o.user_data = reinterpret_cast<PLI_BYTE8 *>(info);
+              auto sp = make_callback_info(nb::none(), "");
+              o.user_data = reinterpret_cast<PLI_BYTE8 *>(sp.get());
+              self.attr("_vpi_callback_info_owner") = make_callback_info_owner(sp);
+              info = sp.get();
             }
             info->nb_sizetf = nb::object(cb);
             o.sizetf = systf_sizetf_wrap;
@@ -833,27 +848,33 @@ NB_MODULE(_svuvm, m) {
            },
            nb::keep_alive<1, 2>());
 
-  nb::class_<s_cb_data>(vpi, "CbData")
+  // dynamic_attr lets the constructor/setter attach the nb::capsule that
+  // owns this object's shared_ptr<CallbackInfo> (see VpiSystfData above).
+  nb::class_<s_cb_data>(vpi, "CbData", nb::dynamic_attr())
       .def(nb::init<>())
       .def(
           "__init__",
-          [](s_cb_data *self, PLI_INT32 reason, nb::callable cb_rtn,
-             nb::object object, nb::object time, nb::object value,
-             PLI_INT32 index, const std::string &user_data) {
+          [](nb::pointer_and_handle<s_cb_data> self, PLI_INT32 reason,
+             nb::callable cb_rtn, nb::object object, nb::object time,
+             nb::object value, PLI_INT32 index,
+             const std::string &user_data) {
             vpiHandle obj = convert(object);
             p_vpi_time t =
                 time.is_none() ? nullptr : &nb::cast<s_vpi_time &>(time);
             p_vpi_value v =
                 value.is_none() ? nullptr : &nb::cast<s_vpi_value &>(value);
-            self->reason = reason;
-            self->cb_rtn = vpi_callback_wrap;
-            self->obj = obj;
-            self->time = t;
-            self->value = v;
-            self->index = index;
-            self->user_data = nullptr;
-            auto callback_info = new CallbackInfo(cb_rtn, user_data);
-            self->user_data = reinterpret_cast<PLI_BYTE8 *>(callback_info);
+            self.p->reason = reason;
+            self.p->cb_rtn = vpi_callback_wrap;
+            self.p->obj = obj;
+            self.p->time = t;
+            self.p->value = v;
+            self.p->index = index;
+            self.p->user_data = nullptr;
+            auto callback_info = make_callback_info(cb_rtn, user_data);
+            self.p->user_data =
+                reinterpret_cast<PLI_BYTE8 *>(callback_info.get());
+            self.h.attr("_vpi_callback_info_owner") =
+                make_callback_info_owner(callback_info);
           },
           nb::arg("reason"), nb::arg("cb_rtn"), nb::arg("object"),
           nb::arg("time"), nb::arg("value"), nb::arg("index"),
@@ -896,7 +917,8 @@ NB_MODULE(_svuvm, m) {
             auto *cb = reinterpret_cast<CallbackInfo *>(o.user_data);
             return cb->user_data;
           },
-          [](s_cb_data &o, nb::str s) {
+          [](nb::object self, nb::str s) {
+            auto &o = nb::cast<s_cb_data &>(self);
             // A property setter receives exactly (self, value). The previous
             // signature took an extra cb_rtn_obj, so `cb.user_data = "x"`
             // raised TypeError (nanobind reported it wanted (object, str)).
@@ -907,27 +929,28 @@ NB_MODULE(_svuvm, m) {
               auto *cb = reinterpret_cast<CallbackInfo *>(o.user_data);
               cb->user_data = std::string(s.c_str());
             } else {
-              auto *cb = new CallbackInfo(nb::none(), std::string(s.c_str()));
-              o.user_data = reinterpret_cast<PLI_BYTE8 *>(cb);
+              auto cb = make_callback_info(nb::none(), std::string(s.c_str()));
+              o.user_data = reinterpret_cast<PLI_BYTE8 *>(cb.get());
+              self.attr("_vpi_callback_info_owner") = make_callback_info_owner(cb);
             }
           });
 
-  // NOTE: CallbackInfo（被 s_cb_data::user_data / s_vpi_systf_data::user_data
-  // 持有）目前没有自动回收路径。simulator 调 vpi_remove_cb / unregister
-  // systf 时不会通知 C 端 free user_data。Python 用户应保留 callback
-  // 引用直到 sim 端确认不再触发回调，否则会泄漏 nb::object + std::string。
-  // 后续 commit 计划在 vpi_user_wrap.h 加一个 dispose hook。
+  // CallbackInfo now has shared ownership: the Python CbData/VpiSystfData
+  // object carries an nb::capsule holding a shared_ptr, and a successful
+  // registration stores another copy in the global registry. vpi_remove_cb
+  // releases the registry copy only after the simulator stops using the
+  // pointer, so no use-after-free path exists. See vpi_user_wrap.h.
   // functions
-  vpi.def("vpi_register_cb", vpi_func_wrap(vpi_register_cb),
-          nb::arg("cb_data_p"), "Register a callback.");
+  vpi.def("vpi_register_cb", &vpi_register_cb_wrap, nb::arg("cb_data_p"),
+          "Register a callback.");
 
-  vpi.def("vpi_remove_cb", vpi_func_wrap(vpi_remove_cb), nb::arg("cb_obj"),
+  vpi.def("vpi_remove_cb", &vpi_remove_cb_wrap, nb::arg("cb_obj"),
           "Remove a callback.");
 
   vpi.def("vpi_get_cb_info", &vpi_get_cb_info_wrap, nb::arg("object"),
           nb::arg("cb_data_p"), "Get callback information.");
 
-  vpi.def("vpi_register_systf", vpi_func_wrap(vpi_register_systf),
+  vpi.def("vpi_register_systf", &vpi_register_systf_wrap,
           nb::arg("systf_data_p"), "Register a system task/function.");
 
   vpi.def("vpi_get_systf_info", &vpi_get_systf_info_wrap, nb::arg("object"),
@@ -1007,10 +1030,12 @@ NB_MODULE(_svuvm, m) {
   vpi.def("vpi_compare_objects", vpi_func_wrap(vpi_compare_objects),
           nb::arg("object1"), nb::arg("object2"), "Compare two objects.");
 
-  vpi.def("vpi_free_object", vpi_func_wrap(vpi_free_object), nb::arg("object"),
+  // Dedicated wrappers also drop the vpi_put_userdata keep-alive for the
+  // handle, so a recycled handle cannot inherit a stale capsule.
+  vpi.def("vpi_free_object", &vpi_free_object_wrap, nb::arg("object"),
           "Free an object. (Deprecated)");
 
-  vpi.def("vpi_release_handle", vpi_func_wrap(vpi_release_handle),
+  vpi.def("vpi_release_handle", &vpi_release_handle_wrap,
           nb::arg("object"), "Release a handle.");
 
   // 运行时检测：VCS/VCSMX 不支持这些函数。使用 vpi_func_optional
@@ -1026,8 +1051,10 @@ NB_MODULE(_svuvm, m) {
   vpi.def("vpi_get_userdata", &vpi_get_userdata_wrap, nb::arg("obj"),
           "Get user data.");
 
+  // None is legal and means "clear the simulator's userdata pointer"; the
+  // wrapper erases the keep-alive entry in that case, so declare .none().
   vpi.def("vpi_put_userdata", &vpi_put_userdata_wrap, nb::arg("obj"),
-          nb::arg("userdata"), "Put user data.");
+          nb::arg("userdata").none(), "Put user data.");
 
   vpi.def("vpi_flush", &vpi_flush, "Flush output.");
 

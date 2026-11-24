@@ -5,7 +5,11 @@
 #include "vpi_user.h"
 #include <dlfcn.h>
 #include <functional>
+#include <memory>
 #include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <utility>
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
@@ -129,14 +133,12 @@ auto vpi_func_optional(const char *name, Func fallback_func) {
         throw std::runtime_error(msg);
       });
 }
-void vpi_get_cb_info_wrap(nb::object object, p_cb_data cb_data_p) {
-  vpiHandle handle = convert(object);
-  vpi_get_cb_info(handle, cb_data_p);
-}
-void vpi_get_systf_info_wrap(nb::object object, p_vpi_systf_data systf_data_p) {
-  vpiHandle handle = convert(object);
-  vpi_get_systf_info(handle, systf_data_p);
-}
+// Defined after the CallbackInfo ownership helpers: besides filling the C
+// struct, these wrappers attach a shared_ptr capsule to the destination
+// Python object so its user_data getter never reads a freed CallbackInfo.
+inline void vpi_get_cb_info_wrap(nb::object object, nb::object cb_data_obj);
+inline void vpi_get_systf_info_wrap(nb::object object,
+                                    nb::object systf_data_obj);
 nb::object vpi_handle_multi_wrap(int type, nb::args ref_handles) {
   // IEEE 1800 declares vpi_handle_multi as
   //   vpiHandle vpi_handle_multi(PLI_INT32 type, vpiHandle ref1,
@@ -234,6 +236,26 @@ void *vpi_get_userdata_wrap(nb::object object) {
   return vpi_get_userdata(handle);
 }
 
+// ---------------------------------------------------------------------------
+// Bug #6: keep the Python capsule that backs a vpi_put_userdata() payload
+// alive for as long as the simulator may still hold the raw void*.
+//
+// IEEE 1800 36.1: vpi_put_userdata stores the pointer only; it does not copy
+// the memory and does not acquire a reference to the Python object. Dropping
+// the last Python reference to the capsule (whose deleter frees the buffer)
+// before the handle is released therefore leaves a dangling pointer in the
+// simulator. The registry below holds a strong nb::object reference, keyed by
+// handle, until the handle is released or the payload is replaced/cleared.
+// ---------------------------------------------------------------------------
+inline std::unordered_map<vpiHandle, nb::object> &userdata_keepalive_registry() {
+  // Function-local static avoids static-initialisation-order problems. The
+  // heap allocation is deliberately never freed: destroying this map during
+  // C++ static teardown would destroy nb::object values, which needs the GIL
+  // that may already be gone at process exit. The OS reclaims it instead.
+  static auto *registry = new std::unordered_map<vpiHandle, nb::object>();
+  return *registry;
+}
+
 PLI_INT32 vpi_put_userdata_wrap(nb::object object, nb::object userdata) {
   vpiHandle handle = convert(object);
   void *data = nullptr;
@@ -241,7 +263,46 @@ PLI_INT32 vpi_put_userdata_wrap(nb::object object, nb::object userdata) {
     nb::capsule cap = nb::cast<nb::capsule>(userdata);
     data = cap.data();
   }
-  return vpi_put_userdata(handle, data);
+  PLI_INT32 rc = vpi_put_userdata(handle, data);
+
+  // Only a handle can carry userdata, so there is nothing to keep alive for a
+  // NULL handle. Every registry mutation here is safe: installing a capsule
+  // can only extend a buffer's lifetime, and clearing/replacing happens only
+  // after the simulator has been told about the new pointer. Keeping the
+  // entry even when the simulator reports failure is deliberate and
+  // safety-first: a stale keep-alive is a small leak, never a use-after-free.
+  if (handle != nullptr) {
+    auto &registry = userdata_keepalive_registry();
+    if (!userdata.is_none() && nb::isinstance<nb::capsule>(userdata)) {
+      registry[handle] = userdata;  // overwriting releases the old capsule
+    } else {
+      registry.erase(handle);       // None clears the simulator's pointer
+    }
+  }
+  return rc;
+}
+
+// Drop the keep-alive for a handle when it is freed/released. Otherwise a
+// recycled handle could inherit a capsule belonging to a previous object.
+inline void forget_userdata_keepalive(vpiHandle handle) noexcept {
+  if (handle == nullptr) {
+    return;
+  }
+  userdata_keepalive_registry().erase(handle);
+}
+
+PLI_INT32 vpi_release_handle_wrap(nb::object object) {
+  vpiHandle handle = convert(object);
+  PLI_INT32 rc = vpi_release_handle(handle);
+  forget_userdata_keepalive(handle);
+  return rc;
+}
+
+PLI_INT32 vpi_free_object_wrap(nb::object object) {
+  vpiHandle handle = convert(object);
+  PLI_INT32 rc = vpi_free_object(handle);
+  forget_userdata_keepalive(handle);
+  return rc;
 }
 
 nb::object vpi_handle_by_multi_index_wrap(nb::object object, PLI_INT32 num_index,
@@ -445,6 +506,145 @@ static PLI_INT32 systf_sizetf_wrap(PLI_BYTE8 *user_data) {
     return 0;
   }
   return invoke_systf_python(callback_info->nb_sizetf, "sizetf");
+}
+
+// ---------------------------------------------------------------------------
+// Bug #5: shared ownership of CallbackInfo.
+//
+// IEEE 1800 36.1: vpi_register_cb / vpi_register_systf copy the s_cb_data /
+// s_vpi_systf_data structure but keep the *raw* user_data pointer. The
+// simulator uses that pointer for the whole registration window
+// (callback: until vpi_remove_cb succeeds; systf: until the simulation ends,
+// because IEEE defines no systf unregister call). Deleting a CallbackInfo
+// while that window is open is a use-after-free, so it must never happen.
+//
+// Ownership is therefore shared between:
+//   * the Python CbData / VpiSystfData object, through an nb::capsule stored
+//     as an attribute (owns a copy of the shared_ptr); and
+//   * the `registered` map below, keyed by the VPI handle returned from a
+//     successful register call, released on a successful vpi_remove_cb.
+//
+// `raw_map` only holds weak_ptrs: it is a lookup table from the raw
+// user_data pointer back to shared ownership, never an owner itself.
+// ---------------------------------------------------------------------------
+inline std::unordered_map<CallbackInfo *, std::weak_ptr<CallbackInfo>> &
+callback_raw_map() {
+  static auto *map =
+      new std::unordered_map<CallbackInfo *, std::weak_ptr<CallbackInfo>>();
+  return *map;
+}
+
+inline std::unordered_map<vpiHandle, std::shared_ptr<CallbackInfo>> &
+callback_registry() {
+  static auto *map =
+      new std::unordered_map<vpiHandle, std::shared_ptr<CallbackInfo>>();
+  return *map;
+}
+
+// Create a CallbackInfo under shared ownership and make it discoverable by
+// its raw user_data pointer. Every former `new CallbackInfo` site uses this.
+inline std::shared_ptr<CallbackInfo> make_callback_info(nb::object cb,
+                                                        std::string ud) {
+  auto sp = std::make_shared<CallbackInfo>(std::move(cb), std::move(ud));
+  callback_raw_map()[sp.get()] = sp;  // implicit weak_ptr from shared_ptr
+  return sp;
+}
+
+// Recover shared ownership from the raw pointer the simulator handed back.
+// An empty result means either a NULL pointer, an object we never created,
+// or one whose last shared owner is already gone -- never dereference it.
+inline std::shared_ptr<CallbackInfo>
+callback_info_from_raw(void *user_data) noexcept {
+  if (user_data == nullptr) {
+    return nullptr;
+  }
+  auto &raw = callback_raw_map();
+  auto it = raw.find(static_cast<CallbackInfo *>(user_data));
+  if (it == raw.end()) {
+    return nullptr;
+  }
+  auto sp = it->second.lock();
+  if (!sp) {
+    raw.erase(it);  // prune the dead control block; no owner references it
+  }
+  return sp;
+}
+
+// Build the capsule stored on the Python CbData / VpiSystfData object. Its
+// deleter destroys exactly one shared_ptr copy; the CallbackInfo itself dies
+// only when the last owner (capsule or registered map) goes away, which by
+// construction cannot happen while the simulator still uses the pointer.
+inline nb::capsule
+make_callback_info_owner(const std::shared_ptr<CallbackInfo> &sp) {
+  return nb::capsule(new std::shared_ptr<CallbackInfo>(sp), [](void *p) noexcept {
+    delete static_cast<std::shared_ptr<CallbackInfo> *>(p);
+  });
+}
+
+// Dedicated vpi_register_cb / vpi_register_systf wrappers: after a successful
+// registration, move a shared_ptr copy into `registered` so the callback stays
+// alive even if the Python wrapper object is garbage-collected first.
+inline nb::object vpi_register_cb_wrap(p_cb_data cb_data_p) {
+  vpiHandle handle = vpi_register_cb(cb_data_p);
+  if (handle != nullptr && cb_data_p != nullptr) {
+    auto sp = callback_info_from_raw(cb_data_p->user_data);
+    if (sp) {
+      callback_registry()[handle] = std::move(sp);
+    }
+  }
+  return convert(handle);
+}
+
+inline nb::object vpi_register_systf_wrap(p_vpi_systf_data systf_data_p) {
+  vpiHandle handle = vpi_register_systf(systf_data_p);
+  if (handle != nullptr && systf_data_p != nullptr) {
+    auto sp = callback_info_from_raw(systf_data_p->user_data);
+    if (sp) {
+      callback_registry()[handle] = std::move(sp);
+    }
+  }
+  return convert(handle);
+}
+
+// Only a successful removal ends the simulator's use of the user_data
+// pointer (IEEE: vpi_remove_cb returns 1 on success). Releasing one shared
+// owner here is safe: if the Python object is still alive its capsule keeps
+// the CallbackInfo alive; if not, the simulator has just stopped using it.
+inline PLI_INT32 vpi_remove_cb_wrap(nb::object cb_obj) {
+  vpiHandle handle = convert(cb_obj);
+  PLI_INT32 rc = vpi_remove_cb(handle);
+  if (rc == 1 && handle != nullptr) {
+    callback_registry().erase(handle);
+  }
+  return rc;
+}
+
+// The destination of vpi_get_cb_info / vpi_get_systf_info receives a raw
+// user_data pointer from the simulator. When it points at one of our
+// CallbackInfo objects, give the destination its own shared_ptr copy so the
+// user_data getter stays safe even if the original owner dies and the
+// callback is removed afterwards.
+inline void vpi_get_cb_info_wrap(nb::object object, nb::object cb_data_obj) {
+  vpiHandle handle = convert(object);
+  p_cb_data cb_data_p = &nb::cast<s_cb_data &>(cb_data_obj);
+  vpi_get_cb_info(handle, cb_data_p);
+  auto sp = callback_info_from_raw(cb_data_p->user_data);
+  if (sp) {
+    cb_data_obj.attr("_vpi_callback_info_owner") = make_callback_info_owner(sp);
+  }
+}
+
+inline void vpi_get_systf_info_wrap(nb::object object,
+                                    nb::object systf_data_obj) {
+  vpiHandle handle = convert(object);
+  p_vpi_systf_data systf_data_p =
+      &nb::cast<s_vpi_systf_data &>(systf_data_obj);
+  vpi_get_systf_info(handle, systf_data_p);
+  auto sp = callback_info_from_raw(systf_data_p->user_data);
+  if (sp) {
+    systf_data_obj.attr("_vpi_callback_info_owner") =
+        make_callback_info_owner(sp);
+  }
 }
 
 #endif /* VPI_USER_WRAP_H */
