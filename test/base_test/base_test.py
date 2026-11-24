@@ -2472,7 +2472,7 @@ def test_vpi_userdata_keepalive():
         try_api_ex("vpi_release_handle after put_userdata",
                    lambda: v.vpi_release_handle(obj))
     cap2 = None
-    keep2 = None
+    del keep2  # drop the (buffer, deleter) guard so the capsule can finalize
     gc.collect()
     check(7002 in freed2, "capsule deleter fires after refs are dropped",
           f"freed2={freed2}")
