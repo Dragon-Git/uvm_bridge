@@ -495,6 +495,20 @@ def test_vpi_value_ctors():
     check(made.str == "world", "VpiValue.str setter round trip",
           f"got {made.str!r}")
 
+    # IEEE 1800-2023 38.15: only the format-selected union arm is valid.
+    # Constructors now zero the whole struct and .str is guarded by format,
+    # so reading a non-string arm (or a mutated format) returns "" instead of
+    # dereferencing a wild pointer. A crash here fails the whole run, which
+    # is exactly the regression we want to catch.
+    for label, value in (("vpiStringVal", v.VpiValue(v.vpiStringVal)),
+                         ("vpiIntVal", v.VpiValue(v.vpiIntVal, 5))):
+        check(value.str == "", f"VpiValue({label}).str is empty",
+              f"got {value.str!r}")
+    mutated = v.VpiValue(v.vpiIntVal, 5)
+    mutated.format = v.vpiStringVal
+    check(mutated.str == "", "VpiValue format mutation .str is empty",
+          f"got {mutated.str!r}")
+
 
 def test_vpi_scalar_structs():
     """Constructor overloads and field access on VpiVecVal/Time/StrengthVal."""
@@ -752,6 +766,12 @@ def test_vpi_put_value_flags():
         ("vpiInertialDelay with NULL time", v.vpiInertialDelay, None),
         ("vpiTransportDelay with NULL time", v.vpiTransportDelay, None),
         ("vpiPureTransportDelay with NULL time", v.vpiPureTransportDelay, None),
+        # IEEE 1800-2023 38.34: vpiReturnEvent is a bit mask OR'ed with the
+        # delay constant; it must not hide a missing time_p from validation.
+        ("vpiInertialDelay|vpiReturnEvent with NULL time",
+         v.vpiInertialDelay | v.vpiReturnEvent, None),
+        ("vpiTransportDelay|vpiReturnEvent with NULL time",
+         v.vpiTransportDelay | v.vpiReturnEvent, None),
         ("vpiInertialDelay with vpiScaledRealTime", v.vpiInertialDelay,
          v.VpiTime(v.vpiScaledRealTime, 0, 0, 1.0)),
         ("vpiTransportDelay with vpiScaledRealTime", v.vpiTransportDelay,
@@ -1161,11 +1181,13 @@ def test_vpi_cb_info_and_systf():
 def test_vpi_control_operations():
     """IEEE 1800-2023 38.4: the four vpi_control() operations.
 
-    vpiStop/vpiFinish/vpiReset are deliberately not executed from inside the
-    regression: they suspend, terminate or reset the simulation before the
-    completion marker can be printed. What is checked here is the standard
-    opcode mapping and the convenience bindings; the one operation that is
-    safe mid-run, vpiSetInteractiveScope, is called with a real vpiScope handle.
+    vpiStop/vpiFinish are deliberately not executed from inside the
+    regression: they suspend or terminate the simulation before the
+    completion marker can be printed. vpiReset is called with its three
+    IEEE-mandated integer arguments: both in-tree backends implement
+    vpi_control(vpiReset, ...) as a no-op / warning, so it cannot reset the
+    running regression. The one operation that is always safe mid-run,
+    vpiSetInteractiveScope, is called with a real vpiScope handle.
     """
     v = svuvm.vpi
     expected = {
@@ -1188,6 +1210,23 @@ def test_vpi_control_operations():
         check(callable(getattr(svuvm, name, None)),
               f"svuvm.{name} convenience binding exists",
               f"got {getattr(svuvm, name, None)!r}")
+
+    # IEEE 1800-2023 38.4: vpiReset carries stop_value, reset_value and
+    # diagnostics_value. Exercise both the raw VPI call and the convenience
+    # binding (with and without explicit arguments) to catch a lost-vararg
+    # regression. Verilator accepts the call as a no-op; xezim refuses to
+    # reset a running simulation and emits a leading [VPI] diagnostic that the
+    # Makefile treats as a hard failure, so skip these calls there.
+    for label, fn in (
+        ("vpi_control(vpiReset, 1, 2, 3)",
+         lambda: v.vpi_control(v.vpiReset, 1, 2, 3)),
+        ("svuvm.reset(1, 2, 3)", lambda: svuvm.reset(1, 2, 3)),
+        ("svuvm.reset()", lambda: svuvm.reset()),
+    ):
+        rc = try_api_ex(label, fn, xezim_unsafe=True)
+        if rc is not _SKIPPED:
+            check(isinstance(rc, int), f"{label} returns a status",
+                  f"got {rc!r}")
 
     top = v.vpi_handle_by_name("top")
     if top is None:

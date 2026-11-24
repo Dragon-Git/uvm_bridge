@@ -8,6 +8,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <typeinfo>  // std::bad_cast: nanobind's cast_error derives from it
 #include <unordered_map>
 #include <utility>
 #include <nanobind/nanobind.h>
@@ -195,11 +196,14 @@ nb::object vpi_put_value_wrap(nb::object object, p_vpi_value value_p,
   // IEEE 1800-2023 38.35: vpiInertialDelay / vpiTransportDelay /
   // vpiPureTransportDelay require a non-NULL time_p whose type is
   // vpiSimTime. vpiNoDelay ignores time_p (NULL is legal), and
-  // vpiForceFlag / vpiReleaseFlag do not require one either. These delay
-  // constants are mutually exclusive enum values (1..6), not bit flags,
-  // so they must be compared by equality rather than with a bitmask test.
-  if (flags == vpiInertialDelay || flags == vpiTransportDelay ||
-      flags == vpiPureTransportDelay) {
+  // vpiForceFlag / vpiReleaseFlag / vpiCancelEvent do not require one.
+  // vpiReturnEvent (0x1000) is a *bit mask* that may be OR'ed with a delay
+  // constant (38.34); strip it before deciding whether a time_p is required.
+  // Otherwise a delayed write with vpiReturnEvent and NULL time_p would pass
+  // validation and let the simulator dereference a null pointer.
+  const PLI_INT32 delay_flags = flags & ~vpiReturnEvent;
+  if (delay_flags == vpiInertialDelay || delay_flags == vpiTransportDelay ||
+      delay_flags == vpiPureTransportDelay) {
     if (time_p == nullptr) {
       throw std::invalid_argument(
           "vpi_put_value: delay flags require a non-null time_p");
@@ -336,14 +340,23 @@ inline void forget_userdata_keepalive(vpiHandle handle) noexcept {
 PLI_INT32 vpi_release_handle_wrap(nb::object object) {
   vpiHandle handle = convert(object);
   PLI_INT32 rc = vpi_release_handle(handle);
-  forget_userdata_keepalive(handle);
+  // Symmetry with vpi_put_userdata_wrap: a failed release means the
+  // simulator still holds the raw userdata pointer, so keep the capsule
+  // alive. Only a successful release ends the keepalive window.
+  if (rc == 1) {
+    forget_userdata_keepalive(handle);
+  }
   return rc;
 }
 
 PLI_INT32 vpi_free_object_wrap(nb::object object) {
   vpiHandle handle = convert(object);
   PLI_INT32 rc = vpi_free_object(handle);
-  forget_userdata_keepalive(handle);
+  // Same reasoning as vpi_release_handle_wrap: drop the keepalive only when
+  // the simulator confirmed the object was freed.
+  if (rc == 1) {
+    forget_userdata_keepalive(handle);
+  }
   return rc;
 }
 
@@ -434,6 +447,25 @@ int vpi_control_wrap(int operation, nb::args args) {
     return vpi_control(operation, arg);
   }
 
+  // IEEE 1800-2023 38.4: vpiReset shall be passed three additional integer
+  // arguments -- stop_value, reset_value, diagnostics_value. Omitting them
+  // made the simulator's va_arg sequence read stack garbage. Missing or
+  // non-integer arguments default to 0, matching the 66/67 branches above.
+  if (operation == 68 /* vpiReset */) {
+    const auto int_arg = [&](size_t i) -> int {
+      int val = 0;
+      if (!at(i).is_none()) {
+        try {
+          val = nb::cast<int>(at(i));
+        } catch (const std::exception &) {
+          val = 0;
+        }
+      }
+      return val;
+    };
+    return vpi_control(operation, int_arg(0), int_arg(1), int_arg(2));
+  }
+
   // vpiSetInteractiveScope takes a single scope handle.
   if (operation == 69 /* vpiSetInteractiveScope */)
     return vpi_control(operation, vpi_control_handle_arg(at(0)));
@@ -520,6 +552,17 @@ static PLI_INT32 vpi_callback_wrap(p_cb_data cb_data) {
   } catch (const nb::python_error &e) {
     std::cerr << "Exception in python callback: " << e.what() << std::endl;
     return 0;
+  } catch (const std::bad_cast &e) {
+    // nanobind's cast_error derives from std::bad_cast. A callback that
+    // RETURNS a non-int (float/str/out-of-range int) throws this, and this
+    // wrapper is entered from simulator C code: letting it escape calls
+    // std::terminate. Report and follow the None -> 0 convention instead.
+    std::cerr << "Invalid python callback return type: " << e.what()
+              << std::endl;
+    return 0;
+  } catch (const std::exception &e) {
+    std::cerr << "Exception in python callback: " << e.what() << std::endl;
+    return 0;
   }
 }
 
@@ -534,6 +577,13 @@ static PLI_INT32 systf_callback_wrap(PLI_BYTE8 *user_data) {
     }
     return nb::cast<PLI_INT32>(nb_result);
   } catch (const nb::python_error &e) {
+    std::cerr << "Exception in python callback: " << e.what() << std::endl;
+    return 0;
+  } catch (const std::bad_cast &e) {
+    std::cerr << "Invalid python callback return type: " << e.what()
+              << std::endl;
+    return 0;
+  } catch (const std::exception &e) {
     std::cerr << "Exception in python callback: " << e.what() << std::endl;
     return 0;
   }
@@ -552,6 +602,16 @@ static PLI_INT32 invoke_systf_python(const nb::object &callback,
     }
     return nb::cast<PLI_INT32>(nb_result);
   } catch (const nb::python_error &e) {
+    std::cerr << "Exception in python " << kind << " callback: "
+              << e.what() << std::endl;
+    return 0;
+  } catch (const std::bad_cast &e) {
+    // compiletf / sizetf share this dispatcher, so one fix covers all four
+    // C callbacks. A bad return type must never escape across the C boundary.
+    std::cerr << "Invalid python " << kind << " callback return type: "
+              << e.what() << std::endl;
+    return 0;
+  } catch (const std::exception &e) {
     std::cerr << "Exception in python " << kind << " callback: "
               << e.what() << std::endl;
     return 0;

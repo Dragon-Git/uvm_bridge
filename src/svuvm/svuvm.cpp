@@ -29,6 +29,15 @@ static nb::capsule make_array_owner(T *p) {
 
 #ifndef NO_VPI
 #include "vpi_user_wrap.h"
+
+// IEEE 1800-2023 Table 38-3: these formats store a NUL-terminated char* in
+// s_vpi_value.value.str. Used both to guard the .str getter and to clear a
+// stale non-pointer arm when `format` is switched to a string format.
+inline bool is_string_value_format(PLI_INT32 format) {
+  return format == vpiStringVal || format == vpiBinStrVal ||
+         format == vpiOctStrVal || format == vpiDecStrVal ||
+         format == vpiHexStrVal;
+}
 #endif
 
 // 运行时仿真器检测
@@ -338,11 +347,21 @@ NB_MODULE(_svuvm, m) {
       .def(nb::init<>())
       .def(
           "__init__",
-          [](s_vpi_value *self, PLI_INT32 format) { self->format = format; },
+          [](s_vpi_value *self, PLI_INT32 format) {
+            // See the other constructors: no implicit zero-init for a custom
+            // __init__, and IEEE 1800-2023 38.15 says only the format-selected
+            // union member is valid.
+            *self = s_vpi_value{};
+            self->format = format;
+          },
           nb::arg("format"))
       .def(
           "__init__",
           [](s_vpi_value *self, PLI_INT32 format, nb::str str) {
+            // A custom __init__ does NOT get nanobind's zero-initialisation:
+            // zero the whole struct first so the union never holds garbage
+            // that a getter for a mismatched arm would dereference.
+            *self = s_vpi_value{};
             self->format = format;
             // nb::str::c_str() is PyUnicode_AsUTF8AndSize(): the UTF-8 buffer
             // lives inside the Python str object and stays valid as long as
@@ -367,6 +386,10 @@ NB_MODULE(_svuvm, m) {
       .def(
           "__init__",
           [](s_vpi_value *self, PLI_INT32 format, PLI_INT32 val) {
+            // A custom __init__ does NOT get nanobind's zero-initialisation:
+            // zero the whole struct first so the union never holds garbage
+            // that a getter for a mismatched arm would dereference.
+            *self = s_vpi_value{};
             self->format = format;
             switch (format) {
             case vpiRealVal:
@@ -387,6 +410,10 @@ NB_MODULE(_svuvm, m) {
       .def(
           "__init__",
           [](s_vpi_value *self, PLI_INT32 format, double val) {
+            // A custom __init__ does NOT get nanobind's zero-initialisation:
+            // zero the whole struct first so the union never holds garbage
+            // that a getter for a mismatched arm would dereference.
+            *self = s_vpi_value{};
             self->format = format;
             switch (format) {
             case vpiRealVal:
@@ -407,6 +434,10 @@ NB_MODULE(_svuvm, m) {
       .def(
           "__init__",
           [](s_vpi_value *self, PLI_INT32 format, nb::object obj) {
+            // A custom __init__ does NOT get nanobind's zero-initialisation:
+            // zero the whole struct first so the union never holds garbage
+            // that a getter for a mismatched arm would dereference.
+            *self = s_vpi_value{};
             self->format = format;
             self->value.time = (p_vpi_time)nb::cast<nb::capsule>(obj).data();
           },
@@ -414,6 +445,10 @@ NB_MODULE(_svuvm, m) {
       .def(
           "__init__",
           [](s_vpi_value *self, PLI_INT32 format, nb::object obj) {
+            // A custom __init__ does NOT get nanobind's zero-initialisation:
+            // zero the whole struct first so the union never holds garbage
+            // that a getter for a mismatched arm would dereference.
+            *self = s_vpi_value{};
             self->format = format;
             self->value.vector = (p_vpi_vecval)nb::cast<nb::capsule>(obj).data();
           },
@@ -421,16 +456,42 @@ NB_MODULE(_svuvm, m) {
       .def(
           "__init__",
           [](s_vpi_value *self, PLI_INT32 format, nb::object obj) {
+            // A custom __init__ does NOT get nanobind's zero-initialisation:
+            // zero the whole struct first so the union never holds garbage
+            // that a getter for a mismatched arm would dereference.
+            *self = s_vpi_value{};
             self->format = format;
             self->value.strength =
                 (p_vpi_strengthval)nb::cast<nb::capsule>(obj).data();
           },
           nb::arg("format"), nb::arg("value"), nb::keep_alive<1, 3>())
-      .def_rw("format", &s_vpi_value::format)
+      .def_prop_rw(
+          "format", [](const s_vpi_value &o) { return o.format; },
+          [](s_vpi_value &o, PLI_INT32 fmt) {
+            // IEEE 1800-2023 38.15: format selects the valid union arm. When
+            // Python switches from a scalar arm (e.g. integer == 5) to a
+            // string format, the old bits would be read as a char* by the
+            // .str getter and dereferenced as address 0x5. The old arm is no
+            // longer meaningful under the new format, so clear the union.
+            if (fmt != o.format && is_string_value_format(fmt) &&
+                !is_string_value_format(o.format)) {
+              std::memset(&o.value, 0, sizeof(o.value));
+            }
+            o.format = fmt;
+          })
       .def_prop_rw(
           "str",
-          [](s_vpi_value &o) {
-            return o.value.str ? std::string(o.value.str) : std::string();
+          [](const s_vpi_value &o) {
+            // IEEE 1800-2023 38.15 / Table 38-3: the union arm is only
+            // meaningful when `format` selects it. Reading .str after an
+            // int-format construction (or after mutating `format`) used to
+            // dereference garbage. Guard by the string formats and return an
+            // empty string for every other format.
+            if (!is_string_value_format(o.format) ||
+                o.value.str == nullptr) {
+              return std::string();
+            }
+            return std::string(o.value.str);
           },
           [](s_vpi_value &o, nb::str s) {
             // See the constructor: keep the Python str alive for as long as
@@ -1579,8 +1640,18 @@ NB_MODULE(_svuvm, m) {
         nb::arg("name"));
   m.def("process_pool_clear", dpi_func_wrap(process_pool_clear),
         "process pool clear");
+  // IEEE 1800-2023 38.4: vpiReset requires stop_value, reset_value and
+  // diagnostics_value. Keep defaults so the historical reset() call stays
+  // source-compatible at the bridge layer.
   m.def(
-      "reset", []() { return vpi_control(vpiReset); }, "Reset the simulation");
+      "reset",
+      [](int stop_value, int reset_value, int diagnostics_value) {
+        return vpi_control(vpiReset, stop_value, reset_value,
+                           diagnostics_value);
+      },
+      "Reset the simulation (stop_value, reset_value, diagnostics_value).",
+      nb::arg("stop_value") = 0, nb::arg("reset_value") = 0,
+      nb::arg("diagnostics_value") = 0);
   m.def(
       "stop", []() { return vpi_control(vpiStop); }, "Suspend the simulation");
   m.def(
