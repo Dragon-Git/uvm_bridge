@@ -26,6 +26,7 @@ Also usable as a CLI, which replaces the old make targets:
 """
 
 import glob
+import hashlib
 import os
 import platform
 import shlex
@@ -220,7 +221,23 @@ def _cocotb_build(python, build_dir, uvm_home, cocotb_lib_dir, verilator_cpp):
         COCOTB_TOP_SV, "-CFLAGS", cflags, *post,
         verilator_cpp,
     ]
-    proc = _exec(cmd, cwd=COCOTB_TEST_DIR)
+    # ccache keys a compilation by the command line, but clang's PCH stores
+    # the *absolute* path of the -Mdir header it was generated from. The
+    # pre-pytest cocotb Makefile ran from the repository root with
+    # "-Mdir build", so .ccache-vlt still holds a Vtop__pch.h.fast.gch that
+    # names <repo>/build/Vtop__pch.h. Serving that entry to this build, which
+    # uses -Mdir <repo>/test/cocotb_test/build, makes clang abort with
+    # "malformed or corrupted precompiled file ... could not find file
+    # '<repo>/build/Vtop__pch.h'". Give cocotb its own ccache namespace keyed
+    # by the build directory: entries produced for another -Mdir can never be
+    # served here, while repeated runs in the same directory still hit cache.
+    # base_test and the wheel build keep their existing warmed caches.
+    env = os.environ.copy()
+    ccache_root = env.get("CCACHE_DIR")
+    if ccache_root:
+        mdir_key = hashlib.sha256(str(Path(build_dir).resolve()).encode("utf-8")).hexdigest()[:12]
+        env["CCACHE_DIR"] = str(Path(ccache_root) / f"cocotb-{mdir_key}")
+    proc = _exec(cmd, cwd=COCOTB_TEST_DIR, env=env)
     return proc.returncode, _output(proc)
 
 
