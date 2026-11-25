@@ -3,11 +3,15 @@
 
 #include "sv_vpi_user.h"
 #include "vpi_user.h"
+#include <cstdio>
+#include <cstdlib>
 #include <dlfcn.h>
 #include <functional>
+#include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <typeinfo>  // std::bad_cast: nanobind's cast_error derives from it
 #include <unordered_map>
 #include <utility>
@@ -16,6 +20,20 @@
 #include <nanobind/stl/vector.h>
 
 namespace nb = nanobind;
+
+// P0#2: CallbackInfo is completed much further down this header. Declaring it
+// here lets the single LifetimeRegistry own maps keyed by / holding pointers
+// to it without splitting this header-only core into a second header.
+struct CallbackInfo;
+
+// The three legacy registry accessors are kept as deprecated symbols. They
+// proxy the singleton's maps; declaring them here is what grants the friend
+// access used by those proxies below.
+inline std::unordered_map<vpiHandle, nb::object> &userdata_keepalive_registry();
+inline std::unordered_map<CallbackInfo *, std::weak_ptr<CallbackInfo>> &
+callback_raw_map();
+inline std::unordered_map<vpiHandle, std::shared_ptr<CallbackInfo>> &
+callback_registry();
 
 template <typename T>
 struct replace_type { using type = T; };
@@ -285,6 +303,72 @@ void *vpi_get_userdata_wrap(nb::object object) {
 }
 
 // ---------------------------------------------------------------------------
+// P0#2: the single owner of the three lifetime-tracking relations that used
+// to be three independent function-local statics:
+//   * userdata_   : vpiHandle -> keep-alive nb::object (capsule)
+//   * registered_ : vpiHandle -> shared_ptr<CallbackInfo> (registered cb)
+//   * raw_        : raw user_data pointer -> weak_ptr<CallbackInfo>
+// Keeping them behind one singleton puts all insertion/erase invariants in
+// one place. The instance is heap-allocated and NEVER deleted: destroying
+// these maps during C++ static teardown would destroy nb::object values
+// without the GIL, which may already be gone at process exit.
+// ---------------------------------------------------------------------------
+class LifetimeRegistry {
+ public:
+  static LifetimeRegistry &instance() noexcept;
+
+  // A capsule is stored (overwriting releases the old one); None or any
+  // non-capsule object clears the entry, matching the old wrap exactly.
+  void put_userdata(vpiHandle h, nb::object cap);
+  // Precondition: caller holds the GIL (erase may destroy an nb::object).
+  void forget_userdata(vpiHandle h) noexcept;
+
+  // These four need a complete CallbackInfo; their bodies are defined right
+  // after the struct later in this header.
+  std::shared_ptr<CallbackInfo> make(nb::object cb, std::string ud,
+                                     nb::object time, nb::object value);
+  std::shared_ptr<CallbackInfo> from_raw(void *ud) noexcept;
+  void register_cb(vpiHandle h, std::shared_ptr<CallbackInfo> sp);
+  void release_cb(vpiHandle h) noexcept;
+
+ private:
+  LifetimeRegistry() = default;
+
+  std::unordered_map<vpiHandle, nb::object> userdata_;
+  std::unordered_map<vpiHandle, std::shared_ptr<CallbackInfo>> registered_;
+  std::unordered_map<CallbackInfo *, std::weak_ptr<CallbackInfo>> raw_;
+
+  friend std::unordered_map<vpiHandle, nb::object> &userdata_keepalive_registry();
+  friend std::unordered_map<CallbackInfo *, std::weak_ptr<CallbackInfo>> &
+  callback_raw_map();
+  friend std::unordered_map<vpiHandle, std::shared_ptr<CallbackInfo>> &
+  callback_registry();
+};
+
+inline LifetimeRegistry &LifetimeRegistry::instance() noexcept {
+  static auto *p = new LifetimeRegistry();
+  return *p;
+}
+
+inline void LifetimeRegistry::put_userdata(vpiHandle h, nb::object cap) {
+  if (h == nullptr) {
+    return;
+  }
+  if (!cap.is_none() && nb::isinstance<nb::capsule>(cap)) {
+    userdata_[h] = std::move(cap);  // overwriting releases the old capsule
+  } else {
+    userdata_.erase(h);
+  }
+}
+
+inline void LifetimeRegistry::forget_userdata(vpiHandle h) noexcept {
+  if (h == nullptr) {
+    return;
+  }
+  userdata_.erase(h);
+}
+
+// ---------------------------------------------------------------------------
 // Bug #6: keep the Python capsule that backs a vpi_put_userdata() payload
 // alive for as long as the simulator may still hold the raw void*.
 //
@@ -295,13 +379,12 @@ void *vpi_get_userdata_wrap(nb::object object) {
 // simulator. The registry below holds a strong nb::object reference, keyed by
 // handle, until the handle is released or the payload is replaced/cleared.
 // ---------------------------------------------------------------------------
+// Deprecated compatibility symbol: the storage now lives in the singleton.
+// Kept for source compatibility with any out-of-tree caller (svuvm.cpp never
+// calls it directly).
+[[deprecated("use LifetimeRegistry::instance() instead")]]
 inline std::unordered_map<vpiHandle, nb::object> &userdata_keepalive_registry() {
-  // Function-local static avoids static-initialisation-order problems. The
-  // heap allocation is deliberately never freed: destroying this map during
-  // C++ static teardown would destroy nb::object values, which needs the GIL
-  // that may already be gone at process exit. The OS reclaims it instead.
-  static auto *registry = new std::unordered_map<vpiHandle, nb::object>();
-  return *registry;
+  return LifetimeRegistry::instance().userdata_;
 }
 
 PLI_INT32 vpi_put_userdata_wrap(nb::object object, nb::object userdata) {
@@ -320,12 +403,9 @@ PLI_INT32 vpi_put_userdata_wrap(nb::object object, nb::object userdata) {
   // entry even when the simulator reports failure is deliberate and
   // safety-first: a stale keep-alive is a small leak, never a use-after-free.
   if (handle != nullptr) {
-    auto &registry = userdata_keepalive_registry();
-    if (!userdata.is_none() && nb::isinstance<nb::capsule>(userdata)) {
-      registry[handle] = userdata;  // overwriting releases the old capsule
-    } else {
-      registry.erase(handle);       // None clears the simulator's pointer
-    }
+    // The capsule check / erase-on-None is inside put_userdata so the exact
+    // old semantics (including "keep the entry even if rc failed") hold.
+    LifetimeRegistry::instance().put_userdata(handle, userdata);
   }
   return rc;
 }
@@ -333,10 +413,7 @@ PLI_INT32 vpi_put_userdata_wrap(nb::object object, nb::object userdata) {
 // Drop the keep-alive for a handle when it is freed/released. Otherwise a
 // recycled handle could inherit a capsule belonging to a previous object.
 inline void forget_userdata_keepalive(vpiHandle handle) noexcept {
-  if (handle == nullptr) {
-    return;
-  }
-  userdata_keepalive_registry().erase(handle);
+  LifetimeRegistry::instance().forget_userdata(handle);
 }
 
 PLI_INT32 vpi_release_handle_wrap(nb::object object) {
@@ -541,54 +618,136 @@ struct CallbackInfo {
         user_data(ud) {}
 };
 
-static PLI_INT32 vpi_callback_wrap(p_cb_data cb_data) {
-  auto callback_info = reinterpret_cast<CallbackInfo *>(cb_data->user_data);
-  nb::gil_scoped_acquire gil;
+// --- LifetimeRegistry methods that need a complete CallbackInfo -----------
+inline std::shared_ptr<CallbackInfo>
+LifetimeRegistry::make(nb::object cb, std::string ud, nb::object time,
+                       nb::object value) {
+  auto sp = std::make_shared<CallbackInfo>(std::move(cb), std::move(ud));
+  sp->nb_time = std::move(time);
+  sp->nb_value = std::move(value);
+  raw_[sp.get()] = sp;  // implicit weak_ptr from shared_ptr
+  return sp;
+}
 
+inline std::shared_ptr<CallbackInfo>
+LifetimeRegistry::from_raw(void *ud) noexcept {
+  if (ud == nullptr) {
+    return nullptr;
+  }
+  auto it = raw_.find(static_cast<CallbackInfo *>(ud));
+  if (it == raw_.end()) {
+    return nullptr;
+  }
+  auto sp = it->second.lock();
+  if (!sp) {
+    raw_.erase(it);  // prune the dead control block; no owner references it
+  }
+  return sp;
+}
+
+inline void LifetimeRegistry::register_cb(vpiHandle h,
+                                          std::shared_ptr<CallbackInfo> sp) {
+  registered_[h] = std::move(sp);
+}
+
+inline void LifetimeRegistry::release_cb(vpiHandle h) noexcept {
+  // Precondition: caller holds the GIL (may destroy nb::object members).
+  registered_.erase(h);
+}
+
+// ---------------------------------------------------------------------------
+// P0#3: the single C-boundary exception guard.
+//
+// Every callback below is entered from simulator C code. Letting a C++
+// exception escape one of those extern "C" callbacks calls std::terminate and
+// core-dumps the simulator, so all of them funnel through safe_invoke. It owns
+// the GIL, applies the existing None -> 0 convention and collects the three
+// former catch blocks into one implementation.
+// ---------------------------------------------------------------------------
+
+// Opt-in strict mode. The function-local static is initialised lazily, so a
+// normal (non-failing) callback never calls getenv: it only reads one bool.
+inline bool strict_callback_errors() noexcept {
+  static const bool value = []() noexcept {
+    const char *env = std::getenv("UVM_BRIDGE_STRICT_CALLBACKS");
+    return env != nullptr && env[0] == '1' && env[1] == '\0';
+  }();
+  return value;
+}
+
+// vpi_printf / vpi_control are declared by vpi_user.h at the top of this
+// header. Strict mode deliberately still returns 0 across the C boundary
+// (non-zero would pollute systf results / task disable status); vpiStop makes
+// the whole simulation fail so "passed but never executed" cannot stay green.
+inline void report_strict_callback(const char *label,
+                                   const char *detail) noexcept {
+  vpi_printf((char *)"ERROR [uvm_bridge] strict callback failure in %s: %s\n",
+             const_cast<char *>(label), const_cast<char *>(detail));
+  vpi_control(vpiStop, 1);
+}
+
+template <class Fn, class... Args>
+PLI_INT32 safe_invoke(Fn &&fn, const char *label, Args &&...args) noexcept {
+  nb::gil_scoped_acquire gil;
   try {
-    nb::object nb_result = callback_info->nb_callback(cb_data);
-    if (nb_result.is_none()) {
+    if constexpr (std::is_void_v<std::invoke_result_t<Fn, Args...>>) {
+      // py_func's DPI body only calls the Python function and discards its
+      // result; keep that exact behaviour (void -> status 0).
+      std::invoke(std::forward<Fn>(fn), std::forward<Args>(args)...);
       return 0;
+    } else {
+      nb::object nb_result =
+          std::invoke(std::forward<Fn>(fn), std::forward<Args>(args)...);
+      if (nb_result.is_none()) {
+        return 0;
+      }
+      return nb::cast<PLI_INT32>(nb_result);
     }
-    return nb::cast<PLI_INT32>(nb_result);
-  } catch (const nb::python_error &e) {
-    std::cerr << "Exception in python callback: " << e.what() << std::endl;
+  } catch (nb::python_error &e) {
+    // PyErr_Print semantics: keep the full Python traceback. e.what() would
+    // only repeat the message and lose the traceback, so do not print it.
+    e.discard_as_unraisable(label);
+    if (strict_callback_errors()) {
+      report_strict_callback(label, "python exception (see traceback above)");
+    }
     return 0;
   } catch (const std::bad_cast &e) {
-    // nanobind's cast_error derives from std::bad_cast. A callback that
-    // RETURNS a non-int (float/str/out-of-range int) throws this, and this
-    // wrapper is entered from simulator C code: letting it escape calls
-    // std::terminate. Report and follow the None -> 0 convention instead.
-    std::cerr << "Invalid python callback return type: " << e.what()
-              << std::endl;
+    std::cerr << "Invalid python " << label << " callback return type: "
+              << e.what() << std::endl;
+    if (strict_callback_errors()) {
+      // Fixed stack buffer: no std::string allocation inside a noexcept body.
+      char detail[1024];
+      std::snprintf(detail, sizeof(detail),
+                    "Invalid python %s callback return type: %s", label,
+                    e.what());
+      report_strict_callback(label, detail);
+    }
     return 0;
   } catch (const std::exception &e) {
-    std::cerr << "Exception in python callback: " << e.what() << std::endl;
+    std::cerr << "Exception in python " << label << " callback: " << e.what()
+              << std::endl;
+    if (strict_callback_errors()) {
+      char detail[1024];
+      std::snprintf(detail, sizeof(detail),
+                    "Exception in python %s callback: %s", label, e.what());
+      report_strict_callback(label, detail);
+    }
     return 0;
   }
 }
 
+static PLI_INT32 vpi_callback_wrap(p_cb_data cb_data) {
+  auto callback_info = reinterpret_cast<CallbackInfo *>(cb_data->user_data);
+  // gil_scoped_acquire and all catch logic live inside safe_invoke now.
+  return safe_invoke(
+      [callback_info](p_cb_data data) { return callback_info->nb_callback(data); },
+      "vpi_callback", cb_data);
+}
+
 static PLI_INT32 systf_callback_wrap(PLI_BYTE8 *user_data) {
   auto callback_info = reinterpret_cast<CallbackInfo *>(user_data);
-  nb::gil_scoped_acquire gil;
-
-  try {
-    nb::object nb_result = callback_info->nb_callback();
-    if (nb_result.is_none()) {
-      return 0;
-    }
-    return nb::cast<PLI_INT32>(nb_result);
-  } catch (const nb::python_error &e) {
-    std::cerr << "Exception in python callback: " << e.what() << std::endl;
-    return 0;
-  } catch (const std::bad_cast &e) {
-    std::cerr << "Invalid python callback return type: " << e.what()
-              << std::endl;
-    return 0;
-  } catch (const std::exception &e) {
-    std::cerr << "Exception in python callback: " << e.what() << std::endl;
-    return 0;
-  }
+  return safe_invoke([callback_info]() { return callback_info->nb_callback(); },
+                     "systf");
 }
 
 // Shared dispatcher for the two newly bound systf callbacks. Both follow the
@@ -596,28 +755,7 @@ static PLI_INT32 systf_callback_wrap(PLI_BYTE8 *user_data) {
 // None -> 0, int -> that value, Python exception -> diagnostic + 0.
 static PLI_INT32 invoke_systf_python(const nb::object &callback,
                                     const char *kind) {
-  nb::gil_scoped_acquire gil;
-  try {
-    nb::object nb_result = callback();
-    if (nb_result.is_none()) {
-      return 0;
-    }
-    return nb::cast<PLI_INT32>(nb_result);
-  } catch (const nb::python_error &e) {
-    std::cerr << "Exception in python " << kind << " callback: "
-              << e.what() << std::endl;
-    return 0;
-  } catch (const std::bad_cast &e) {
-    // compiletf / sizetf share this dispatcher, so one fix covers all four
-    // C callbacks. A bad return type must never escape across the C boundary.
-    std::cerr << "Invalid python " << kind << " callback return type: "
-              << e.what() << std::endl;
-    return 0;
-  } catch (const std::exception &e) {
-    std::cerr << "Exception in python " << kind << " callback: "
-              << e.what() << std::endl;
-    return 0;
-  }
+  return safe_invoke([&callback]() { return callback(); }, kind);
 }
 
 static PLI_INT32 systf_compiletf_wrap(PLI_BYTE8 *user_data) {
@@ -655,18 +793,18 @@ static PLI_INT32 systf_sizetf_wrap(PLI_BYTE8 *user_data) {
 // `raw_map` only holds weak_ptrs: it is a lookup table from the raw
 // user_data pointer back to shared ownership, never an owner itself.
 // ---------------------------------------------------------------------------
+// Deprecated compatibility symbols: the storage now lives in the singleton.
+// svuvm.cpp does not call either of them directly.
+[[deprecated("use LifetimeRegistry::instance() instead")]]
 inline std::unordered_map<CallbackInfo *, std::weak_ptr<CallbackInfo>> &
 callback_raw_map() {
-  static auto *map =
-      new std::unordered_map<CallbackInfo *, std::weak_ptr<CallbackInfo>>();
-  return *map;
+  return LifetimeRegistry::instance().raw_;
 }
 
+[[deprecated("use LifetimeRegistry::instance() instead")]]
 inline std::unordered_map<vpiHandle, std::shared_ptr<CallbackInfo>> &
 callback_registry() {
-  static auto *map =
-      new std::unordered_map<vpiHandle, std::shared_ptr<CallbackInfo>>();
-  return *map;
+  return LifetimeRegistry::instance().registered_;
 }
 
 // Create a CallbackInfo under shared ownership and make it discoverable by
@@ -681,11 +819,8 @@ inline std::shared_ptr<CallbackInfo> make_callback_info(nb::object cb,
                                                         std::string ud,
                                                         nb::object time,
                                                         nb::object value) {
-  auto sp = std::make_shared<CallbackInfo>(std::move(cb), std::move(ud));
-  sp->nb_time = std::move(time);
-  sp->nb_value = std::move(value);
-  callback_raw_map()[sp.get()] = sp;  // implicit weak_ptr from shared_ptr
-  return sp;
+  return LifetimeRegistry::instance().make(std::move(cb), std::move(ud),
+                                           std::move(time), std::move(value));
 }
 
 // Backwards-compatible form for the many callers with no time/value objects.
@@ -700,19 +835,8 @@ inline std::shared_ptr<CallbackInfo> make_callback_info(nb::object cb,
 // or one whose last shared owner is already gone -- never dereference it.
 inline std::shared_ptr<CallbackInfo>
 callback_info_from_raw(void *user_data) noexcept {
-  if (user_data == nullptr) {
-    return nullptr;
-  }
-  auto &raw = callback_raw_map();
-  auto it = raw.find(static_cast<CallbackInfo *>(user_data));
-  if (it == raw.end()) {
-    return nullptr;
-  }
-  auto sp = it->second.lock();
-  if (!sp) {
-    raw.erase(it);  // prune the dead control block; no owner references it
-  }
-  return sp;
+  // NULL handling and dead-weak_ptr pruning are inside from_raw().
+  return LifetimeRegistry::instance().from_raw(user_data);
 }
 
 // Build the capsule stored on the Python CbData / VpiSystfData object. Its
@@ -734,7 +858,7 @@ inline nb::object vpi_register_cb_wrap(p_cb_data cb_data_p) {
   if (handle != nullptr && cb_data_p != nullptr) {
     auto sp = callback_info_from_raw(cb_data_p->user_data);
     if (sp) {
-      callback_registry()[handle] = std::move(sp);
+      LifetimeRegistry::instance().register_cb(handle, std::move(sp));
     }
   }
   return convert(handle);
@@ -745,7 +869,7 @@ inline nb::object vpi_register_systf_wrap(p_vpi_systf_data systf_data_p) {
   if (handle != nullptr && systf_data_p != nullptr) {
     auto sp = callback_info_from_raw(systf_data_p->user_data);
     if (sp) {
-      callback_registry()[handle] = std::move(sp);
+      LifetimeRegistry::instance().register_cb(handle, std::move(sp));
     }
   }
   return convert(handle);
@@ -759,7 +883,7 @@ inline PLI_INT32 vpi_remove_cb_wrap(nb::object cb_obj) {
   vpiHandle handle = convert(cb_obj);
   PLI_INT32 rc = vpi_remove_cb(handle);
   if (rc == 1 && handle != nullptr) {
-    callback_registry().erase(handle);
+    LifetimeRegistry::instance().release_cb(handle);
   }
   return rc;
 }

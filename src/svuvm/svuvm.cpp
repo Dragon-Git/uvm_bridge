@@ -1899,21 +1899,18 @@ py_func(const char *mod_name, const char *func_name, const char *mod_paths) {
     return 0;
   }
 
-  // Guard both the import and the user-Python call so an unhandled exception
-  // cannot propagate as a nanobind::python_error across this extern "C" DPI
-  // boundary (uncaught exceptions there hit std::terminate and core dump the
-  // simulator with no useful diagnostic). nb::python_error is non-const, so
-  // catch by reference and pass it to discard_as_unraisable, which prints the
-  // full Python traceback via PyErr_Print() semantics and consumes the error
-  // state cleanly. Any non-nb exception is a bug -- we re-raise so it is not
-  // silently lost.
-  try {
-    nb::module_ py_seq_mod = nb::module_::import_(mod_name);
-    py_seq_mod.attr(func_name)();
-  } catch (nb::python_error &e) {
-    e.discard_as_unraisable(__func__);
-  }
-  return 0;
+  // Route the import and the user-Python call through the shared C-boundary
+  // guard. Unlike the old python_error-only catch, safe_invoke also contains
+  // std::bad_cast / std::exception, so nothing can escape this extern "C" DPI
+  // entry. Its python_error path still uses discard_as_unraisable(label) to
+  // preserve the full Python traceback, and PLI_INT32 is int on this platform
+  // so the return type matches this DPI function unchanged.
+  return safe_invoke(
+      [&]() {
+        nb::module_ py_seq_mod = nb::module_::import_(mod_name);
+        py_seq_mod.attr(func_name)();
+      },
+      "py_func");
 }
 
 // IEEE 1800-2023 35.5.4: an imported task's foreign-language implementation
