@@ -130,6 +130,13 @@ jobs:
         python -m pip install --no-build-isolation -v .
         python -m pip install cocotb pytest
 
+    - name: Check generated sources are reproducible
+      # Generators write only to build/temp dirs; the tracked SV package must
+      # stay untouched. A manifest change is picked up by the CMake DEPENDS.
+      run: |
+        python scripts/check_generated.py
+        git diff --exit-code -- src/svuvm/python_bridge_pkg.sv
+
     - name: Lint with ruff
       uses: astral-sh/ruff-action@v4.1.0
 

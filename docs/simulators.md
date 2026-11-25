@@ -28,6 +28,8 @@ $ python -m svuvm.config
 /path/to/svuvm/python_bridge_pkg.sv /path/to/svuvm/_svuvm.cpython-312-x86_64-linux-gnu.so -LDFLAGS "-L/usr/lib -lpython3.12 -ldl -lm"
 ```
 
+安装包还在同一目录提供 `python_bridge_pkg_export.svh`（生成的 DPI-C export 声明）；桥接包用它替代了原地生成的 export 区，因此仿真器需把该目录加入 include 搜索路径。下文各示例中的 `+incdir+` / `-I` 即为此。
+
 第三项的值内部含空格并由双引号包围，因此**不能**直接以命令替换的方式传入仿真器：
 
 ```bash
@@ -76,7 +78,8 @@ mkdir -p build
 eval "SVUVM_ARGS=($(python -m svuvm.config))"
 
 verilator -j "$(nproc)" --vpi --binary -top top -Mdir build \
-  +incdir+"$PWD/uvm-verilator/src" "$PWD/uvm-verilator/src/uvm_pkg.sv" \
+  +incdir+"$PWD/uvm-verilator/src" +incdir+"$(dirname "${SVUVM_ARGS[0]}")" \
+  "$PWD/uvm-verilator/src/uvm_pkg.sv" \
   "${SVUVM_ARGS[@]}" "$PWD/top.sv" \
   "$PWD/uvm-verilator/src/dpi/uvm_dpi.cc" \
   -CFLAGS "-I$PWD/uvm-verilator/src/dpi -I$PWD/inc -DVERILATOR"
@@ -95,8 +98,8 @@ export task 遇到延时或事件时把控制权交还仿真线程，时间推�
 `ktbarrett/setup-verilator@dev` 的 `nightly`；含该功能的正式版本发布后可直接改用正式版本。
 
 **只有 cocotb 需要显式写出 `--timing`。** `--binary` 隐含 `--timing`（可用 `--no-timing`
-关闭），所以 `test/base_test/sim_runner.py` 的 build、`compile.sh` 和 README 的编译命令都不用写；
-`lint` 走 `--lint-only`，实测带或不带 `--timing` 结果完全相同，也不需要。cocotb 用
+关闭），所以由 pytest 驱动的 `test/base_test/sim_runner.py` 负责构建，其 build 命令与 README 的
+编译命令都不用写；`lint` 走 `--lint-only`，实测带或不带 `--timing` 结果完全相同，也不需要。cocotb 用
 `--cc --exe --build`（没有 `--binary`），少了 `--timing` 会报 `%Error-NEEDTIMINGOPT`
 （UVM 的 `#force_time`、`process::self()` 等），因此 `test/cocotb_test/Makefile` 保留该选项。
 
@@ -159,7 +162,7 @@ PYTHONPATH=$PWD XEZIM_UVM_DIR=$PWD/uvm-verilator xezim --simulate -s top \
   --dpi-lib "$XEZIM_LIBPYTHON" \
   --dpi-lib "$PWD/build/uvm_dpi_xezim.so" \
   --dpi-lib "$XEZIM_DPI_LIB" \
-  --max-time 10ms --error-exit -uvm \
+  --max-time 10ms --error-exit -uvm -I "$XEZIM_SVUVM" \
   "$XEZIM_SVUVM/python_bridge_pkg.sv" "$PWD/top.sv" \
   +UVM_TESTNAME=example_test
 ```
@@ -187,6 +190,7 @@ eval "SVUVM_ARGS=($(python -m svuvm.config))"
 vcs -full64 -sverilog \
   -timescale=1ns/1ps \
   -ntb_opts uvm-1.2 \
+  +incdir+"$(dirname "${SVUVM_ARGS[0]}")" \
   "${SVUVM_ARGS[@]}" \
   top.sv
 

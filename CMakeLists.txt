@@ -26,21 +26,30 @@ execute_process(
 find_package(nanobind CONFIG REQUIRED)
 
 # 代码生成：在构建前生成必要的文件
-# 生成VPI属性头文件
+# 三个生成器共享 scripts/gen_manifest.py；manifest 变更即触发重新生成。
+set(SVUVM_GENERATOR_MANIFEST ${CMAKE_SOURCE_DIR}/scripts/gen_manifest.py)
+
+# 生成VPI属性头文件（保持原有位置，该文件已被 .gitignore 忽略）
 add_custom_command(
   OUTPUT ${CMAKE_SOURCE_DIR}/inc/vpi_attr.h
   COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/generate_vpi_attr.py ${CMAKE_SOURCE_DIR}
-  DEPENDS ${CMAKE_SOURCE_DIR}/inc/vpi_user.h ${CMAKE_SOURCE_DIR}/inc/sv_vpi_user.h ${CMAKE_SOURCE_DIR}/scripts/generate_vpi_attr.py
+  DEPENDS ${CMAKE_SOURCE_DIR}/inc/vpi_user.h ${CMAKE_SOURCE_DIR}/inc/sv_vpi_user.h
+          ${CMAKE_SOURCE_DIR}/scripts/generate_vpi_attr.py ${SVUVM_GENERATOR_MANIFEST}
   COMMENT "Generating vpi_attr.h"
   VERBATIM
 )
 
-# 生成SV导出声明(直接修改源文件)
+# 生成SV导出声明到构建目录：入库的 python_bridge_pkg.sv 只含一个稳定的
+# `include，生成过程不再原地改写任何入库文件。
+set(SV_EXPORT_SVH ${CMAKE_BINARY_DIR}/python_bridge_pkg_export.svh)
+set(SV_EXPORT_HEADER ${CMAKE_BINARY_DIR}/export_dpi.h)
 add_custom_command(
-  OUTPUT ${CMAKE_SOURCE_DIR}/src/svuvm/python_bridge_pkg.sv
-  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/generate_sv_export.py ${CMAKE_SOURCE_DIR}
-  DEPENDS ${CMAKE_SOURCE_DIR}/scripts/generate_sv_export.py
-  COMMENT "Generating SV export declarations"
+  OUTPUT ${SV_EXPORT_SVH} ${SV_EXPORT_HEADER}
+  COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/generate_sv_export.py
+          ${CMAKE_SOURCE_DIR} --output-dir ${CMAKE_BINARY_DIR}
+  DEPENDS ${CMAKE_SOURCE_DIR}/src/svuvm/python_bridge_pkg.sv
+          ${CMAKE_SOURCE_DIR}/scripts/generate_sv_export.py ${SVUVM_GENERATOR_MANIFEST}
+  COMMENT "Generating SV export declarations into the build directory"
   VERBATIM
 )
 
@@ -56,11 +65,11 @@ nanobind_add_module(
 
 # 添加代码生成的依赖 - 使用自定义目标而非直接引用文件路径
 add_custom_target(generate_vpi_attr DEPENDS ${CMAKE_SOURCE_DIR}/inc/vpi_attr.h)
-add_custom_target(generate_sv_export DEPENDS ${CMAKE_SOURCE_DIR}/src/svuvm/python_bridge_pkg.sv)
+add_custom_target(generate_sv_export DEPENDS ${SV_EXPORT_SVH} ${SV_EXPORT_HEADER})
 add_dependencies(_svuvm generate_vpi_attr generate_sv_export)
 
-# 添加包含目录
-target_include_directories(_svuvm PRIVATE inc)
+# 添加包含目录：构建目录提供生成物 export_dpi.h
+target_include_directories(_svuvm PRIVATE inc ${CMAKE_BINARY_DIR})
 
 # 允许未定义符号（由模拟器在运行时提供 DPI 函数）
 # 在 macOS 上：强制构建为 dylib (MH_DYLIB) 而非 bundle (MH_BUNDLE)，
@@ -100,6 +109,7 @@ add_custom_command(
   COMMAND ${Python_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/gen_stub.py -i ${CMAKE_BINARY_DIR} -m _svuvm -r -O ${CMAKE_BINARY_DIR}
   WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
   DEPENDS _svuvm dpi_stub ${CMAKE_SOURCE_DIR}/scripts/gen_stub.py
+          ${SVUVM_GENERATOR_MANIFEST}
   COMMENT "Generating Python stubs for _svuvm (recursive)"
   VERBATIM
 )
@@ -108,6 +118,8 @@ add_custom_target(svuvm_stub ALL DEPENDS ${CMAKE_BINARY_DIR}/_svuvm/__init__.pyi
 
 # 安装目标
 install(TARGETS _svuvm LIBRARY DESTINATION svuvm)
+# export .svh 与入库的 python_bridge_pkg.sv 一同安装，仿真器从包目录 include
+install(FILES ${SV_EXPORT_SVH} DESTINATION svuvm)
 install(DIRECTORY ${CMAKE_BINARY_DIR}/_svuvm
         DESTINATION svuvm
         FILES_MATCHING PATTERN "*.pyi")

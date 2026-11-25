@@ -147,7 +147,8 @@ def _verilator_build(python, build_dir, uvm_home):
     cmd = [
         "verilator", "-j", str(jobs), *VERILATOR_FLAGS,
         "-Mdir", build_dir, "--output-groups", str(jobs),
-        f"+incdir+{uvm_home}", uvm_home / "dpi" / "uvm_dpi.cc", uvm_home / "uvm_pkg.sv",
+        f"+incdir+{uvm_home}", f"+incdir+{Path(sv_file).parent}",
+        uvm_home / "dpi" / "uvm_dpi.cc", uvm_home / "uvm_pkg.sv",
         *pre, sv_file, so_file, "-LDFLAGS", ldflags, TOP_SV, "-CFLAGS", cflags, *post,
     ]
     proc = _exec(cmd, cwd=TEST_DIR)
@@ -243,7 +244,7 @@ def xezim_run(python, build_dir, uvm_home, max_time, extra_env):
         "--dpi-lib", dpi_so.resolve(),
         "--dpi-lib", dpi_libs[0],
         "--max-time", max_time or os.environ.get("MAX_TIME", "10ms"),
-        "--error-exit", "-uvm", sv, TOP_SV, *_run_flags(),
+        "--error-exit", "-uvm", f"+incdir+{svuvm_dir}", sv, TOP_SV, *_run_flags(),
     ]
     proc = _exec(cmd, cwd=ROOT, env=env)
     log = _output(proc)
@@ -269,7 +270,8 @@ def lint(*, python=None, uvm_home=None):
     sv = _svuvm_dir(python) / "python_bridge_pkg.sv"
     cmd = [
         "verilator", "--lint-only", "-top", "top", *LINT_FLAGS,
-        f"+incdir+{home}", f"-I{home / 'dpi'}", f"-I{ROOT / 'inc'}",
+        f"+incdir+{home}", f"+incdir+{sv.parent}",
+        f"-I{home / 'dpi'}", f"-I{ROOT / 'inc'}",
         home / "uvm_pkg.sv", sv, TOP_SV,
     ]
     proc = _exec(cmd, cwd=TEST_DIR)
