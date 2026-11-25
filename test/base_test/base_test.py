@@ -25,6 +25,8 @@ from svuvm import _svuvm as svuvm
 _CHECKS = 0
 _FAILURES = []
 _SKIPS = []
+# Per-block outcome, consumed by test_base_test.py through SVUVM_RESULT_JSON.
+_CASE_RESULTS = []
 
 # A floor on executed assertions. Without it, a run in which every handle
 # lookup returned None (or every test returned early) would record zero real
@@ -2691,15 +2693,46 @@ def _run(name, fn):
     banner(name)
     _CHECKS += 1  # the block itself completing without raising
     before = len(_FAILURES)
+    checks_before = _CHECKS - 1
+    case = {"name": name, "status": "pass", "failures": [], "checks": 0}
     try:
         fn()
     except Exception as exc:
         msg = f"[FAIL] {name} raised {type(exc).__name__}: {exc}"
         svuvm.vpi.vpi_printf(msg + "\n")
         _FAILURES.append(msg)
+        case["status"] = "fail"
+        case["failures"].append(msg)
+        case["checks"] = _CHECKS - checks_before
+        _CASE_RESULTS.append(case)
         return
+    case["checks"] = _CHECKS - checks_before
     if len(_FAILURES) == before:
         svuvm.vpi.vpi_printf(f"[PASS] {name}\n")
+    else:
+        case["status"] = "fail"
+        case["failures"] = list(_FAILURES[before:])
+    _CASE_RESULTS.append(case)
+
+
+def _write_results():
+    """Dump the per-block outcome for pytest, atomically and only if asked."""
+    import json
+    import os
+
+    path = os.environ.get("SVUVM_RESULT_JSON")
+    if not path:
+        return
+    payload = {
+        "checks": _CHECKS,
+        "skips": len(_SKIPS),
+        "failures": list(_FAILURES),
+        "cases": _CASE_RESULTS,
+    }
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(payload, fh, indent=2)
+    os.replace(tmp, path)
 
 
 def main():
@@ -2712,6 +2745,12 @@ def main():
     if _CHECKS < MIN_CHECKS:
         fail("assertion floor",
              f"only {_CHECKS} checks executed, expected >= {MIN_CHECKS}")
+        _CASE_RESULTS.append({
+            "name": "assertion_floor",
+            "status": "fail",
+            "failures": list(_FAILURES[-1:]),
+            "checks": 0,
+        })
 
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     if _FAILURES:
@@ -2728,6 +2767,7 @@ def main():
         svuvm.vpi.vpi_printf("*        所有新增API测试完成 \n")
     svuvm.vpi.vpi_printf("*" * 120 + "\n")
     svuvm.print_report_server()
+    _write_results()
 
 
 def hello():

@@ -60,7 +60,9 @@ jobs:
 
     - name: Run xezim test
       run: |
-        make -f test/base_test/Makefile run SIM=xezim
+        pytest -v test/base_test
+      env:
+        SVUVM_BACKENDS: xezim
 
     - name: Generate pyral model and register block
       run: |

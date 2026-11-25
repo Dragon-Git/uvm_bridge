@@ -95,7 +95,7 @@ export task 遇到延时或事件时把控制权交还仿真线程，时间推�
 `ktbarrett/setup-verilator@dev` 的 `nightly`；含该功能的正式版本发布后可直接改用正式版本。
 
 **只有 cocotb 需要显式写出 `--timing`。** `--binary` 隐含 `--timing`（可用 `--no-timing`
-关闭），所以 `test/base_test/Makefile` 的 build、`compile.sh` 和 README 的编译命令都不用写；
+关闭），所以 `test/base_test/sim_runner.py` 的 build、`compile.sh` 和 README 的编译命令都不用写；
 `lint` 走 `--lint-only`，实测带或不带 `--timing` 结果完全相同，也不需要。cocotb 用
 `--cc --exe --build`（没有 `--binary`），少了 `--timing` 会报 `%Error-NEEDTIMINGOPT`
 （UVM 的 `#force_time`、`process::self()` 等），因此 `test/cocotb_test/Makefile` 保留该选项。
@@ -119,7 +119,7 @@ Verilator 在 `verilated_dpi.h` 用 `static_assert` 强制检查该返回类型�
 `function int py_func(...)`，Verilator 生成 `extern int py_func(...)`，与 `py_task` 的
 `extern int py_task(...)` ABI 一致。桥从不 disable 这两个入口，状态恒为 0（`py_task` 直接
 透传 `py_func` 的返回值）。SV 侧把 `py_func` 当语句调用时必须写 `void'(py_func(...))` 显式
-丢弃返回值，避免 `IGNOREDRETURN`（IEEE 1800-2023 13.4.1）；本仓库的 Makefile 另以
+丢弃返回值，避免 `IGNOREDRETURN`（IEEE 1800-2023 13.4.1）；本仓库的仿真构建另以
 `-Wno-IGNOREDRETURN` 兜底，但显式写法对其他仿真器和更严格的 lint 配置更稳妥。
 
 `main_phase` 的 Python 回调（默认 `main`）经 `py_task` 进入，寄存器访问、事件等待、
@@ -133,8 +133,9 @@ Verilator 在 `verilated_dpi.h` 用 `static_assert` 强制检查该返回类型�
 **UVM 源码必须使用带 Verilator 后端的版本。** 上游 UVM 自 2020-3.2 起才提供 Verilator 的 HDL
 后端，更早的版本在 `uvm_hdl.c` 中因缺少后端直接报错。上例取上游 2020-3.2；
 `Dragon-Git/uvm-verilator` fork 在此基础上额外支持更早的版本。`-CFLAGS` 里的 `-DVERILATOR`
-是给这层 UVM DPI 代码用的；桥接层的 SV 包不再裁剪任何功能，仅保留一处与符号冲突有关的
-条件编译：`import "DPI-C" function string getenv` 在 Verilator 下会生成
+是给这层 UVM DPI 代码用的；桥接层的 SV 包不再按仿真器裁剪功能，与仿真器相关的条件编译只剩
+一处与符号冲突有关的 `ifndef VERILATOR`：`import "DPI-C" function string getenv` 在 Verilator
+下会生成
 `const char* getenv(const char*)`，与 `<stdlib.h>` 里 libc 的 `char* getenv(const char*)`
 冲突，因此仍在 `` `ifndef VERILATOR `` 下；其他仿真器把它直接链到 libc。
 
@@ -163,9 +164,9 @@ PYTHONPATH=$PWD XEZIM_UVM_DIR=$PWD/uvm-verilator xezim --simulate -s top \
   +UVM_TESTNAME=example_test
 ```
 
-`uvm_dpi_xezim.so` 由 UVM DPI 层的 xezim 变体 `uvm_dpi_xezim.cc` 编得，该文件随 xezim 发布包
-位于 `include/` 下，以标准 IEEE 1800 VPI 实现 `uvm_hdl_*` 接口。编译命令见
-`test/base_test/Makefile` 的 xezim 分支。此路径可直接使用上游 UVM 源码。
+`uvm_dpi_xezim.so` 由 UVM DPI 层的 xezim 变体 `uvm_dpi_xezim.cc` 编得；EDAPack 的 xezim 发布包
+在 `include/` 下提供该文件，以标准 IEEE 1800 VPI 实现 `uvm_hdl_*` 接口。编译命令见
+`test/base_test/sim_runner.py` 的 xezim 分支。此路径可直接使用上游 UVM 源码。
 
 ## VCS
 

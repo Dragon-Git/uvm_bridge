@@ -128,14 +128,16 @@ jobs:
                               'pyslang>=11.0.0,<12.0.0' \
                               'setuptools_scm>=8.0,<11.0'
         python -m pip install --no-build-isolation -v .
-        python -m pip install cocotb
+        python -m pip install cocotb pytest
 
     - name: Lint with ruff
       uses: astral-sh/ruff-action@v4.1.0
 
     - name: Run base test
       run: |
-        make -f test/base_test/Makefile run
+        pytest -v test/base_test
+      env:
+        SVUVM_BACKENDS: verilator
 
     - name: Run cocotb test
       run: |

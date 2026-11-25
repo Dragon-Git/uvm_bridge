@@ -61,6 +61,7 @@ build-backend = "scikit_build_core.build"
 markers = [
     "lint: the verilator leg - elaborate only",
     "run: the xezim leg - run the base test",
+    "base_test: per-block results of the two-backend base test",
 ]
 
 [tool.scikit-build]

@@ -2,7 +2,7 @@
 
 `src/svuvm/python_bridge_pkg.sv` 对各 UVM 发行版的适配情况与版本差异。
 
-测试于 2026-10-19，xezim 0.11.2（main `661ab48`）、Verilator nightly `54314c5`。UVM 源码取自
+测试于 2026-11-25，xezim 0.11.7、Verilator nightly `9dee5c5f9c08`。UVM 源码取自
 `chipsalliance/uvm-verilator` 的 tag。表格的期望值以 `test/uvm_compat/test_compat.py` 为准，每次
 推送由 CI 逐版本校验。
 
@@ -11,7 +11,7 @@
 两个仿真器检查的东西不同：
 
 - **xezim** 解释执行，跑完整的 `base_test`（`test/base_test`）。
-- **verilator** 只做精化（`make -f test/base_test/Makefile lint`），不构建，以便用同一套检查覆盖所有 UVM 版本：上游 UVM 到 2020-3.2 才提供 Verilator 的 HDL 后端，见 §3.3；完整构建运行由 `test/base_test` 的 Verilator 作业覆盖。
+- **verilator** 只做精化（`pytest -m lint test/uvm_compat`，内部由 `test/base_test/sim_runner.py` 调用 `verilator --lint-only`），不构建，以便用同一套检查覆盖所有 UVM 版本：上游 UVM 到 2020-3.2 才提供 Verilator 的 HDL 后端，见 §3.3；完整构建运行由 `test/base_test` 的 Verilator 作业覆盖。
 
 | UVM | xezim（运行） | verilator（lint） |
 |-----|--------------|------------------|
@@ -33,7 +33,7 @@
 
 xezim 的 1.0 / 1.1 一栏为空：它们的 DPI 源文件布局早于 1.2（没有 `uvm_dpi.h` 与 `uvm_common.c`，这两个文件都是 1.2 引入的），xezim 的 DPI 适配层因此无法编译。这些版本在 verilator 上仍可 lint。
 
-判定标准是 `make` 退出码为 0 且日志出现 `所有新增API测试完成`。日志中的 `UVM_FATAL: 10` / `UVM_ERROR: 20` 是 `base_test` 自身 API 测试的固定计数（含 `UVM_FATAL TEST SUCCESS!` 与 `set_severity_count` 用例），逐版本一致，不是失败。
+判定标准是仿真进程退出码为 0 且日志出现 `所有新增API测试完成`。日志中的 `UVM_FATAL: 10` / `UVM_ERROR: 20` 是 `base_test` 自身 API 测试的固定计数（含 `UVM_FATAL TEST SUCCESS!` 与 `set_severity_count` 用例），逐版本一致，不是失败。
 
 ## 2. 桥接层的版本适配
 
@@ -130,20 +130,22 @@ uvm-2017-0.9/src/dpi/uvm_hdl.c:33:2: error: #error "hdl vendor backend is missin
 git clone --depth 1 --branch uvm-2020-3.2 \
   https://github.com/chipsalliance/uvm-verilator.git /tmp/uvm-2020-3.2
 
-# xezim 跑 base_test（-uvm 需要 XEZIM_UVM_DIR）
-make -f test/base_test/Makefile SIM=xezim run \
-  UVM_HOME=/tmp/uvm-2020-3.2 XEZIM_PREFIX=<prefix>
+# xezim 跑 base_test（需 xezim 在 PATH 或设置 XEZIM_PREFIX）
+python test/base_test/sim_runner.py run --sim xezim \
+  --uvm-home /tmp/uvm-2020-3.2
 
 # verilator lint（需要 verilator 已在 PATH）
-make -f test/base_test/Makefile lint UVM_HOME=/tmp/uvm-2020-3.2/src
+python test/base_test/sim_runner.py lint --uvm-home /tmp/uvm-2020-3.2/src
 ```
 
-两个腿的 `UVM_HOME` 含义不同：xezim 的 Makefile 会自己附加 `/src`，verilator 的期待直接给 `src` 目录。
+两个腿的 `--uvm-home` 含义不同：xezim 的运行器会自己附加 `/src`，verilator 的期待直接给 `src` 目录。
 
-注意 xezim 加载的是 **svuvm 包内**的 `python_bridge_pkg.sv`，不是仓库里的那份；改动仓库后需同步：
+`sim_runner.py` 使用**已安装**的 `svuvm` 包内的 `python_bridge_pkg.sv`（即
+`python -m svuvm.config` 输出的路径），而不是仓库中的 `src/svuvm/python_bridge_pkg.sv`。改动 SV
+后需要重新安装才能生效：
 
 ```sh
-cp src/svuvm/python_bridge_pkg.sv "$(python -c 'import svuvm,os;print(os.path.dirname(svuvm.__file__))')/"
+pip install .
 ```
 
 CI 中的 `.github/workflows/test.yml`（`uvm-compat-*`）跑同一组版本：期望值在 `test/uvm_compat/test_compat.py` 的表里，两条腿各用 `pytest -m lint` / `pytest -m run` 并行执行，只在与期望不符时失败——已知的失败保持安静，开始通过的版本也会被点名。
