@@ -1,4 +1,5 @@
 #include "svdpi.h"
+#include "simulator_capabilities.h"
 #include <cstdlib>
 #include <cstring>
 #include <dlfcn.h>
@@ -9,6 +10,7 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/tuple.h>
 #include <nanobind/stl/vector.h>
+#include "bridge_error.h"
 #include <stdexcept>
 #include <tuple>
 
@@ -113,7 +115,13 @@ inline bool is_xcelium() {
 inline bool is_mentor() { return detect() == Simulator::MENTOR; }
 
 inline bool is_verilator() { return detect() == Simulator::VERILATOR; }
+
+// Let the capability TU reuse the detector above verbatim; no classification
+// logic is duplicated and detect()/is_*() remain unchanged.
+inline int detect_code() { return static_cast<int>(detect()); }
 } // namespace simulator
+
+int simulator_detect_code() { return simulator::detect_code(); }
 
 // 条件编译时仍然包含必要的头文件，但会在运行时选择使用
 
@@ -229,6 +237,36 @@ const char *exec_tcl_cmd(const char *cmd) {
 NB_MODULE(_svuvm, m) {
   m.doc() = "svuvm api module";
 
+  // P2#9: register the whole BridgeError hierarchy before any binding can
+  // throw. Translators are prepended, so the root must come first and each
+  // subclass after it (later registrations win the match).
+  register_bridge_errors(m);
+
+  // Observation-only capability snapshot. `simulator` is the classifier's
+  // numeric value; every has_* field is a live symbol probe. No bridge
+  // dispatch is driven from this object.
+  nb::class_<SimulatorCapabilities>(m, "SimulatorCapabilities")
+      .def_ro("simulator", &SimulatorCapabilities::simulator)
+      .def_ro("name", &SimulatorCapabilities::name)
+      .def_ro("has_tf_gettime", &SimulatorCapabilities::has_tf_gettime)
+      .def_ro("has_tf_gettimeunit",
+                    &SimulatorCapabilities::has_tf_gettimeunit)
+      .def_ro("has_tf_gettimeprecision",
+                    &SimulatorCapabilities::has_tf_gettimeprecision)
+      .def_ro("has_svGetTime", &SimulatorCapabilities::has_svGetTime)
+      .def_ro("has_svGetTimeUnit",
+                    &SimulatorCapabilities::has_svGetTimeUnit)
+      .def_ro("has_svGetTimePrecision",
+                    &SimulatorCapabilities::has_svGetTimePrecision)
+      .def_ro("has_vpi_get_vlog_info",
+                    &SimulatorCapabilities::has_vpi_get_vlog_info)
+      .def_ro("has_tcl_mhpi", &SimulatorCapabilities::has_tcl_mhpi)
+      .def_ro("has_tcl_cfc", &SimulatorCapabilities::has_tcl_cfc)
+      .def_ro("has_tcl_mti", &SimulatorCapabilities::has_tcl_mti)
+      .def_ro("has_vpi_get_data", &SimulatorCapabilities::has_vpi_get_data)
+      .def_ro("has_vpi_put_data", &SimulatorCapabilities::has_vpi_put_data);
+  m.attr("capabilities") = capabilities();
+
 #ifndef NO_VPI
   // VPI wrapper
   nb::module_ vpi = m.def_submodule("vpi", "VPI interface submodule");
@@ -304,7 +342,7 @@ NB_MODULE(_svuvm, m) {
       .def("alloc_da", [](nb::object self, int n) {
         s_vpi_delay &o = nb::cast<s_vpi_delay &>(self);
         if (n < 0) {
-          throw std::invalid_argument("alloc_da: negative count");
+          throw BridgeInvalidArgument("alloc_da: negative count");
         }
         auto *arr = new s_vpi_time[static_cast<size_t>(n)]();
         nb::capsule holder(arr, [](void *p) noexcept {
@@ -318,7 +356,7 @@ NB_MODULE(_svuvm, m) {
       // the simulator actually filled the caller-allocated array.
       .def("get_da_time", [](s_vpi_delay &o, int i) {
         if (o.da == nullptr || i < 0 || i >= o.no_of_delays) {
-          throw std::out_of_range("get_da_time: index out of range");
+          throw BridgeOutOfRange("get_da_time: index out of range");
         }
         s_vpi_time &t = o.da[i];
         return std::make_tuple(t.type, t.high, t.low, t.real);
@@ -402,7 +440,7 @@ NB_MODULE(_svuvm, m) {
               self->value.scalar = val;
               break;
             default:
-              throw std::invalid_argument(
+              throw BridgeInvalidArgument(
                   "VpiValue: scalar value not valid for this format");
             }
           },
@@ -426,7 +464,7 @@ NB_MODULE(_svuvm, m) {
               self->value.scalar = static_cast<PLI_INT32>(val);
               break;
             default:
-              throw std::invalid_argument(
+              throw BridgeInvalidArgument(
                   "VpiValue: scalar value not valid for this format");
             }
           },
@@ -634,7 +672,7 @@ NB_MODULE(_svuvm, m) {
                 break;
               }
               default:
-                throw std::invalid_argument(
+                throw BridgeInvalidArgument(
                     "VpiArrayValue: unsupported value format");
             }
           },
@@ -657,17 +695,17 @@ NB_MODULE(_svuvm, m) {
         // int32 would run past the allocation. Constructors now honour the
         // format, so reject those explicitly instead of returning garbage.
         if (o.format != vpiIntVal) {
-          throw std::invalid_argument(
+          throw BridgeInvalidArgument(
               "get_integers_values: only valid for vpiIntVal buffers");
         }
         if (o.value.integers == nullptr || n < 0) {
-          throw std::invalid_argument("get_integers_values: null buffer or count");
+          throw BridgeInvalidArgument("get_integers_values: null buffer or count");
         }
         nb::object len_obj = self.attr("_buf_len");
         if (len_obj.is_valid() && !len_obj.is_none()) {
           long long cap = nb::cast<long long>(len_obj);
           if (n > cap) {
-            throw std::out_of_range("get_integers_values: n exceeds buffer length");
+            throw BridgeOutOfRange("get_integers_values: n exceeds buffer length");
           }
         }
         std::vector<PLI_INT32> out;
@@ -1140,16 +1178,17 @@ NB_MODULE(_svuvm, m) {
   vpi.def("vpi_release_handle", &vpi_release_handle_wrap,
           nb::arg("object"), "Release a handle.");
 
-  // 运行时检测：VCS/VCSMX 不支持这些函数。使用 vpi_func_optional
-  // 统一处理 "存在→包装 / 不存在→占位" 的两种分支，避免重复 if/else。
-  // 名字只写一次：宏从 decltype(&f) 推导出函数名字符串。
-#define VPI_DEF_OPTIONAL(name)                                  \
-  vpi.def(#name, vpi_func_optional<decltype(&name)>(#name, nullptr))
-
-  VPI_DEF_OPTIONAL(vpi_get_data);
-  VPI_DEF_OPTIONAL(vpi_put_data);
-
-#undef VPI_DEF_OPTIONAL
+  // IEEE 1800 38.9 / 38.33: dataLoc is a byte buffer, not a C string.
+  // Keep the dlsym-based optional-symbol behaviour (VCS/VCSMX do not export
+  // these functions: the binding exists and raises runtime_error when called),
+  // but wrap each function with its own byte-buffer-aware caster instead of
+  // the generic vpi_func_optional / replace_type<char*> path. get_data gets a
+  // writable nb::bytearray; put_data gets an immutable nb::bytes.
+  vpi.def("vpi_get_data",
+          vpi_data_func_optional<nb::bytearray>("vpi_get_data"),
+          "Get simulation data into a writable bytearray.");
+  vpi.def("vpi_put_data", vpi_data_func_optional<nb::bytes>("vpi_put_data"),
+          "Put simulation data from a bytes object.");
   vpi.def("vpi_get_userdata", &vpi_get_userdata_wrap, nb::arg("obj"),
           "Get user data.");
 
@@ -1664,30 +1703,24 @@ NB_MODULE(_svuvm, m) {
   m.def(
       "get_sim_time",
       [](const char *name) {
+        const auto &caps = capabilities();
         uint64_t time;
-        if (simulator::is_vcs()) {
-          // VCS: 动态加载 tf_gettime
-          using tf_gettime_t =
-              decltype(&tf_gettime); // 若头文件可用；否则用 uint64_t(*)()
-          auto tf_gettime_ptr =
-              reinterpret_cast<tf_gettime_t>(dlsym(RTLD_DEFAULT, "tf_gettime"));
-          if (!tf_gettime_ptr)
-            throw std::runtime_error("tf_gettime not available in VCS");
-          time = tf_gettime_ptr();
-        } else {
-          // 其他仿真器: svGetScopeFromName 静态可用，svGetTime 动态加载
-          using svGetTime_t = void (*)(svScope, s_vpi_time *);
-          static auto svGetTime_ptr =
-              reinterpret_cast<svGetTime_t>(dlsym(RTLD_DEFAULT, "svGetTime"));
-
-          if (!svGetTime_ptr)
-            throw std::runtime_error("svGetTime not available");
-
+        if (caps.dpi_get_time) {
+          // DPI 优先：svGetTime(scope, s_vpi_time*)
+          using Fn = void (*)(svScope, s_vpi_time *);
+          auto fn = reinterpret_cast<Fn>(caps.dpi_get_time);
           s_vpi_time vpi_time_s;
           vpi_time_s.type = vpiSimTime;
-          const svScope scope = svGetScopeFromName(name); // 直接调用
-          svGetTime_ptr(scope, &vpi_time_s);
+          const svScope scope = svGetScopeFromName(name);
+          fn(scope, &vpi_time_s);
           time = (uint64_t)vpi_time_s.high << 32 | vpi_time_s.low;
+        } else if (caps.tf_get_time) {
+          // 回退 TF：tf_gettime()
+          using Fn = uint64_t (*)();
+          auto fn = reinterpret_cast<Fn>(caps.tf_get_time);
+          time = fn();
+        } else {
+          throw BridgeUnsupported("no simulation time API available");
         }
         return time;
       },
@@ -1696,26 +1729,21 @@ NB_MODULE(_svuvm, m) {
   m.def(
       "get_time_unit",
       [](const char *name) {
+        const auto &caps = capabilities();
         int32_t time_unit;
-        if (simulator::is_vcs()) {
-          // VCS: 动态加载 tf_gettimeunit
-          using tf_gettimeunit_t = decltype(&tf_gettimeunit);
-          auto tf_gettimeunit_ptr = reinterpret_cast<tf_gettimeunit_t>(
-              dlsym(RTLD_DEFAULT, "tf_gettimeunit"));
-          if (!tf_gettimeunit_ptr)
-            throw std::runtime_error("tf_gettimeunit not available in VCS");
-          time_unit = tf_gettimeunit_ptr();
-        } else {
-          // 其他仿真器: svGetScopeFromName 静态，svGetTimeUnit 动态
-          using svGetTimeUnit_t = void (*)(svScope, int32_t *);
-          static auto svGetTimeUnit_ptr = reinterpret_cast<svGetTimeUnit_t>(
-              dlsym(RTLD_DEFAULT, "svGetTimeUnit"));
-
-          if (!svGetTimeUnit_ptr)
-            throw std::runtime_error("svGetTimeUnit not available");
-
+        if (caps.dpi_get_time_unit) {
+          // DPI 优先：svGetTimeUnit(scope, int32_t*)
+          using Fn = void (*)(svScope, int32_t *);
+          auto fn = reinterpret_cast<Fn>(caps.dpi_get_time_unit);
           const svScope scope = svGetScopeFromName(name);
-          svGetTimeUnit_ptr(scope, &time_unit);
+          fn(scope, &time_unit);
+        } else if (caps.tf_get_time_unit) {
+          // 回退 TF：tf_gettimeunit()
+          using Fn = int32_t (*)();
+          auto fn = reinterpret_cast<Fn>(caps.tf_get_time_unit);
+          time_unit = fn();
+        } else {
+          throw BridgeUnsupported("no simulation time API available");
         }
         return time_unit;
       },
@@ -1724,29 +1752,21 @@ NB_MODULE(_svuvm, m) {
   m.def(
       "get_time_precision",
       [](const char *name) {
+        const auto &caps = capabilities();
         int32_t precision;
-        if (simulator::is_vcs()) {
-          // VCS: 动态加载 tf_gettimeprecision
-          using tf_gettimeprecision_t = decltype(&tf_gettimeprecision);
-          auto tf_gettimeprecision_ptr =
-              reinterpret_cast<tf_gettimeprecision_t>(
-                  dlsym(RTLD_DEFAULT, "tf_gettimeprecision"));
-          if (!tf_gettimeprecision_ptr)
-            throw std::runtime_error(
-                "tf_gettimeprecision not available in VCS");
-          precision = tf_gettimeprecision_ptr();
-        } else {
-          // 其他仿真器: svGetScopeFromName 静态，svGetTimePrecision 动态
-          using svGetTimePrecision_t = void (*)(svScope, int32_t *);
-          static auto svGetTimePrecision_ptr =
-              reinterpret_cast<svGetTimePrecision_t>(
-                  dlsym(RTLD_DEFAULT, "svGetTimePrecision"));
-
-          if (!svGetTimePrecision_ptr)
-            throw std::runtime_error("svGetTimePrecision not available");
-
+        if (caps.dpi_get_time_precision) {
+          // DPI 优先：svGetTimePrecision(scope, int32_t*)
+          using Fn = void (*)(svScope, int32_t *);
+          auto fn = reinterpret_cast<Fn>(caps.dpi_get_time_precision);
           const svScope scope = svGetScopeFromName(name);
-          svGetTimePrecision_ptr(scope, &precision);
+          fn(scope, &precision);
+        } else if (caps.tf_get_time_precision) {
+          // 回退 TF：tf_gettimeprecision()
+          using Fn = int32_t (*)();
+          auto fn = reinterpret_cast<Fn>(caps.tf_get_time_precision);
+          precision = fn();
+        } else {
+          throw BridgeUnsupported("no simulation time API available");
         }
         return precision;
       },

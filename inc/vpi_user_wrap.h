@@ -15,9 +15,12 @@
 #include <typeinfo>  // std::bad_cast: nanobind's cast_error derives from it
 #include <unordered_map>
 #include <utility>
+// nb::bytes / nb::bytearray come from nanobind/nb_types.h, which is included
+// by nanobind.h itself (the internal header has no include guard of its own).
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
+#include "bridge_error.h"
 
 namespace nb = nanobind;
 
@@ -149,8 +152,88 @@ auto vpi_func_optional(const char *name, Func fallback_func) {
               std::make_tuple(convert(std::forward<decltype(args)>(args))...)));
         }
         std::string msg = std::string(name) + " not supported by this simulator";
-        throw std::runtime_error(msg);
+        throw BridgeUnsupported(msg);
       });
+}
+
+// ---------------------------------------------------------------------------
+// Dedicated optional-binding factory for the two IEEE 1800 *byte buffer*
+// routines (38.9 vpi_get_data / 38.33 vpi_put_data):
+//
+//   PLI_INT32 vpi_get_data(PLI_INT32 id, PLI_BYTE8 *dataLoc, PLI_INT32 numOfBytes);
+//   PLI_INT32 vpi_put_data(PLI_INT32 id, PLI_BYTE8 *dataLoc, PLI_INT32 numOfBytes);
+//
+// dataLoc is a byte buffer, NOT a NUL-terminated C string. Routing these two
+// through vpi_func_optional applies replace_type<char*> -> const char*, so
+// nanobind supplies a temporary UTF-8 buffer: vpi_get_data then writes into
+// immutable temporary memory (undefined behaviour / memory corruption), and
+// str also confuses byte counts with code-point counts and embedded NULs.
+// The generic replace_type / convert path is intentionally left untouched for
+// the genuine C-string bindings (vpi_mcd_open, vpi_printf, ...).
+//
+// Symbol probing is kept identical to vpi_func_optional: VCS/VCSMX may not
+// export these symbols. When absent, the Python binding still exists and
+// raises RuntimeError("<name> not supported by this simulator") on call --
+// the exact message and behaviour produced by vpi_func_optional(name, nullptr).
+// No compile-time static binding and no silent success are introduced.
+// ---------------------------------------------------------------------------
+using vpi_data_func_ptr = PLI_INT32 (*)(PLI_INT32, PLI_BYTE8 *, PLI_INT32);
+
+inline vpi_data_func_ptr vpi_data_func_lookup(const char *name) {
+  dlerror();
+  void *sym = dlsym(RTLD_DEFAULT, name);
+  const char *err = dlerror();
+  if (err != nullptr || sym == nullptr) {
+    return nullptr;
+  }
+  return reinterpret_cast<vpi_data_func_ptr>(sym);
+}
+
+inline void vpi_data_check_bytes(const char *name, PLI_INT32 numOfBytes,
+                                 size_t capacity) {
+  if (numOfBytes < 0) {
+    throw BridgeInvalidArgument(std::string(name) +
+                                ": numOfBytes must be non-negative");
+  }
+  if (static_cast<size_t>(numOfBytes) > capacity) {
+    throw BridgeOutOfRange(std::string(name) +
+                            ": numOfBytes exceeds buffer length");
+  }
+}
+
+// Buffer is nb::bytearray for get_data (writable storage) and nb::bytes for
+// put_data (immutable source). Both are borrowed for the duration of the call,
+// so the C function never sees a dangling or temporary buffer.
+template <typename Buffer>
+auto vpi_data_func_optional(const char *name)
+    -> std::function<PLI_INT32(PLI_INT32, Buffer, PLI_INT32)> {
+  using Signature = std::function<PLI_INT32(PLI_INT32, Buffer, PLI_INT32)>;
+  vpi_data_func_ptr raw = vpi_data_func_lookup(name);
+
+  if (raw == nullptr) {
+    return Signature([name](PLI_INT32, Buffer, PLI_INT32) -> PLI_INT32 {
+      throw BridgeUnsupported(std::string(name) +
+                               " not supported by this simulator");
+    });
+  }
+
+  return Signature([raw, name](PLI_INT32 id, Buffer buffer,
+                               PLI_INT32 numOfBytes) -> PLI_INT32 {
+    vpi_data_check_bytes(name, numOfBytes, buffer.size());
+    if constexpr (std::is_same_v<Buffer, nb::bytes>) {
+      // IEEE 1800 38.33: put_data copies numOfBytes FROM dataLoc; it never
+      // writes there. The const_cast only satisfies the C signature and
+      // cannot modify Python's immutable bytes storage for a conforming tool.
+      return raw(id,
+                 const_cast<PLI_BYTE8 *>(
+                     static_cast<const PLI_BYTE8 *>(buffer.data())),
+                 numOfBytes);
+    } else {
+      // IEEE 1800 38.9: get_data writes numOfBytes INTO dataLoc. nb::bytearray
+      // owns real mutable memory, so the simulator never touches a temporary.
+      return raw(id, static_cast<PLI_BYTE8 *>(buffer.data()), numOfBytes);
+    }
+  });
 }
 // Defined after the CallbackInfo ownership helpers: besides filling the C
 // struct, these wrappers attach a shared_ptr capsule to the destination
@@ -171,7 +254,7 @@ nb::object vpi_handle_multi_wrap(int type, nb::args ref_handles) {
   // than calling through with null handles after only printing a message.
   const size_t n = ref_handles.size();
   if (n < 2) {
-    throw std::invalid_argument(
+    throw BridgeInvalidArgument(
         "vpi_handle_multi needs at least two reference handles");
   }
   const auto h = [&](size_t i) -> vpiHandle {
@@ -190,7 +273,7 @@ nb::object vpi_handle_multi_wrap(int type, nb::args ref_handles) {
   if (n == 6)
     return convert(vpi_handle_multi(type, h(0), h(1), h(2), h(3), h(4), h(5)));
 
-  throw std::invalid_argument(
+  throw BridgeInvalidArgument(
       "vpi_handle_multi supports at most six reference handles");
 }
 
@@ -223,11 +306,11 @@ nb::object vpi_put_value_wrap(nb::object object, p_vpi_value value_p,
   if (delay_flags == vpiInertialDelay || delay_flags == vpiTransportDelay ||
       delay_flags == vpiPureTransportDelay) {
     if (time_p == nullptr) {
-      throw std::invalid_argument(
+      throw BridgeInvalidArgument(
           "vpi_put_value: delay flags require a non-null time_p");
     }
     if (time_p->type != vpiSimTime) {
-      throw std::invalid_argument(
+      throw BridgeInvalidArgument(
           "vpi_put_value: delay time_p must have type vpiSimTime");
     }
   }
@@ -267,7 +350,7 @@ inline void check_arrayvalue_num(const nb::object &arrayvalue_obj,
   }
   if (static_cast<unsigned long long>(num) >
       static_cast<unsigned long long>(capacity)) {
-    throw std::out_of_range(std::string(api_name) +
+    throw BridgeOutOfRange(std::string(api_name) +
                             ": num exceeds VpiArrayValue buffer length");
   }
 }
