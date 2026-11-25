@@ -148,7 +148,7 @@ jobs:
 
     - name: Run cocotb test
       run: |
-        make -f test/cocotb_test/Makefile run
+        python3 -m pytest -q test/cocotb_test
 
     - name: Show ccache stats
       run: |

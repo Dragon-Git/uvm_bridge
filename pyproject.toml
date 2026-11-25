@@ -62,6 +62,7 @@ markers = [
     "lint: the verilator leg - elaborate only",
     "run: the xezim leg - run the base test",
     "base_test: per-block results of the two-backend base test",
+    "cocotb: per-case results of the cocotb regression",
 ]
 
 [tool.scikit-build]

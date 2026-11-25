@@ -2,7 +2,10 @@
 
 conftest.py (the pytest driver) and test/uvm_compat/test_compat.py both call
 :func:`run` and :func:`lint` here, so the verilator and xezim command lines live
-in exactly one place. Environment variables keep their old Makefile names:
+in exactly one place. test/cocotb_test/conftest.py calls :func:`cocotb_run`,
+which shares the svuvm/UVM build flags (including the critical +incdir for the
+generated export header) with :func:`verilator_run`. Environment variables keep
+their old Makefile names:
 
   NPROC         parallel verilator compile jobs (default: os.cpu_count())
   RUN_OPTS      extra plusargs appended to the base_test run flags
@@ -35,19 +38,24 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 TEST_DIR = Path(__file__).resolve().parent
 TOP_SV = TEST_DIR / "top.sv"
+COCOTB_TEST_DIR = ROOT / "test" / "cocotb_test"
+COCOTB_TOP_SV = COCOTB_TEST_DIR / "top.sv"
 DEFAULT_BUILD_DIR = TEST_DIR / "build"
+DEFAULT_COCOTB_BUILD_DIR = COCOTB_TEST_DIR / "build"
 DEFAULT_UVM_HOME = ROOT / "uvm-verilator" / "src"
 
 # Written by base_test.py on its last line; xezim also stops silently at
 # --max-time, so a zero exit alone does not mean the test ran to the end.
 FINISHED = "所有新增API测试完成"
 
-VERILATOR_FLAGS = [
-    "--vpi", "--binary", "-top", "top",
+# Shared by the base_test (--binary) and cocotb (-cc --exe --build) builds so
+# the two drivers cannot drift apart on warning suppression.
+VERILATOR_WARNINGS = [
     "-Wno-lint", "-Wno-style", "-Wno-SYMRSVDWORD", "-Wno-WIDTHTRUNC",
     "-Wno-WIDTHEXPAND", "-Wno-IGNOREDRETURN", "-Wno-CONSTRAINTIGN",
     "-Wno-ZERODLY", "-Wno-CASTCONST",
 ]
+VERILATOR_FLAGS = ["--vpi", "--binary", "-top", "top", *VERILATOR_WARNINGS]
 LINT_FLAGS = [
     "-Wno-fatal", "-Wno-lint", "-Wno-style", "-Wno-SYMRSVDWORD",
     "-Wno-WIDTHTRUNC", "-Wno-WIDTHEXPAND", "-Wno-IGNOREDRETURN",
@@ -174,6 +182,95 @@ def verilator_run(python, build_dir, uvm_home, extra_env):
     return _verdict(proc.returncode, log, "verilator")
 
 
+def _cocotb_config(python, option, required=True):
+    """Return one ``python -m cocotb_tools.config`` value."""
+    proc = _exec([python, "-m", "cocotb_tools.config", option])
+    value = proc.stdout.strip()
+    if proc.returncode != 0 or (required and not value):
+        raise SimError(
+            f"cocotb_tools.config {option} failed with {python}:\n{_output(proc)}"
+        )
+    return value
+
+
+def _cocotb_build(python, build_dir, uvm_home, cocotb_lib_dir, verilator_cpp):
+    """Compile the cocotb top with the same svuvm/UVM sources as base_test."""
+    sv_file, so_file, _flag, ldflags = _svuvm_config(python)
+    jobs = _nproc()
+    pre = ["-LDFLAGS", "-Wl,--no-as-needed"] if platform.system() == "Linux" else []
+    post = ["-LDFLAGS", "-Wl,--as-needed"] if platform.system() == "Linux" else []
+    cflags = f"-I{uvm_home / 'dpi'} -I{ROOT / 'inc'} -DVERILATOR -DUVM_NO_MALLOC"
+    # Keep every cocotb VPI library in the link: the simulator binary resolves
+    # these symbols through GPI_USERS at run time instead of via a direct call.
+    cocotb_ldflags = (
+        f"{ldflags} -L{cocotb_lib_dir} -Wl,-rpath,{cocotb_lib_dir} -lcocotbvpi_verilator"
+    )
+    cmd = [
+        "verilator", "-j", str(jobs), "--vpi", "-cc", "--exe", "--build", "--timing",
+        "-top", "top", "-Mdir", build_dir, "--output-groups", str(jobs),
+        *VERILATOR_WARNINGS,
+        # +incdir for the UVM package AND for the installed svuvm package:
+        # python_bridge_pkg.sv includes python_bridge_pkg_export.svh from its
+        # own directory. Omitting the second one was the cause of CI failure
+        # 45630027133; keep it here as well as in _verilator_build/lint.
+        f"+incdir+{uvm_home}", f"+incdir+{Path(sv_file).parent}",
+        uvm_home / "dpi" / "uvm_dpi.cc", uvm_home / "uvm_pkg.sv",
+        *pre, sv_file, so_file,
+        "-LDFLAGS", cocotb_ldflags,
+        COCOTB_TOP_SV, "-CFLAGS", cflags, *post,
+        verilator_cpp,
+    ]
+    proc = _exec(cmd, cwd=COCOTB_TEST_DIR)
+    return proc.returncode, _output(proc)
+
+
+def cocotb_run(python, build_dir, uvm_home, extra_env):
+    """Build and run ``test/cocotb_test``; return ``(returncode, log)``.
+
+    Unlike :func:`verilator_run` this deliberately does not apply
+    :func:`_verdict`: cocotb can report a failed test while Vtop still exits
+    zero. The caller must consult the ``SVUVM_RESULT_JSON`` payload for the
+    per-case verdict and only treat a nonzero returncode as a hard failure.
+    """
+    if not COCOTB_TOP_SV.is_file():
+        raise SimError(f"{COCOTB_TOP_SV} not found")
+    build_dir = Path(build_dir)
+
+    share = _cocotb_config(python, "--share")
+    lib_dir = _cocotb_config(python, "--lib-dir")
+    libpython = _cocotb_config(python, "--libpython")
+    python_bin = _cocotb_config(python, "--python-bin")
+    pygpi_entry = _cocotb_config(python, "--pygpi-entry-point", required=False)
+    verilator_cpp = Path(share) / "lib" / "verilator" / "verilator.cpp"
+    if not verilator_cpp.is_file():
+        raise SimError(f"cocotb verilator shim not found at {verilator_cpp}")
+
+    build_dir.mkdir(parents=True, exist_ok=True)
+    rc, out = _cocotb_build(python, build_dir, uvm_home, lib_dir, verilator_cpp)
+    if rc != 0:
+        return rc, out
+
+    env = os.environ.copy()
+    if extra_env:
+        env.update({key: str(value) for key, value in extra_env.items()})
+    existing = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(COCOTB_TEST_DIR) + (os.pathsep + existing if existing else "")
+    env["DYLD_LIBRARY_PATH"] = str(Path(sysconfig.get_paths()["purelib"]) / "svuvm")
+    # cocotb 2.1 splits the simulator-side loader (GPI_USERS) from the
+    # Python-side entry point (PYGPI_USERS). GPI_USERS contains a semicolon,
+    # so it must be passed through the env dict, never through a shell line.
+    env["GPI_USERS"] = f"{libpython};{pygpi_entry}" if pygpi_entry else libpython
+    env["PYGPI_USERS"] = "cocotb._init:init_package_from_simulation"
+    env["PYGPI_PYTHON_BIN"] = python_bin
+    env["COCOTB_TEST_MODULES"] = "base_test"
+    env["COCOTB_RESULTS_FILE"] = str(build_dir / "results.xml")
+
+    proc = _exec([build_dir / "Vtop", *_run_flags()], cwd=COCOTB_TEST_DIR, env=env)
+    log = _output(proc)
+    (build_dir / "cocotb.log").write_text(log, encoding="utf-8")
+    return proc.returncode, log
+
+
 def _xezim_prefix():
     raw = os.environ.get("XEZIM_PREFIX")
     if raw:
@@ -281,7 +378,7 @@ def lint(*, python=None, uvm_home=None):
 def main(argv=None):
     import argparse
 
-    parser = argparse.ArgumentParser(description="Build/run test/base_test without make")
+    parser = argparse.ArgumentParser(description="Build/run the base and cocotb tests without make")
     sub = parser.add_subparsers(dest="action", required=True)
     for action in ("run", "lint"):
         p = sub.add_parser(action)
@@ -289,10 +386,20 @@ def main(argv=None):
         p.add_argument("--uvm-home")
         p.add_argument("--build-dir")
         p.add_argument("--max-time")
+    cocotb_parser = sub.add_parser("cocotb", help="run test/cocotb_test on verilator")
+    cocotb_parser.add_argument("--uvm-home")
+    cocotb_parser.add_argument("--build-dir")
     args = parser.parse_args(argv)
     try:
         if args.action == "lint":
             rc, out = lint(uvm_home=args.uvm_home)
+        elif args.action == "cocotb":
+            rc, out = cocotb_run(
+                sys.executable,
+                Path(args.build_dir) if args.build_dir else DEFAULT_COCOTB_BUILD_DIR,
+                Path(args.uvm_home) if args.uvm_home else DEFAULT_UVM_HOME,
+                None,
+            )
         else:
             rc, out = run(
                 args.sim,
