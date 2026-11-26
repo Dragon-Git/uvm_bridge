@@ -11,8 +11,8 @@ register returned into the emulated memory before the load completes, so the
 firmware's own load sees it.
 
 Everything that is not unicorn - the register map, the sequence, the expected
-access trace, the reporting - lives in ../fw/register_access.py, which
-test/renode_test drives the same way.
+access trace, the result JSON and the reporting - lives in ../fw/register_access.py,
+which test/renode_test drives the same way.
 
 The module is called reg_test because that is the name top.sv's test class
 carries, and the SV side reaches Python through
@@ -26,7 +26,6 @@ drives the bus differs.
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -40,7 +39,14 @@ from unicorn import (
 )
 from unicorn.arm64_const import UC_ARM64_REG_SP
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fw"))
+_HERE = Path(__file__).resolve().parent
+_FW_DIR = _HERE.parent / "fw"
+_TEST_ROOT = _HERE.parent
+# register_access imports ral_common to publish the shared result JSON; both
+# directories must be importable from the simulator's embedded interpreter.
+for _path in (str(_FW_DIR), str(_TEST_ROOT)):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
 
 from register_access import (  # noqa: E402
     ACCESS_SIZE,
@@ -48,14 +54,17 @@ from register_access import (  # noqa: E402
     DONE_OFFSET,
     REG_BASE,
     REG_SIZE,
+    begin_run,
     check_read_sum,
     compare_trace,
     finish,
     firmware_image,
     one_sequence,
+    record_abort,
     report,
 )
 from layout import CODE_BASE, CODE_SIZE, STACK_BASE, STACK_SIZE, STACK_TOP, is_checksum_store  # noqa: E402
+
 
 class FirmwareRun:
     """Unicorn running the firmware, with its register window served by APB."""
@@ -126,17 +135,29 @@ class FirmwareRun:
                 "firmware used up its instruction budget without reaching its done marker"
             )
 
+
 def main() -> None:
-    image_file = Path(firmware_image(str(Path(__file__).resolve().parent)))
-    image = image_file.read_bytes()
-    report(f"firmware: {image_file.name}, {len(image)} bytes")
+    """Run the firmware, publish per-case JSON and keep the UVM verdict lines."""
+    begin_run()
+    try:
+        image_file = Path(firmware_image(str(_HERE)))
+        image = image_file.read_bytes()
+        report(f"firmware: {image_file.name}, {len(image)} bytes")
 
-    run = FirmwareRun(image)
-    run.run()
-    compare_trace(run.trace)
-    check_read_sum(run.checksum)
+        run = FirmwareRun(image)
+        run.run()
+        compare_trace(run.trace)
+        check_read_sum(run.checksum)
+    except BaseException as exc:
+        # An emulator fault is an infrastructure failure, not one bad check:
+        # mark the cases that never ran as failed and let the exception reach
+        # the simulator so the backend's return code is nonzero as well.
+        record_abort(f"unicorn session: {type(exc).__name__}: {exc}")
+        raise
+    finally:
+        # finish() dumps the JSON on both the success and the failure path.
+        finish()
 
-    finish()
 
 # No call at module scope on purpose: the SV side imports this module and then
 # calls its main() attribute, so a bare main() here would run the whole test a

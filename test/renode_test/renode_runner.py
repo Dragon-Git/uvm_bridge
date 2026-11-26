@@ -157,13 +157,23 @@ def main() -> None:
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--platform", required=True)
     parser.add_argument("--firmware", required=True)
-    parser.add_argument("--timeout", type=float, default=120.0)
+    # The simulator-side Driver passes --timeout explicitly from the same
+    # variable. The env default keeps manual invocations bounded as well.
+    try:
+        default_timeout = float(os.environ.get("RENODE_TEST_TIMEOUT", "120"))
+    except ValueError as exc:
+        raise SystemExit(f"RENODE_TEST_TIMEOUT must be seconds, got {os.environ['RENODE_TEST_TIMEOUT']!r}") from exc
+    parser.add_argument("--timeout", type=float, default=default_timeout)
     args = parser.parse_args()
 
-    run = FirmwareRun(args.platform, args.firmware, args.port)
-    run.run(args.timeout)
-    run.link.close()
-    print(f"firmware: {run.accesses} register accesses", file=sys.stderr, flush=True)
+    run: FirmwareRun | None = None
+    try:
+        run = FirmwareRun(args.platform, args.firmware, args.port)
+        run.run(args.timeout)
+        print(f"firmware: {run.accesses} register accesses", file=sys.stderr, flush=True)
+    finally:
+        if run is not None:
+            run.link.close()
 
 if __name__ == "__main__":
     main()

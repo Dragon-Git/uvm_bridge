@@ -64,21 +64,19 @@ jobs:
       env:
         SVUVM_BACKENDS: xezim
 
-    - name: Generate pyral model and register block
+    - name: Run RAL pyral (xezim)
+      # peakrdl artefacts used to be built by a separate `make gen` step.
+      # The session-scoped `artifacts` fixture now generates and caches them,
+      # so each suite is one pytest invocation. RAL_STRICT=1 makes a missing
+      # prerequisite a hard failure instead of a quiet skip.
       run: |
-        mkdir -p test/pyral_test/gen test/pyral_test/rtl
-        make -f test/pyral_test/Makefile gen
+        SVUVM_BACKENDS=xezim RAL_STRICT=1 python3 -m pytest -v test/pyral_test -m ral
 
-    - name: Run pyral register test
+    - name: Run RAL unicorn (xezim)
+      # Same register block and APB agent as pyral; the bus is driven by
+      # bare-metal firmware under unicorn instead of the PyRAL model.
       run: |
-        make -f test/pyral_test/Makefile run
-
-    - name: Run unicorn register test
-      # Same register block and same APB agent as the pyral test; what drives
-      # the bus is a bare-metal firmware under unicorn instead of the PyRAL
-      # model. The Makefile generates the RTL and the C header itself.
-      run: |
-        make -f test/unicorn_test/Makefile run
+        SVUVM_BACKENDS=xezim RAL_STRICT=1 python3 -m pytest -v test/unicorn_test -m ral
 
     - name: Install Renode
       # Per-platform packages rather than the multiplatform one, which not
@@ -109,8 +107,47 @@ jobs:
         test -f "$HOME/renode/Renode.runtimeconfig.json"
         echo "PYRENODE_PATH=$HOME/renode" >> "$GITHUB_ENV"
 
-    - name: Run Renode register test
+    - name: Run RAL renode (xezim)
       # The same firmware as the unicorn test, run by Renode in a process of
-      # its own instead of in-process.
+      # its own. PYRENODE_PATH comes from the Install Renode step above; the
+      # renode conftest guard checks it together with pyrenode3, and
+      # RAL_STRICT=1 turns any missing prerequisite into an explicit failure
+      # (exit 1 at fixture setup), never a silent skip.
       run: |
-        make -f test/renode_test/Makefile run
+        SVUVM_BACKENDS=xezim RAL_STRICT=1 python3 -m pytest -v test/renode_test -m ral
+
+    # The renode verilator leg belongs here, next to the Renode/.NET install
+    # and the `renode` dependency group already present via `--group test`.
+    # Putting it in test.yml's 6x3 verilator matrix would force pyrenode3's
+    # git URL onto every cell (design §7.3 / §11-5) and duplicate the Renode
+    # download. Per §11-6 only the representative cell runs it: this reusable
+    # workflow is pinned to Python 3.12, so the OS gate is sufficient.
+    - name: Set up Verilator for renode verilator leg
+      if: inputs.os == 'ubuntu-24.04'
+      uses: ktbarrett/setup-verilator@dev
+      with:
+        version: 'nightly'
+
+    - name: Bundle UVM fork for verilator leg
+      if: inputs.os == 'ubuntu-24.04'
+      # sim_runner's DEFAULT_UVM_HOME is <repo>/uvm-verilator/src. Reuse the
+      # fork cloned by "Bundle the UVM fork" above; no second clone needed.
+      # GitHub's ubuntu runners already provide g++/make for the C++ build.
+      run: |
+        verilator --version
+        mkdir -p "$GITHUB_WORKSPACE/uvm-verilator"
+        cp -r "$RUNNER_TEMP/uvm-verilator/src" "$GITHUB_WORKSPACE/uvm-verilator/"
+        test -f "$GITHUB_WORKSPACE/uvm-verilator/src/uvm_pkg.sv"
+
+    - name: Run RAL renode (verilator, representative cell)
+      if: inputs.os == 'ubuntu-24.04'
+      # Strict by default: missing pyrenode3 / PYRENODE_PATH / Renode runtime
+      # fails at setup (exit 1), and a broken verilator+Renode combination is
+      # red too - it is NOT hidden by the renode_verilator_unsupported marker.
+      # If CI proves that combination infeasible (design §5.4 L1), mark the
+      # renode replay tests with that marker and change this invocation to
+      # `-m "ral and not renode_verilator_unsupported"` plus an explicit
+      # diagnostic step printing the reason. Never just drop this step: that
+      # would make the requested dual backend silent fiction.
+      run: |
+        SVUVM_BACKENDS=verilator RAL_STRICT=1 python3 -m pytest -v test/renode_test -m ral

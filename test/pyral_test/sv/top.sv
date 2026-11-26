@@ -35,10 +35,12 @@ module top;
     end
 
     // APB bus. The generated block declares "apb3_intf.slave s_apb", so the
-    // interface instance is connected through its slave modport.
-    apb3_intf #(.DATA_WIDTH(DATA_WIDTH), .ADDR_WIDTH(ADDR_WIDTH)) m_apb (
-        .clk(clk), .rst(rst)
-    );
+    // interface instance is connected through its slave modport. The interface
+    // declares only the APB signals - clk/rst are separate module ports on the
+    // generated block and on apb3_intf_driver. Connecting them here was a
+    // non-IEEE-1800 port connection that xezim ignored but Verilator rejects
+    // with PINNOTFOUND, so it is deliberately not repeated.
+    apb3_intf #(.DATA_WIDTH(DATA_WIDTH), .ADDR_WIDTH(ADDR_WIDTH)) m_apb ();
 
     // The register block's hw=w inputs. Tied off so the block is
     // deterministic; the registers themselves keep their own storage and

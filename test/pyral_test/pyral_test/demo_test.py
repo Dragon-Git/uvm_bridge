@@ -2,25 +2,43 @@
 
 Exercises the generated RAL against the runtime's DemoHWIO, i.e. plain
 Python with no simulator involved. reg_test.py drives the same model
-against the real RTL under xezim; this one is the bisect point for it - if
-an access is wrong here too, the model is wrong rather than the bus.
+against the real RTL in the simulator; this one is the bisect point for it -
+if an access is wrong here too, the model is wrong rather than the bus.
 
-Run it after generating the model:
+The generated model is imported lazily: pytest collects this file before the
+session fixture has run peakrdl, so a module-level import would fail on a
+fresh clone. The ``artifacts`` fixture from pyral_test/conftest.py prepares
+the model before the test function asks for it.
+
+Run by hand after generating the model::
 
     peakrdl pyral demo_regs.rdl --rename demo_reg_block -o gen
     python -m pyral_test.demo_test
 """
 
+from __future__ import annotations
+
 import sys
 from pathlib import Path
 
-GEN_DIR = Path(__file__).resolve().parent.parent / "gen"
-sys.path.insert(0, str(GEN_DIR))
+import pytest
 
-import demo_reg_block  # noqa: E402  (generated, needs gen/ on sys.path)
-from peakrdl_pyral_runtime.hwio.demo import DemoHWIO  # noqa: E402
+GEN_DIR = Path(__file__).resolve().parent.parent / "gen"
 
 FAILURES: list[str] = []
+
+pytestmark = pytest.mark.ral
+
+
+def _load_model():
+    """Import the generated model and the runtime's RAM-backed HWIO."""
+    if str(GEN_DIR) not in sys.path:
+        sys.path.insert(0, str(GEN_DIR))
+    import demo_reg_block  # noqa: PLC0415 - lazy: generated after collection
+
+    from peakrdl_pyral_runtime.hwio.demo import DemoHWIO  # noqa: PLC0415
+
+    return demo_reg_block, DemoHWIO
 
 
 def check(name: str, got: int, expected: int) -> None:
@@ -32,12 +50,15 @@ def check(name: str, got: int, expected: int) -> None:
     if got == expected:
         print(f"PASS  {name}: 0x{got:08x}")
     else:
-        msg = f"FAIL  {name}: got 0x{got:08x}, expected 0x{expected:08x}"
-        print(msg)
-        FAILURES.append(msg)
+        message = f"FAIL  {name}: got 0x{got:08x}, expected 0x{expected:08x}"
+        print(message)
+        FAILURES.append(message)
 
 
 def main() -> int:
+    """Run the model smoke checks; return a process exit code."""
+    FAILURES.clear()
+    demo_reg_block, DemoHWIO = _load_model()
     ral = demo_reg_block.get_ral()
     hwio = DemoHWIO()
     ral.attach_hwio(hwio)
@@ -80,11 +101,18 @@ def main() -> int:
     print()
     if FAILURES:
         print(f"TEST_FAIL count={len(FAILURES)}")
-        for f in FAILURES:
-            print("  " + f)
+        for message in FAILURES:
+            print("  " + message)
         return 1
     print("TEST_PASS")
     return 0
+
+
+def test_pyral_model_smoke(artifacts) -> None:
+    """Collected pure-Python half of the model-versus-bus bisect."""
+    assert artifacts.gen_py is not None
+    assert Path(artifacts.gen_py).is_file()
+    assert main() == 0
 
 
 if __name__ == "__main__":

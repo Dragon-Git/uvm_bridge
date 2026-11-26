@@ -8,11 +8,20 @@ which drives the peakrdl-generated register block:
     firmware -> MMIO -> emulator -> DPI -> UVM sequencer -> driver -> APB -> RTL
 
 Only the emulator differs between test/unicorn_test and test/renode_test, so
-the operation staged in the config_db, the expected access trace and the
-reporting all live here; the layout itself is test/fw/layout.py,
+the operation staged in the config_db, the expected access trace, the result
+JSON and the reporting all live here; the layout itself is test/fw/layout.py,
 which the Renode-side helper imports as well.
 
-The module runs inside xezim's embedded CPython, imported by the SV side.
+Results are accumulated through :class:`ral_common.ResultWriter` and published
+by :func:`finish` to ``SVUVM_RESULT_JSON`` when the simulator runners supply
+it. Manual runs without that variable keep the original UVM log behaviour.
+TEST_PASS / TEST_FAIL stay as human-facing log lines, while FW_TEST_DONE is
+the separate completion marker used by pytest to distinguish "ran to the end"
+from "every case passed": one failed check is replayed as its own failing case
+instead of aborting the whole run.
+
+The module runs inside the simulator's embedded CPython, imported by the SV
+side.
 """
 
 from __future__ import annotations
@@ -34,11 +43,40 @@ from layout import (  # noqa: F401 -- re-exported for the two tests
     is_checksum_store,
     is_done_store,
 )
+from ral_common.result_writer import ResultWriter  # noqa: E402
+from ral_common.spec import FIRMWARE_CASES  # noqa: E402
 
 # The sequencer the APB agent's driver listens on, as top.sv builds it.
 SEQ_PATH = "uvm_test_top.m_agent.m_sqr"
 
+# Legacy log-only failure list, kept in step with ResultWriter.failures.
 FAILURES: list[str] = []
+
+_WRITER: ResultWriter | None = None
+_FINISHED = False
+
+
+def begin_run() -> ResultWriter:
+    """Start a fresh result accumulation for one simulator invocation.
+
+    Returns:
+        The new writer; the same instance :func:`check`, :func:`record_abort`
+        and :func:`finish` will use.
+    """
+    global _WRITER, _FINISHED
+    _WRITER = ResultWriter()
+    _FINISHED = False
+    FAILURES.clear()
+    return _WRITER
+
+
+def current_writer() -> ResultWriter:
+    """Return the active writer, creating one if no run was begun explicitly."""
+    global _WRITER
+    if _WRITER is None:
+        _WRITER = ResultWriter()
+    return _WRITER
+
 
 def report(line: str) -> None:
     """Put a line in the simulation log.
@@ -50,13 +88,47 @@ def report(line: str) -> None:
     """
     svuvm.vpi.vpi_printf(line + "\n")
 
+
 def check(name: str, got: int, expected: int) -> None:
-    if got == expected:
+    """Compare one value, record its case in JSON and keep the UVM log.
+
+    Args:
+        name: Stable label from ``ral_common.spec.FIRMWARE_CASES``.
+        got: Value returned by the register block / firmware path.
+        expected: Value the register map promises.
+    """
+    ok = got == expected
+    detail = "" if ok else f"got 0x{got:08x}, expected 0x{expected:08x}"
+    writer = current_writer()
+    writer.case(name, lambda: writer.check(name, ok, detail))
+    if ok:
         report(f"PASS  {name}: 0x{got:08x}")
     else:
-        msg = f"FAIL  {name}: got 0x{got:08x}, expected 0x{expected:08x}"
-        svuvm.uvm_error(msg)
-        FAILURES.append(msg)
+        message = f"FAIL  {name}: {detail}"
+        svuvm.uvm_error(message)
+        FAILURES.append(message)
+
+
+def record_abort(reason: str) -> None:
+    """Fail every case that did not run, so an aborted session cannot replay green.
+
+    An emulator/process failure (unicorn fault, Renode not connecting, timeout)
+    happens before the trace checks. Publishing only the checks that did run
+    would leave the remaining cases absent from the JSON; pytest's
+    ``assert_case`` treats an absent case as a failure, but making it explicit
+    here gives a readable reason in the result file as well.
+
+    Args:
+        reason: Human-readable description of the abort.
+    """
+    writer = current_writer()
+    recorded = {str(case.get("name", "")) for case in writer.cases}
+    for name in FIRMWARE_CASES:
+        if name in recorded:
+            continue
+        writer.case(name, lambda case_name=name: writer.check(case_name, False, reason))
+        FAILURES.append(f"[FAIL] {name} - {reason}")
+
 
 def one_sequence(offset: int, is_write: bool, wdata: int = 0) -> int:
     """Run one register access as one UVM sequence, and return what was read."""
@@ -75,12 +147,20 @@ def one_sequence(offset: int, is_write: bool, wdata: int = 0) -> int:
         raise RuntimeError(f"APB error response for {label}")
     return svuvm.get_config_int("", "*", "res_rdata")
 
+
 def firmware_image(default_dir: str) -> str:
-    """The firmware image to run, from the environment or beside the test."""
-    override = os.environ.get("FW_REG_IMAGE")
-    if override:
-        return override
+    """The firmware image to run, from the environment or beside the test.
+
+    ``FW_REG_IMAGE`` is the shared/renode name; ``UNICORN_TEST_FW`` is kept for
+    the original unicorn Makefile interface. Both are injected by the suite
+    conftest and point at the same fixture-generated ``build/fw.bin``.
+    """
+    for key in ("FW_REG_IMAGE", "UNICORN_TEST_FW"):
+        override = os.environ.get(key)
+        if override:
+            return override
     return os.path.join(default_dir, "build", "fw.bin")
+
 
 def compare_trace(trace: list[tuple[str, int, int]]) -> None:
     """Assert the firmware touched the registers in the expected order, with
@@ -98,10 +178,12 @@ def compare_trace(trace: list[tuple[str, int, int]]) -> None:
             continue
         check(f"access {i}: {kind} 0x{off:03x}", val, exp_val)
 
+
 def expected_read_sum() -> int:
     """The sum the firmware should have accumulated, from the values the
     register block is supposed to return."""
     return sum(value for kind, _, value in EXPECTED if kind == "R") & 0xFFFF_FFFF
+
 
 def check_read_sum(checksum: int | None) -> None:
     """Assert the firmware's own total of what it read.
@@ -117,12 +199,28 @@ def check_read_sum(checksum: int | None) -> None:
         return
     check("firmware read sum", checksum, expected_read_sum())
 
+
 def finish() -> None:
-    """Report the verdict, in the form the Makefile greps for."""
-    report("")
-    if FAILURES:
-        report(f"TEST_FAIL count={len(FAILURES)}")
-        for failure in FAILURES:
-            report("  " + failure)
+    """Publish the result JSON and report the verdict in the UVM log.
+
+    Idempotent: simulator-side ``main()`` functions call it from ``finally``,
+    and an explicit call after the checks is harmless. The completion marker
+    is printed even when cases failed, so pytest sees "ran to completion" and
+    replays individual cases instead of failing the whole simulator run.
+    """
+    global _FINISHED
+    if _FINISHED:
         return
-    report("TEST_PASS")
+    _FINISHED = True
+
+    writer = current_writer()
+    failures = list(FAILURES) or list(writer.failures)
+    report("")
+    if failures:
+        report(f"TEST_FAIL count={len(failures)}")
+        for failure in failures:
+            report("  " + failure)
+    else:
+        report("TEST_PASS")
+    writer.dump(os.environ.get("SVUVM_RESULT_JSON"))
+    report("FW_TEST_DONE")

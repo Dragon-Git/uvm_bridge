@@ -14,6 +14,11 @@ package reg_seq_pkg;
 
     import uvm_pkg::*;
     import reg_agent_pkg::*;
+    // uint64_t is typedef'd in python_bridge_pkg (set_config_int stores that
+    // type in config_db). xezim resolved it implicitly; IEEE 1800 requires
+    // the owning package to be imported before it can be used as a type
+    // argument, which Verilator enforces.
+    import python_bridge_pkg::*;
     `include "uvm_macros.svh"
 
     class reg_seq extends uvm_sequence #(reg_item);

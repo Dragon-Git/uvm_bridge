@@ -67,3 +67,24 @@ src/svuvm/_version.py
 uvm-verilator
 # xezim coverage output
 xezim_cov.json
+
+# cocotb per-backend build products (also covered by the global build/ rule)
+/test/cocotb_test/build/
+
+# RAL generated artefacts. Path-limited so a legitimate source directory with
+# one of these names elsewhere in the tree is never ignored by accident.
+/test/pyral_test/gen/
+/test/pyral_test/rtl/
+/test/pyral_test/c_header/
+/test/pyral_test/build/
+/test/unicorn_test/gen/
+/test/unicorn_test/rtl/
+/test/unicorn_test/c_header/
+/test/unicorn_test/build/
+/test/renode_test/gen/
+/test/renode_test/rtl/
+/test/renode_test/c_header/
+/test/renode_test/build/
+# Cache locks/manifests written by ral_common.artifacts
+/test/*/.artifact-gen.lock
+/test/*/.artifact-manifest.json
