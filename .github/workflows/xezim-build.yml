@@ -32,6 +32,43 @@ jobs:
         path: ${{ runner.temp }}/xezim-prefix
         key: xezim-${{ runner.os }}-${{ runner.arch }}-${{ steps.rev.outputs.sha }}
 
+    # Cloned ahead of the build so the dependency cache below can key on
+    # Cargo.lock, which only exists after a checkout. `--depth 1` keeps this
+    # cheap even when every cache misses.
+    - name: Clone xezim
+      if: steps.cache.outputs.cache-hit != 'true'
+      run: |
+        git clone --depth 1 https://github.com/aionhw/xezim.git "$RUNNER_TEMP/xezim-src"
+
+    # The binary cache above only hits while upstream main stands still, and a
+    # cold cargo build is the entire critical path (27-41 min on macOS; the
+    # latest recorded run spent 27m34s here out of 29m39s total). Most upstream
+    # commits leave the dependency set untouched, so key on Cargo.lock: a new
+    # revision with the same lockfile restores the compiled dependencies and
+    # only rebuilds xezim's own crates. restore-keys still falls back to the
+    # previous target dir when the lockfile did change. The key bounds this to
+    # one entry per dependency set; the release target dir is the large part,
+    # so it competes with the ccache namespaces in test.yml for the 10 GB
+    # repository cache budget.
+    - name: Hash Cargo.lock
+      id: lock
+      if: steps.cache.outputs.cache-hit != 'true'
+      run: |
+        hash=$(git -C "$RUNNER_TEMP/xezim-src" hash-object Cargo.lock)
+        echo "hash=$hash" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the cargo build cache
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache@v6
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          ${{ runner.temp }}/xezim-src/target
+        key: xezim-cargo-${{ runner.os }}-${{ runner.arch }}-${{ steps.lock.outputs.hash }}
+        restore-keys: |
+          xezim-cargo-${{ runner.os }}-${{ runner.arch }}-
+
     # xezim's .cargo/config.toml (upstream 1ee759ca) pins CC/CXX/AR/RANLIB to
     # clang and the LLVM archive tools. The bare llvm-ar/llvm-ranlib names are
     # not present on every runner, so install the same toolchain as upstream's
@@ -78,7 +115,6 @@ jobs:
         rustup set profile minimal
         rustup toolchain install stable
         rustup default stable
-        git clone --depth 1 https://github.com/aionhw/xezim.git "$RUNNER_TEMP/xezim-src"
         ( cd "$RUNNER_TEMP/xezim-src" && cargo build --release )
         mkdir -p "$RUNNER_TEMP/xezim-prefix/bin"
         cp "$RUNNER_TEMP/xezim-src/target/release/xezim" "$RUNNER_TEMP/xezim-prefix/bin/"
