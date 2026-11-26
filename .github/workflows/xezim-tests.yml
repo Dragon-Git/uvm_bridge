@@ -64,6 +64,12 @@ jobs:
       env:
         SVUVM_BACKENDS: xezim
 
+    - name: Run cocotb test (xezim)
+      run: |
+        python3 -m pytest -q test/cocotb_test
+      env:
+        SVUVM_COCOTB_BACKENDS: xezim
+
     - name: Run RAL pyral (xezim)
       # peakrdl artefacts used to be built by a separate `make gen` step.
       # The session-scoped `artifacts` fixture now generates and caches them,
