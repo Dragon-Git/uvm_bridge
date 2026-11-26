@@ -50,6 +50,12 @@ test = [
     'pytest-xdist',
     'coverage',
     'pytest-cov',
+    # cocotb itself and cocotb_tools are imported by test/cocotb_test at
+    # collection time (the vendored xezim runner contract and the cocotb
+    # conftest both need them). Keep them in the test group so every job that
+    # installs `--group test` - including the xezim leg - can collect and run
+    # the cocotb suite without a separate ad-hoc pip install.
+    'cocotb',
 ]
 dev = [
     {include-group = "build"},
